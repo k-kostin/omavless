@@ -36,6 +36,11 @@ pub(super) struct FreshNewComplete {
     complete: [u8; 32],
 }
 
+enum NewCompleteDisposition {
+    Finish,
+    CutAfterClosure,
+}
+
 impl NativeEngine {
     fn complete_presence(&self) -> Result<NewCompletePresence, Unavailable> {
         match &self.complete_role {
@@ -476,6 +481,133 @@ impl NativeEngine {
         cut: &mut impl FnMut(NativeStep) -> Result<(), FirstError>,
         until: Instant,
     ) -> Result<(), FirstError> {
+        self.dispose_new_complete_mode(
+            origin,
+            uid,
+            generation,
+            desired,
+            cut,
+            until,
+            NewCompleteDisposition::Finish,
+        )
+    }
+
+    /// One fixed development fault boundary. It grants no ordinary completion
+    /// and never widens the original-session OwnedCut role's no-unlink promise.
+    pub(crate) fn cut_native_new_complete_after_closure(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        quiescence: &mut NativeOldRecoveryQuiescence,
+    ) -> Result<(), FirstError> {
+        if !crate::product_scope::restore_enabled() {
+            return Err(FirstError::Admission);
+        }
+        let uid = origin.uid();
+        let generation = origin.generation();
+        let desired = zeroize::Zeroizing::new(origin.desired_bytes().to_vec());
+        self.cut_new_complete_after_closure_inner(
+            &mut NativeRecoveryGate {
+                origin,
+                quiescence: Some(quiescence),
+            },
+            uid,
+            generation,
+            &desired,
+            Instant::now() + std::time::Duration::from_secs(15),
+        )
+    }
+
+    pub(super) fn cut_new_complete_after_closure_inner<O: NativeGate>(
+        &mut self,
+        origin: &mut O,
+        uid: u32,
+        generation: u64,
+        desired: &[u8],
+        until: Instant,
+    ) -> Result<(), FirstError> {
+        let result = (|| {
+            if self.complete_presence().ok() != Some(NewCompletePresence::ClosureTicketComplete)
+                || self.audit.target().ok() != Some(native_history::NAMES[0])
+                || self.history
+                || self.disposition_done
+            {
+                return Err(FirstError::StillFenced);
+            }
+            self.check_new_complete_completed_inner(origin, until)?;
+            self.dispose_new_complete_mode(
+                origin,
+                uid,
+                generation,
+                desired,
+                &mut |_| Ok(()),
+                until,
+                NewCompleteDisposition::CutAfterClosure,
+            )?;
+            // A callback/flag alone is not cut proof. Recheck SAME retained
+            // graph, original unlinked inode, absent name, live pair and records
+            // under the original lease/quiescence AFTER parent sync succeeded.
+            if !self.disposition
+                || self.disposition_done
+                || self.history
+                || self.ordinary_handoff
+                || !self.unlinked[Slot::Scratch3 as usize]
+                || self.unlinked[Slot::Scratch0 as usize]
+                || self.unlinked[Slot::Scratch1 as usize]
+            {
+                return Err(FirstError::StillFenced);
+            }
+            self.lower
+                .io
+                .perform(
+                    Slot::Scratch3,
+                    || tick(until),
+                    |file| {
+                        let before = self.lower.original[Slot::Scratch3 as usize]
+                            .as_ref()
+                            .ok_or(Unavailable)?;
+                        let now = file.metadata().map_err(|_| Unavailable)?;
+                        if before.nlink() == 0
+                            && now.nlink() == 0
+                            && same_member(before, &now)
+                            && before.gid() == now.gid()
+                        {
+                            Ok(())
+                        } else {
+                            Err(Unavailable)
+                        }
+                    },
+                )
+                .map_err(|_| FirstError::StillFenced)?;
+            if !matches!(
+                fstatat(
+                    self.lower
+                        .io
+                        .original(Slot::State)
+                        .map_err(|_| FirstError::StillFenced)?,
+                    CLOSURE_MEMBER,
+                    AtFlags::AT_SYMLINK_NOFOLLOW
+                ),
+                Err(nix::errno::Errno::ENOENT)
+            ) {
+                return Err(FirstError::StillFenced);
+            }
+            self.gate(origin, until)
+        })();
+        self.revoke_native(); // also success: DATA only, never release/Start
+        result
+    }
+
+    #[allow(clippy::too_many_arguments)] // private closed finish/fault boundary
+    fn dispose_new_complete_mode<O: NativeGate>(
+        &mut self,
+        origin: &mut O,
+        uid: u32,
+        generation: u64,
+        desired: &[u8],
+        cut: &mut impl FnMut(NativeStep) -> Result<(), FirstError>,
+        until: Instant,
+        mode: NewCompleteDisposition,
+    ) -> Result<(), FirstError> {
         if !self.new_complete_qualified()
             || self.disposition
             || !self.completed
@@ -514,6 +646,9 @@ impl NativeEngine {
                 origin,
                 until,
             )?;
+            if matches!(mode, NewCompleteDisposition::CutAfterClosure) {
+                return Ok(()); // mandatory stop, even with an always-Ok callback
+            }
             cut(NativeStep::DispositionClosureUnlinked)?;
         }
         if presence.ticket() {

@@ -16,6 +16,45 @@ use zeroize::Zeroizing;
 
 const MAX_INPUT: usize = 32 * 1024;
 
+pub(crate) fn closure_cut_arguments_admitted(arguments: &[OsString]) -> bool {
+    arguments
+        == [
+            "developer",
+            "cut-new-complete-after-closure",
+            "--confirm-private-closure-cut",
+        ]
+}
+
+/// A separate fresh stopped-owner process, not daemon IPC or ordinary recovery.
+/// No caller step, no automatic Start, no successful availability claim.
+pub(crate) fn cut_new_complete_after_closure_from_private_input(
+    input: impl Read,
+) -> Result<(), Error> {
+    if !crate::product_scope::restore_enabled() {
+        return Err(Error::Disabled);
+    }
+    let request = parse(input)?;
+    let uid = Uid::current();
+    if uid.is_root() || uid != Uid::effective() {
+        return Err(Error::RecoveryRefused);
+    }
+    let runtime = RuntimePaths::current().map_err(|_| Error::RecoveryRefused)?;
+    let paths = CutoverPaths::current(uid.as_raw()).map_err(|_| Error::RecoveryRefused)?;
+    let desired = DesiredPaths::current().map_err(|_| Error::RecoveryRefused)?;
+    let host = NativeHostPaths::current(&runtime.directory).map_err(|_| Error::RecoveryRefused)?;
+    FreshRecovery::reserve()
+        .map_err(|_| Error::RecoveryRefused)?
+        .cut_new_complete_after_closure(
+            Path::new(request.archive.0.as_str()),
+            request.passphrase.0.as_bytes(),
+            paths,
+            desired,
+            host,
+            uid.as_raw(),
+        )
+        .map_err(|_| Error::RecoveryRefused)
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     Disabled,
@@ -302,6 +341,47 @@ fn start_and_verify<E>(verify: impl FnOnce() -> Result<(), E>) -> Result<(), Err
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn closure_cut_selector_is_exact_private_and_denied_before_product_input() {
+        use super::*;
+        let args = [
+            "developer",
+            "cut-new-complete-after-closure",
+            "--confirm-private-closure-cut",
+        ]
+        .map(OsString::from);
+        assert!(closure_cut_arguments_admitted(&args));
+        assert!(crate::developer_current_restore::arguments_admitted(&args));
+        assert!(!arguments_admitted(&args)); // not an ordinary recovery consumer
+        let mut extra = args.to_vec();
+        extra.push("DispositionTicketUnlinked".into());
+        assert!(!crate::developer_current_restore::arguments_admitted(
+            &extra
+        ));
+        let mut wrong = args.to_vec();
+        wrong[2] = "--confirm-disposition".into();
+        assert!(!crate::developer_current_restore::arguments_admitted(
+            &wrong
+        ));
+        assert!(parse(br#"{"schema":1,"archive":"/public/synthetic.ovb","passphrase":"source password","step":"closure"}"#.as_slice()).is_err());
+        if !crate::product_scope::restore_enabled() {
+            struct NoRead;
+            impl Read for NoRead {
+                fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                    panic!("product closure cut must refuse before private input");
+                }
+            }
+            assert_eq!(
+                cut_new_complete_after_closure_from_private_input(NoRead),
+                Err(Error::Disabled)
+            );
+            assert_eq!(
+                crate::developer_current_restore::from_private_input(&args, NoRead),
+                Err("developer_restore_disabled")
+            );
+        }
+    }
+
     #[test]
     fn new_complete_selector_is_closed_and_product_denial_precedes_input() {
         use super::*;

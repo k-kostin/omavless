@@ -1602,6 +1602,221 @@ const COMPLETE_SHAPES: [NewCompletePresence; 3] = [
 ];
 
 #[test]
+fn native_new_complete_fixed_closure_cut_preserves_ticket_complete_and_new_without_release() {
+    let mut f = Fixture::new_committed("positive")
+        .with_complete(NewCompletePresence::ClosureTicketComplete);
+    let closure = File::open(f.state.join(crate::restore_closure_model::CLOSURE_MEMBER)).unwrap();
+    let ticket_path = f
+        .state
+        .join(crate::restore_disposition_ticket_model::TICKET_MEMBER);
+    let complete_path = f
+        .state
+        .join(crate::restore_disposition_complete_model::COMPLETE_MEMBER);
+    let ticket = File::open(&ticket_path).unwrap();
+    let complete = File::open(&complete_path).unwrap();
+    let ticket_bytes = fs::read(&ticket_path).unwrap();
+    let complete_bytes = fs::read(&complete_path).unwrap();
+    f.capture("positive").unwrap();
+    let until = Instant::now() + std::time::Duration::from_secs(10);
+    f.engine
+        .qualify_new_complete_inner(&mut f.gate, &mut |_| Ok(()), until)
+        .unwrap();
+    let result = f.engine.cut_new_complete_after_closure_inner(
+        &mut f.gate,
+        nix::unistd::getuid().as_raw(),
+        2,
+        DESIRED,
+        until,
+    );
+    assert!(
+        result.is_ok(),
+        "cut result={result:?}, disposition={}, done={}, history={}, unlinked={:?}, gates={}",
+        f.engine.disposition,
+        f.engine.disposition_done,
+        f.engine.history,
+        f.engine.unlinked,
+        f.gate.calls
+    );
+    assert_eq!(closure.metadata().unwrap().nlink(), 0);
+    assert!(
+        !f.state
+            .join(crate::restore_closure_model::CLOSURE_MEMBER)
+            .exists()
+    );
+    assert_eq!(
+        fs::metadata(&ticket_path).unwrap().ino(),
+        ticket.metadata().unwrap().ino()
+    );
+    assert_eq!(
+        fs::metadata(&complete_path).unwrap().ino(),
+        complete.metadata().unwrap().ino()
+    );
+    assert_eq!(fs::read(ticket_path).unwrap(), ticket_bytes);
+    assert_eq!(fs::read(complete_path).unwrap(), complete_bytes);
+    assert!(
+        native_history::NAMES
+            .iter()
+            .all(|name| !f.state.join(name).exists())
+    );
+    assert!(f.engine.sealed && !f.engine.disposition_ready() && !f.engine.ordinary_handoff);
+    assert!(
+        f.engine
+            .cut_new_complete_after_closure_inner(
+                &mut f.gate,
+                nix::unistd::getuid().as_raw(),
+                2,
+                DESIRED,
+                until,
+            )
+            .is_err()
+    );
+    f.retained();
+    drop((closure, ticket, complete));
+    f.cleanup();
+}
+
+#[test]
+fn native_new_complete_fixed_closure_cut_refuses_other_prefixes_and_nonempty_history() {
+    for (presence, history) in [
+        (NewCompletePresence::TicketComplete, 0),
+        (NewCompletePresence::CompleteOnly, 0),
+        (NewCompletePresence::ClosureTicketComplete, 1),
+    ] {
+        let mut f = Fixture::new_committed("positive").with_complete(presence);
+        let past = prior_audits(&f.state, history);
+        f.capture("positive").unwrap();
+        let until = Instant::now() + std::time::Duration::from_secs(10);
+        f.engine
+            .qualify_new_complete_inner(&mut f.gate, &mut |_| Ok(()), until)
+            .unwrap();
+        assert!(
+            f.engine
+                .cut_new_complete_after_closure_inner(
+                    &mut f.gate,
+                    nix::unistd::getuid().as_raw(),
+                    2,
+                    DESIRED,
+                    until,
+                )
+                .is_err()
+        );
+        assert!(!f.engine.disposition && !f.engine.unlinked[Slot::Scratch3 as usize]);
+        assert!(f.engine.sealed && !f.engine.disposition_ready());
+        assert_past_unchanged(&f.state, &past);
+        f.retained();
+        drop(past);
+        f.cleanup();
+    }
+}
+
+#[test]
+fn native_new_complete_fixed_closure_cut_never_adopts_replaced_records() {
+    for name in [
+        crate::restore_closure_model::CLOSURE_MEMBER,
+        crate::restore_disposition_ticket_model::TICKET_MEMBER,
+        crate::restore_disposition_complete_model::COMPLETE_MEMBER,
+    ] {
+        let mut f = Fixture::new_committed("positive")
+            .with_complete(NewCompletePresence::ClosureTicketComplete);
+        f.capture("positive").unwrap();
+        let until = Instant::now() + std::time::Duration::from_secs(10);
+        f.engine
+            .qualify_new_complete_inner(&mut f.gate, &mut |_| Ok(()), until)
+            .unwrap();
+        let path = f.state.join(name);
+        let bytes = fs::read(&path).unwrap();
+        fs::rename(&path, f.state.join("displaced-original")).unwrap();
+        drop(write(&path, &bytes));
+        let replacement = fs::metadata(&path).unwrap().ino();
+        assert!(
+            f.engine
+                .cut_new_complete_after_closure_inner(
+                    &mut f.gate,
+                    nix::unistd::getuid().as_raw(),
+                    2,
+                    DESIRED,
+                    until,
+                )
+                .is_err()
+        );
+        assert_eq!(fs::metadata(path).unwrap().ino(), replacement);
+        assert!(f.engine.sealed && !f.engine.disposition_ready() && !f.engine.disposition);
+        assert!(!f.engine.unlinked[Slot::Scratch3 as usize]);
+        f.retained();
+        f.cleanup();
+    }
+}
+
+#[test]
+fn native_new_complete_fixed_closure_cut_gate_failures_never_release_or_unlink_ticket() {
+    let mut refused = 0;
+    let mut after_unlink = 0;
+    let mut succeeded = false;
+    for offset in 1..32 {
+        let mut f = Fixture::new_committed("positive")
+            .with_complete(NewCompletePresence::ClosureTicketComplete);
+        let ticket = fs::read(
+            f.state
+                .join(crate::restore_disposition_ticket_model::TICKET_MEMBER),
+        )
+        .unwrap();
+        let complete = fs::read(
+            f.state
+                .join(crate::restore_disposition_complete_model::COMPLETE_MEMBER),
+        )
+        .unwrap();
+        f.capture("positive").unwrap();
+        let until = Instant::now() + std::time::Duration::from_secs(10);
+        f.engine
+            .qualify_new_complete_inner(&mut f.gate, &mut |_| Ok(()), until)
+            .unwrap();
+        f.gate.fail = Some(f.gate.calls + offset);
+        let result = f.engine.cut_new_complete_after_closure_inner(
+            &mut f.gate,
+            nix::unistd::getuid().as_raw(),
+            2,
+            DESIRED,
+            until,
+        );
+        if result.is_err() {
+            refused += 1;
+            after_unlink += usize::from(f.engine.unlinked[Slot::Scratch3 as usize]);
+        } else {
+            succeeded = true;
+        }
+        assert!(f.engine.sealed && !f.engine.disposition_ready() && !f.engine.ordinary_handoff);
+        assert!(!f.engine.unlinked[Slot::Scratch0 as usize] && !f.engine.disposition_done);
+        assert_eq!(
+            fs::read(
+                f.state
+                    .join(crate::restore_disposition_ticket_model::TICKET_MEMBER)
+            )
+            .unwrap(),
+            ticket
+        );
+        assert_eq!(
+            fs::read(
+                f.state
+                    .join(crate::restore_disposition_complete_model::COMPLETE_MEMBER)
+            )
+            .unwrap(),
+            complete
+        );
+        assert!(
+            native_history::NAMES
+                .iter()
+                .all(|name| !f.state.join(name).exists())
+        );
+        f.retained();
+        f.cleanup();
+        if succeeded {
+            break;
+        }
+    }
+    assert!(succeeded && refused > 0 && after_unlink > 0);
+}
+
+#[test]
 fn native_new_complete_all_three_prefixes_append_same_observed_complete_and_preserve_history() {
     for presence in COMPLETE_SHAPES {
         for prior in 0..native_history::CAPACITY {

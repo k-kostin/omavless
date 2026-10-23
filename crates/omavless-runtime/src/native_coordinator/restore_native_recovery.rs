@@ -1219,6 +1219,96 @@ impl NativeRecoveryOrigin<'_> {
 
 #[allow(dead_code)]
 impl FreshRecovery {
+    /// Fixed development producer for one later recovery prefix. Consumes this
+    /// fresh authenticated session; DATA success is NOT a typed release. Drop
+    /// retains the same original lock, engine and stopped-owner quiescence.
+    pub(crate) fn cut_new_complete_after_closure(
+        mut self,
+        source: &Path,
+        passphrase: &[u8],
+        paths: CutoverPaths,
+        desired_paths: DesiredPaths,
+        host_paths: NativeHostPaths,
+        uid: u32,
+    ) -> Result<(), FirstError> {
+        if !crate::product_scope::restore_enabled() {
+            return Err(FirstError::Admission);
+        }
+        self.recover_new_complete_output(
+            source,
+            passphrase,
+            paths,
+            desired_paths,
+            host_paths,
+            uid,
+        )?;
+        let result = (|| {
+            if self.disposition_attempted
+                || !self.available.load(Ordering::Acquire)
+                || self.normal_owner.is_some()
+                || self.released
+                || self.preview_binding.is_some()
+                || Arc::strong_count(&self.original) != 1
+                || Arc::strong_count(&self.destination) != 1
+                || Arc::strong_count(&self.available) != 1
+            {
+                return Err(FirstError::StillFenced);
+            }
+            self.disposition_attempted = true;
+            let mut slot = self.original.lock().map_err(|_| FirstError::StillFenced)?;
+            let destination = self
+                .destination
+                .lock()
+                .map_err(|_| FirstError::StillFenced)?;
+            if destination.is_some() {
+                return Err(FirstError::StillFenced);
+            }
+            let held = slot.as_mut().ok_or(FirstError::StillFenced)?;
+            if held.failed_lock.is_some()
+                || held.scope.load(Ordering::Acquire)
+                || Arc::strong_count(&held.scope) != 1
+                || Arc::strong_count(&held.lock) != 2
+            {
+                return Err(FirstError::StillFenced);
+            }
+            let RecoveryHeld {
+                lock,
+                boundary,
+                host,
+                engine,
+                facts,
+                ..
+            } = held;
+            let facts = facts.as_ref().ok_or(FirstError::StillFenced)?;
+            let mut origin = NativeRecoveryOrigin {
+                lock: lock.get().ok_or(FirstError::StillFenced)?,
+                boundary: boundary.as_ref().ok_or(FirstError::StillFenced)?,
+                host: host.as_mut().ok_or(FirstError::StillFenced)?,
+                paths: &facts.paths,
+                desired_paths: &facts.desired_paths,
+                marker: facts.marker.clone(),
+                desired: facts.desired.clone(),
+                marker_bytes: facts.marker_bytes.clone(),
+                desired_bytes: facts.desired_bytes.clone(),
+                login_bytes: facts.login_bytes.clone(),
+                uid: facts.uid,
+            };
+            engine.cut_native_new_complete_after_closure(
+                &mut origin,
+                self.old_quiescence
+                    .as_mut()
+                    .ok_or(FirstError::StillFenced)?,
+            )
+        })();
+        self.available.store(false, Ordering::Release);
+        if let Ok(mut slot) = self.original.lock()
+            && let Some(held) = slot.as_mut()
+        {
+            held.engine.revoke_native();
+        }
+        result
+    }
+
     /// Distinct consuming release, not the historical in-process owner transfer.
     /// Every fallible check runs while the original keeper remains installed.
     pub(crate) fn dispose_and_release_old(self) -> Result<ReleasedOldConfiguration, FirstError> {
