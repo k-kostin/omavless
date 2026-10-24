@@ -107,6 +107,19 @@ impl NativeOldRecoveryQuiescence {
         )
     }
 
+    pub(crate) fn prepare_history_synced_loss(
+        paths: &CutoverPaths,
+        uid: u32,
+        lock: Arc<OnceLock<MigrationLock>>,
+    ) -> Result<Self> {
+        Self::prepare_inner(
+            paths,
+            uid,
+            lock,
+            OldRecoveryOwner::prepare_history_synced_loss,
+        )
+    }
+
     fn prepare_inner(
         paths: &CutoverPaths,
         uid: u32,

@@ -283,6 +283,7 @@ pub fn arguments_admitted(arguments: &[OsString]) -> bool {
     crate::restore_old_cli::closure_cut_arguments_admitted(arguments)
         || crate::restore_old_cli::history_closure_cut_arguments_admitted(arguments)
         || crate::restore_old_cli::history_complete_only_cut_arguments_admitted(arguments)
+        || crate::restore_old_cli::history_synced_loss_arguments_admitted(arguments)
         || arguments == ["developer", "restore-current", "--confirm-private-pair"]
         || arguments == ["developer", "backup-current", "--confirm-private-export"]
         || arguments
@@ -361,6 +362,12 @@ pub fn from_private_input(
         crate::restore_old_cli::cut_new_complete_only_with_history_from_private_input(input)
             .map_err(|_| "developer_history_complete_only_cut_unknown_or_refused_do_not_repeat")?;
         return Ok("t4_new_complete_only_history_cut_reached_still_fenced");
+    }
+    if crate::restore_old_cli::history_synced_loss_arguments_admitted(arguments) {
+        // Neither an error nor an unexpected living return is completion.
+        let _ =
+            crate::restore_old_cli::lose_new_complete_at_history_synced_from_private_input(input);
+        return Err("developer_history_synced_process_loss_unknown_or_refused_do_not_repeat");
     }
     let abort = matches!(
         arguments[1].to_str(),
@@ -489,6 +496,47 @@ pub fn from_private_input(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn history_synced_loss_command_is_exact_and_invalid_arguments_never_read() {
+        struct NoRead;
+        impl std::io::Read for NoRead {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                panic!("invalid HistorySynced loss must not read");
+            }
+        }
+        let command = [
+            "developer",
+            "lose-new-complete-at-history-synced",
+            "--confirm-private-history-synced-process-loss",
+        ]
+        .map(std::ffi::OsString::from);
+        assert!(super::arguments_admitted(&command));
+        assert!(!crate::restore_old_cli::arguments_admitted(&command));
+        let expected = if crate::product_scope::backup_only() {
+            "developer_restore_disabled"
+        } else {
+            "developer_current_arguments_refused"
+        };
+        for bad in [
+            vec!["developer", "lose-new-complete-at-history-synced"],
+            vec![
+                "developer",
+                "lose-new-complete-at-history-synced",
+                "--confirm-private-history-complete-only-cut",
+            ],
+            vec![
+                "developer",
+                "lose-new-complete-at-history-synced",
+                "--confirm-private-history-synced-process-loss",
+                "extra",
+            ],
+        ] {
+            let args: Vec<_> = bad.into_iter().map(std::ffi::OsString::from).collect();
+            assert!(!super::arguments_admitted(&args));
+            assert_eq!(super::from_private_input(&args, NoRead), Err(expected));
+        }
+    }
+
     #[test]
     fn complete_only_history_invalid_arguments_never_read_private_input() {
         struct NoRead;

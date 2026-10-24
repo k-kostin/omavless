@@ -16,6 +16,61 @@ use zeroize::Zeroizing;
 
 const MAX_INPUT: usize = 32 * 1024;
 
+#[cfg(test)]
+#[path = "restore_history_loss_channel_tests.rs"]
+mod history_loss_channel;
+
+pub(crate) fn lose_new_complete_at_history_synced_from_private_input(
+    input: impl Read,
+) -> Result<(), Error> {
+    if !crate::product_scope::restore_enabled() {
+        return Err(Error::Disabled);
+    }
+    if !history_synced_loss_witness_channel_admitted() {
+        return Err(Error::RecoveryRefused);
+    }
+    cut_complete_from_private_input(input, CompleteCutEntry::HistorySyncedLoss)
+        .and(Err(Error::RecoveryRefused)) // no living return can report completion
+}
+
+fn history_synced_loss_witness_channel_admitted() -> bool {
+    use rustix::event::{PollFd, PollFlags, Timespec, poll};
+    let stderr = std::io::stderr();
+    let Ok(metadata) = nix::sys::stat::fstat(&stderr) else {
+        return false;
+    };
+    if nix::sys::stat::SFlag::from_bits_truncate(metadata.st_mode) != nix::sys::stat::SFlag::S_IFIFO
+    {
+        return false;
+    }
+    let Ok(flags) = nix::fcntl::fcntl(&stderr, nix::fcntl::FcntlArg::F_GETFL) else {
+        return false;
+    };
+    if !nix::fcntl::OFlag::from_bits_truncate(flags).contains(nix::fcntl::OFlag::O_NONBLOCK) {
+        return false;
+    }
+    let mut channels = [PollFd::new(&stderr, PollFlags::OUT)];
+    matches!(
+        poll(
+            &mut channels,
+            Some(&Timespec {
+                tv_sec: 0,
+                tv_nsec: 0
+            })
+        ),
+        Ok(1)
+    ) && channels[0].revents() == PollFlags::OUT
+}
+
+pub(crate) fn history_synced_loss_arguments_admitted(arguments: &[OsString]) -> bool {
+    arguments
+        == [
+            "developer",
+            "lose-new-complete-at-history-synced",
+            "--confirm-private-history-synced-process-loss",
+        ]
+}
+
 pub(crate) fn closure_cut_arguments_admitted(arguments: &[OsString]) -> bool {
     arguments
         == [
@@ -47,6 +102,7 @@ enum CompleteCutEntry {
     EmptyHistory,
     ClosureWithPrior,
     CompleteOnlyWithPrior,
+    HistorySyncedLoss,
 }
 
 /// A separate fresh stopped-owner process, not daemon IPC or ordinary recovery.
@@ -101,6 +157,14 @@ fn cut_complete_from_private_input(input: impl Read, entry: CompleteCutEntry) ->
             uid.as_raw(),
         ),
         CompleteCutEntry::CompleteOnlyWithPrior => recovery.cut_new_complete_only_with_history(
+            Path::new(request.archive.0.as_str()),
+            request.passphrase.0.as_bytes(),
+            paths,
+            desired,
+            host,
+            uid.as_raw(),
+        ),
+        CompleteCutEntry::HistorySyncedLoss => recovery.lose_new_complete_at_history_synced(
             Path::new(request.archive.0.as_str()),
             request.passphrase.0.as_bytes(),
             paths,
