@@ -1717,6 +1717,490 @@ fn native_new_complete_fixed_closure_cut_preserves_ticket_complete_and_new_witho
 }
 
 #[test]
+fn native_new_complete_only_history_cut_keeps_same_complete_and_all_prior_originals() {
+    for prior in 1..native_history::CAPACITY {
+        let mut f = Fixture::new_committed("positive")
+            .with_complete(NewCompletePresence::ClosureTicketComplete);
+        let past = prior_audits(&f.state, prior);
+        let closure =
+            File::open(f.state.join(crate::restore_closure_model::CLOSURE_MEMBER)).unwrap();
+        let ticket = File::open(
+            f.state
+                .join(crate::restore_disposition_ticket_model::TICKET_MEMBER),
+        )
+        .unwrap();
+        let complete_path = f
+            .state
+            .join(crate::restore_disposition_complete_model::COMPLETE_MEMBER);
+        let complete = File::open(&complete_path).unwrap();
+        let complete_raw = fs::read(&complete_path).unwrap();
+        f.capture("positive").unwrap();
+        let until = Instant::now() + std::time::Duration::from_secs(10);
+        f.engine
+            .qualify_new_complete_inner(&mut f.gate, &mut |_| Ok(()), until)
+            .unwrap();
+        let result = f.engine.cut_new_complete_only_with_history_inner(
+            &mut f.gate,
+            nix::unistd::getuid().as_raw(),
+            2,
+            DESIRED,
+            until,
+        );
+        let assertions = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            assert!(
+                result.is_ok(),
+                "Complete-only cut with {prior} audits: {result:?}"
+            );
+            for (file, name) in [
+                (&closure, crate::restore_closure_model::CLOSURE_MEMBER),
+                (
+                    &ticket,
+                    crate::restore_disposition_ticket_model::TICKET_MEMBER,
+                ),
+            ] {
+                assert_eq!(file.metadata().unwrap().nlink(), 0);
+                assert!(matches!(fs::symlink_metadata(f.state.join(name)),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound));
+            }
+            assert_eq!(
+                fs::metadata(&complete_path).unwrap().ino(),
+                complete.metadata().unwrap().ino()
+            );
+            assert_eq!(complete.metadata().unwrap().nlink(), 1);
+            assert_eq!(fs::read(&complete_path).unwrap(), complete_raw);
+            assert_past_unchanged(&f.state, &past);
+            assert!(!f.state.join(native_history::NAMES[prior]).exists());
+            assert!(f.engine.sealed && !f.engine.disposition_ready() && !f.engine.ordinary_handoff);
+            assert!(!f.engine.history && !f.engine.disposition_done);
+            assert!(
+                f.engine
+                    .cut_new_complete_only_with_history_inner(
+                        &mut f.gate,
+                        nix::unistd::getuid().as_raw(),
+                        2,
+                        DESIRED,
+                        until,
+                    )
+                    .is_err()
+            );
+            f.retained();
+        }));
+        drop((past, closure, ticket, complete));
+        f.cleanup();
+        if let Err(original) = assertions {
+            std::panic::resume_unwind(original);
+        }
+    }
+}
+
+// Actual ordered cut on wholly synthetic files. Only the fixed parent-sync
+// operation returns an injected Err; NativeGate is not used to fake IO failure.
+fn complete_only_parent_sync_error_retains_originals(selected: TestUnlinkParentSync) {
+    let mut f = Fixture::new_committed("positive")
+        .with_complete(NewCompletePresence::ClosureTicketComplete);
+    let assertions = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let past = prior_audits(&f.state, 1);
+        let closure_path = f.state.join(crate::restore_closure_model::CLOSURE_MEMBER);
+        let ticket_path = f
+            .state
+            .join(crate::restore_disposition_ticket_model::TICKET_MEMBER);
+        let complete_path = f
+            .state
+            .join(crate::restore_disposition_complete_model::COMPLETE_MEMBER);
+        let originals = [&closure_path, &ticket_path, &complete_path].map(|path| {
+            let file = File::open(path).unwrap();
+            let metadata = file.metadata().unwrap();
+            let bytes = fs::read(path).unwrap();
+            (file, metadata, bytes)
+        });
+        f.capture("positive").unwrap();
+        let until = Instant::now() + std::time::Duration::from_secs(10);
+        f.engine
+            .qualify_new_complete_inner(&mut f.gate, &mut |_| Ok(()), until)
+            .unwrap();
+        assert!(!f.engine.unlink_parent_sync_rejected);
+        f.engine.unlink_parent_sync_fault = Some(selected);
+        assert_eq!(
+            f.engine.cut_new_complete_only_with_history_inner(
+                &mut f.gate,
+                nix::unistd::getuid().as_raw(),
+                2,
+                DESIRED,
+                until,
+            ),
+            Err(FirstError::StillFenced)
+        );
+        assert!(f.engine.unlink_parent_sync_rejected); // exact IO seam reached
+        let ticket_removed = selected == TestUnlinkParentSync::Ticket;
+        for (slot, path, (held, original, bytes), removed) in [
+            (Slot::Scratch3, &closure_path, &originals[0], true),
+            (Slot::Scratch0, &ticket_path, &originals[1], ticket_removed),
+            (Slot::Scratch1, &complete_path, &originals[2], false),
+        ] {
+            assert!(f.engine.lower.io.test_retains_original(slot));
+            let now = held.metadata().unwrap();
+            assert_eq!((now.dev(), now.ino()), (original.dev(), original.ino()));
+            assert_eq!(now.nlink(), if removed { 0 } else { 1 });
+            assert_eq!(f.engine.unlinked[slot as usize], removed);
+            let captured = f.engine.lower.original[slot as usize].as_ref().unwrap();
+            assert!(same_member(captured, &now));
+            let mut retained_bytes = vec![0; bytes.len() + 1];
+            let count = held.read_at(&mut retained_bytes, 0).unwrap();
+            assert_eq!(&retained_bytes[..count], bytes.as_slice());
+            if removed {
+                assert!(matches!(fs::symlink_metadata(path),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound));
+                assert_eq!(captured.nlink(), 0); // FD postcheck preceded Err
+            } else {
+                let named = fs::symlink_metadata(path).unwrap();
+                assert!(same_member(original, &now) && same_member(original, &named));
+                assert_eq!(fs::read(path).unwrap(), *bytes);
+            }
+        }
+        assert_past_unchanged(&f.state, &past);
+        assert!(!f.state.join(native_history::NAMES[1]).exists());
+        assert!(
+            f.engine.sealed
+                && f.engine.disposition
+                && !f.engine.disposition_done
+                && !f.engine.history
+                && !f.engine.ordinary_handoff
+                && !f.engine.store_attempted
+                && !f.engine.current_store
+                && !f.engine.disposition_ready()
+        );
+        f.retained(); // original lock, live NEW pair and remaining ledger held
+        let unlinked = f.engine.unlinked;
+        let gate_calls = f.gate.calls;
+        assert!(
+            f.engine
+                .cut_new_complete_only_with_history_inner(
+                    &mut f.gate,
+                    nix::unistd::getuid().as_raw(),
+                    2,
+                    DESIRED,
+                    until,
+                )
+                .is_err()
+        );
+        let mut downstream = Vec::new();
+        assert!(
+            f.engine
+                .dispose_new_complete_inner(
+                    &mut f.gate,
+                    nix::unistd::getuid().as_raw(),
+                    2,
+                    DESIRED,
+                    &mut |step| {
+                        downstream.push(step);
+                        Ok(())
+                    },
+                    until,
+                )
+                .is_err()
+        );
+        assert!(f.engine.begin_store_inner(&mut f.gate, until).is_err());
+        assert!(downstream.is_empty());
+        assert_eq!(f.engine.unlinked, unlinked);
+        assert_eq!(f.gate.calls, gate_calls); // no requalification after revoke
+        assert!(!f.engine.store_attempted && !f.engine.ordinary_handoff);
+        assert_eq!(fs::read(&complete_path).unwrap(), originals[2].2);
+        assert_past_unchanged(&f.state, &past);
+        assert!(!f.state.join(native_history::NAMES[1]).exists());
+        f.retained();
+    }));
+    // A RED assertion releases only this synthetic fixture, then resumes the
+    // original panic. It must not leave a live test owner or held fixture lock.
+    f.cleanup();
+    if let Err(original) = assertions {
+        std::panic::resume_unwind(original);
+    }
+}
+
+#[test]
+fn native_new_complete_only_closure_parent_sync_error_retains_ticket_and_complete() {
+    complete_only_parent_sync_error_retains_originals(TestUnlinkParentSync::Closure);
+}
+
+#[test]
+fn native_new_complete_only_ticket_parent_sync_error_retains_complete_and_history() {
+    complete_only_parent_sync_error_retains_originals(TestUnlinkParentSync::Ticket);
+}
+
+#[test]
+fn native_new_complete_only_history_cut_refuses_empty_history_and_other_prefixes() {
+    for (presence, prior) in [
+        (NewCompletePresence::ClosureTicketComplete, 0),
+        (NewCompletePresence::TicketComplete, 1),
+        (NewCompletePresence::CompleteOnly, 1),
+    ] {
+        let mut f = Fixture::new_committed("positive").with_complete(presence);
+        let past = prior_audits(&f.state, prior);
+        f.capture("positive").unwrap();
+        let until = Instant::now() + std::time::Duration::from_secs(10);
+        f.engine
+            .qualify_new_complete_inner(&mut f.gate, &mut |_| Ok(()), until)
+            .unwrap();
+        let result = f.engine.cut_new_complete_only_with_history_inner(
+            &mut f.gate,
+            nix::unistd::getuid().as_raw(),
+            2,
+            DESIRED,
+            until,
+        );
+        let assertions = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            assert!(result.is_err());
+            assert!(
+                !f.engine.disposition
+                    && !f.engine.unlinked[Slot::Scratch3 as usize]
+                    && !f.engine.unlinked[Slot::Scratch0 as usize]
+            );
+            assert!(f.engine.sealed && !f.engine.disposition_ready());
+            assert_past_unchanged(&f.state, &past);
+            f.retained();
+        }));
+        drop(past);
+        f.cleanup();
+        if let Err(original) = assertions {
+            std::panic::resume_unwind(original);
+        }
+    }
+}
+
+#[test]
+fn native_new_complete_only_history_cut_failure_never_publishes_or_releases() {
+    let mut before_unlink = 0;
+    let mut closure_only = 0;
+    let mut both_unlinked = 0;
+    let mut succeeded = false;
+    for offset in 1..64 {
+        let mut f = Fixture::new_committed("positive")
+            .with_complete(NewCompletePresence::ClosureTicketComplete);
+        let past = prior_audits(&f.state, 1);
+        let complete_path = f
+            .state
+            .join(crate::restore_disposition_complete_model::COMPLETE_MEMBER);
+        let complete = File::open(&complete_path).unwrap();
+        let raw = fs::read(&complete_path).unwrap();
+        f.capture("positive").unwrap();
+        let until = Instant::now() + std::time::Duration::from_secs(10);
+        f.engine
+            .qualify_new_complete_inner(&mut f.gate, &mut |_| Ok(()), until)
+            .unwrap();
+        f.gate.fail = Some(f.gate.calls + offset);
+        let result = f.engine.cut_new_complete_only_with_history_inner(
+            &mut f.gate,
+            nix::unistd::getuid().as_raw(),
+            2,
+            DESIRED,
+            until,
+        );
+        if result.is_err() {
+            match (
+                f.engine.unlinked[Slot::Scratch3 as usize],
+                f.engine.unlinked[Slot::Scratch0 as usize],
+            ) {
+                (false, false) => before_unlink += 1,
+                (true, false) => closure_only += 1,
+                (true, true) => both_unlinked += 1,
+                (false, true) => panic!("ticket cannot precede closure"),
+            }
+        } else {
+            succeeded = true;
+        }
+        assert_eq!(
+            fs::metadata(&complete_path).unwrap().ino(),
+            complete.metadata().unwrap().ino()
+        );
+        assert_eq!(fs::read(&complete_path).unwrap(), raw);
+        assert_past_unchanged(&f.state, &past);
+        assert!(!f.state.join(native_history::NAMES[1]).exists());
+        assert!(f.engine.sealed && !f.engine.disposition_ready() && !f.engine.ordinary_handoff);
+        assert!(
+            !f.engine.history
+                && !f.engine.disposition_done
+                && !f.engine.unlinked[Slot::Scratch1 as usize]
+        );
+        f.retained();
+        drop((past, complete));
+        f.cleanup();
+        if succeeded {
+            break;
+        }
+    }
+    assert!(succeeded && before_unlink > 0 && closure_only > 0 && both_unlinked > 0);
+}
+
+#[test]
+fn native_new_complete_only_history_cut_refuses_replaced_originals_before_unlink() {
+    for name in [
+        crate::restore_closure_model::CLOSURE_MEMBER,
+        crate::restore_disposition_ticket_model::TICKET_MEMBER,
+        crate::restore_disposition_complete_model::COMPLETE_MEMBER,
+        native_history::NAMES[0],
+    ] {
+        let mut f = Fixture::new_committed("positive")
+            .with_complete(NewCompletePresence::ClosureTicketComplete);
+        let past = prior_audits(&f.state, 1);
+        f.capture("positive").unwrap();
+        let until = Instant::now() + std::time::Duration::from_secs(10);
+        f.engine
+            .qualify_new_complete_inner(&mut f.gate, &mut |_| Ok(()), until)
+            .unwrap();
+        let path = f.state.join(name);
+        let original = File::open(&path).unwrap();
+        let raw = fs::read(&path).unwrap();
+        fs::rename(&path, f.root.join("retained-replaced-original")).unwrap();
+        drop(write(&path, &raw));
+        let replacement = fs::metadata(&path).unwrap().ino();
+        assert_ne!(replacement, original.metadata().unwrap().ino());
+        assert!(
+            f.engine
+                .cut_new_complete_only_with_history_inner(
+                    &mut f.gate,
+                    nix::unistd::getuid().as_raw(),
+                    2,
+                    DESIRED,
+                    until,
+                )
+                .is_err()
+        );
+        assert_eq!(fs::metadata(&path).unwrap().ino(), replacement);
+        assert_eq!(fs::read(&path).unwrap(), raw);
+        assert!(
+            f.engine.sealed
+                && !f.engine.disposition
+                && !f.engine.ordinary_handoff
+                && !f.engine.unlinked[Slot::Scratch3 as usize]
+                && !f.engine.unlinked[Slot::Scratch0 as usize]
+        );
+        f.retained();
+        drop((past, original));
+        f.cleanup();
+    }
+}
+
+#[test]
+fn native_new_complete_only_post_sync_panic_keeps_originals_without_downstream() {
+    use std::cell::Cell;
+    struct PostSyncPanic<'a> {
+        original: &'a mut LocalGate,
+        after_ticket: bool,
+        witnessed: &'a Cell<bool>,
+    }
+    impl NativeGate for PostSyncPanic<'_> {
+        fn check(&mut self, view: NativeStageView<'_>) -> Result<(), FirstError> {
+            let reached = if self.after_ticket {
+                view.engine.unlinked[Slot::Scratch0 as usize]
+            } else {
+                view.engine.unlinked[Slot::Scratch3 as usize]
+            };
+            // Keep the real fixture's original identity/lease predicates.
+            self.original.check(view)?;
+            if reached {
+                assert!(!self.witnessed.replace(true));
+                panic!("synthetic Complete-only post-sync gate panic");
+            }
+            Ok(())
+        }
+    }
+    for after_ticket in [false, true] {
+        let mut f = Fixture::new_committed("positive")
+            .with_complete(NewCompletePresence::ClosureTicketComplete);
+        let past = prior_audits(&f.state, 1);
+        let closure_path = f.state.join(crate::restore_closure_model::CLOSURE_MEMBER);
+        let ticket_path = f
+            .state
+            .join(crate::restore_disposition_ticket_model::TICKET_MEMBER);
+        let complete_path = f
+            .state
+            .join(crate::restore_disposition_complete_model::COMPLETE_MEMBER);
+        let closure = File::open(&closure_path).unwrap();
+        let ticket = File::open(&ticket_path).unwrap();
+        let complete = File::open(&complete_path).unwrap();
+        let ticket_before = ticket.metadata().unwrap();
+        let ticket_bytes = fs::read(&ticket_path).unwrap();
+        let complete_before = complete.metadata().unwrap();
+        let complete_bytes = fs::read(&complete_path).unwrap();
+        f.capture("positive").unwrap();
+        let until = Instant::now() + std::time::Duration::from_secs(10);
+        f.engine
+            .qualify_new_complete_inner(&mut f.gate, &mut |_| Ok(()), until)
+            .unwrap();
+        let witnessed = Cell::new(false);
+        let outcome = {
+            let mut gate = PostSyncPanic {
+                original: &mut f.gate,
+                after_ticket,
+                witnessed: &witnessed,
+            };
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                f.engine.cut_new_complete_only_with_history_inner(
+                    &mut gate,
+                    nix::unistd::getuid().as_raw(),
+                    2,
+                    DESIRED,
+                    until,
+                )
+            }))
+        };
+        let assertions = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let payload = outcome.expect_err("the selected post-sync gate must unwind");
+            assert!(witnessed.get());
+            assert_eq!(
+                payload.downcast_ref::<&str>().copied(),
+                Some("synthetic Complete-only post-sync gate panic")
+            );
+            assert!(f.engine.disposition);
+            assert!(f.engine.unlinked[Slot::Scratch3 as usize]);
+            assert_eq!(f.engine.unlinked[Slot::Scratch0 as usize], after_ticket);
+            assert!(!f.engine.unlinked[Slot::Scratch1 as usize]);
+            assert_eq!(closure.metadata().unwrap().nlink(), 0);
+            assert!(matches!(fs::symlink_metadata(&closure_path),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound));
+            if after_ticket {
+                assert_eq!(ticket.metadata().unwrap().nlink(), 0);
+                assert!(matches!(fs::symlink_metadata(&ticket_path),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound));
+            } else {
+                assert!(same_member(&ticket_before, &ticket.metadata().unwrap()));
+                assert!(same_member(
+                    &ticket_before,
+                    &fs::metadata(&ticket_path).unwrap()
+                ));
+                assert_eq!(fs::read(&ticket_path).unwrap(), ticket_bytes);
+            }
+            assert!(same_member(&complete_before, &complete.metadata().unwrap()));
+            assert!(same_member(
+                &complete_before,
+                &fs::metadata(&complete_path).unwrap()
+            ));
+            assert_eq!(fs::read(&complete_path).unwrap(), complete_bytes);
+            assert_past_unchanged(&f.state, &past);
+            assert!(!f.state.join(native_history::NAMES[1]).exists());
+            assert!(!f.engine.history && !f.engine.disposition_done);
+            assert!(!f.engine.disposition_ready() && !f.engine.ordinary_handoff);
+            for slot in [Slot::Scratch3, Slot::Scratch0, Slot::Scratch1] {
+                assert!(f.engine.lower.io.test_retains_original(slot));
+            }
+            // Panic need not execute revoke_native: do not assert sealed.
+            // This read-only completion check must not manufacture a release.
+            assert!(
+                f.engine
+                    .check_new_complete_completed_inner(&mut f.gate, until)
+                    .is_err()
+            );
+            f.retained();
+        }));
+        drop((past, closure, ticket, complete));
+        f.cleanup(); // only this settled synthetic fixture, never a product owner
+        if let Err(original) = assertions {
+            std::panic::resume_unwind(original);
+        }
+    }
+}
+
+#[test]
 fn native_new_complete_history_preserving_closure_cut_keeps_every_prior_original() {
     for prior in 1..native_history::CAPACITY {
         let mut f = Fixture::new_committed("positive")

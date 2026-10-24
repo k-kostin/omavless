@@ -282,6 +282,7 @@ pub(crate) fn wipe_request(request: &mut Value) {
 pub fn arguments_admitted(arguments: &[OsString]) -> bool {
     crate::restore_old_cli::closure_cut_arguments_admitted(arguments)
         || crate::restore_old_cli::history_closure_cut_arguments_admitted(arguments)
+        || crate::restore_old_cli::history_complete_only_cut_arguments_admitted(arguments)
         || arguments == ["developer", "restore-current", "--confirm-private-pair"]
         || arguments == ["developer", "backup-current", "--confirm-private-export"]
         || arguments
@@ -355,6 +356,11 @@ pub fn from_private_input(
         )
         .map_err(|_| "developer_history_closure_cut_unknown_or_refused_do_not_repeat")?;
         return Ok("t4_new_complete_history_closure_cut_reached_still_fenced");
+    }
+    if crate::restore_old_cli::history_complete_only_cut_arguments_admitted(arguments) {
+        crate::restore_old_cli::cut_new_complete_only_with_history_from_private_input(input)
+            .map_err(|_| "developer_history_complete_only_cut_unknown_or_refused_do_not_repeat")?;
+        return Ok("t4_new_complete_only_history_cut_reached_still_fenced");
     }
     let abort = matches!(
         arguments[1].to_str(),
@@ -483,6 +489,124 @@ pub fn from_private_input(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn complete_only_history_invalid_arguments_never_read_private_input() {
+        struct NoRead;
+        impl std::io::Read for NoRead {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                panic!("invalid arguments must precede input");
+            }
+        }
+        let expected = if crate::product_scope::backup_only() {
+            "developer_restore_disabled"
+        } else {
+            "developer_current_arguments_refused"
+        };
+        for bad in [
+            vec![],
+            vec!["developer"],
+            vec!["developer", "cut-new-complete-only-with-history"],
+            vec![
+                "developer",
+                "cut-new-complete-only-with-history",
+                "--confirm-private-history-closure-cut",
+            ],
+            vec![
+                "developer",
+                "cut-new-complete-after-closure-with-history",
+                "--confirm-private-history-complete-only-cut",
+            ],
+            vec![
+                "developer",
+                "cut-new-complete-only-with-history",
+                "--confirm-private-history-complete-only-cut",
+                "extra",
+            ],
+        ] {
+            let args: Vec<_> = bad.into_iter().map(std::ffi::OsString::from).collect();
+            assert_eq!(super::from_private_input(&args, NoRead), Err(expected));
+        }
+    }
+
+    #[cfg(feature = "product-private-backup")]
+    #[test]
+    fn complete_only_history_backup_denial_precedes_private_input_in_both_entries() {
+        struct NoRead;
+        impl std::io::Read for NoRead {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                panic!("Backup-only entry must not read");
+            }
+        }
+        let args = [
+            "developer",
+            "cut-new-complete-only-with-history",
+            "--confirm-private-history-complete-only-cut",
+        ]
+        .map(std::ffi::OsString::from);
+        assert_eq!(
+            super::from_private_input(&args, NoRead),
+            Err("developer_restore_disabled")
+        );
+        assert_eq!(
+            crate::restore_old_cli::cut_new_complete_only_with_history_from_private_input(NoRead),
+            Err(crate::restore_old_cli::Error::Disabled)
+        );
+    }
+
+    #[cfg(not(feature = "product-private-backup"))]
+    #[test]
+    fn complete_only_history_private_input_failure_is_fixed_and_not_a_manager_request() {
+        let args = [
+            "developer",
+            "cut-new-complete-only-with-history",
+            "--confirm-private-history-complete-only-cut",
+        ]
+        .map(std::ffi::OsString::from);
+        assert_eq!(
+            super::from_private_input(&args, &b"{}"[..]),
+            Err("developer_history_complete_only_cut_unknown_or_refused_do_not_repeat")
+        );
+    }
+
+    #[test]
+    fn complete_only_history_cli_selector_is_exact_and_not_an_ordinary_consumer() {
+        let command = [
+            "developer",
+            "cut-new-complete-only-with-history",
+            "--confirm-private-history-complete-only-cut",
+        ]
+        .map(std::ffi::OsString::from);
+        assert!(super::arguments_admitted(&command));
+        assert!(!crate::restore_old_cli::arguments_admitted(&command));
+        for wrong in [
+            vec!["developer", "cut-new-complete-only-with-history"],
+            vec![
+                "developer",
+                "cut-new-complete-only-with-history",
+                "--confirm-private-history-closure-cut",
+            ],
+            vec![
+                "developer",
+                "cut-new-complete-after-closure-with-history",
+                "--confirm-private-history-complete-only-cut",
+            ],
+            vec![
+                "developer",
+                "cut-new-complete-only-with-history",
+                "--confirm-private-history-complete-only-cut",
+                "extra",
+            ],
+            vec![
+                "restore",
+                "cut-new-complete-only-with-history",
+                "--confirm-private-history-complete-only-cut",
+            ],
+        ] {
+            let wrong: Vec<_> = wrong.into_iter().map(std::ffi::OsString::from).collect();
+            assert!(!super::arguments_admitted(&wrong));
+        }
+    }
+
     #[test]
     fn new_complete_fixed_request_has_no_generic_cut_or_ticket_confirmation() {
         use super::*;

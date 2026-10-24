@@ -1402,6 +1402,32 @@ impl NativeGate for NativeRecoveryOrigin<'_> {
         NativeRecoveryOrigin::check(self, view)
     }
 }
+impl NativeEngine {
+    /// Fixed Complete-only prefix producer; sealed DATA, never a release.
+    pub(crate) fn cut_native_new_complete_only_with_history(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        quiescence: &mut NativeOldRecoveryQuiescence,
+    ) -> Result<(), FirstError> {
+        if !crate::product_scope::restore_enabled() {
+            return Err(FirstError::Admission);
+        }
+        let uid = origin.uid();
+        let generation = origin.generation();
+        let desired = zeroize::Zeroizing::new(origin.desired_bytes().to_vec());
+        self.cut_new_complete_only_with_history_inner(
+            &mut NativeRecoveryGate {
+                origin,
+                quiescence: Some(quiescence),
+            },
+            uid,
+            generation,
+            &desired,
+            Instant::now() + std::time::Duration::from_secs(15),
+        )
+    }
+}
+
 struct NativeRecoveryGate<'a, 'b> {
     origin: &'a mut NativeRecoveryOrigin<'b>,
     quiescence: Option<&'a mut NativeOldRecoveryQuiescence>,
@@ -2239,6 +2265,14 @@ enum RecoveryEndpoint {
 fn socket_absent(result: Result<nix::sys::stat::FileStat, nix::errno::Errno>) -> bool {
     matches!(result, Err(nix::errno::Errno::ENOENT))
 }
+// Reject-only synthetic parent-sync fault, scoped to one owned engine.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TestUnlinkParentSync {
+    Closure,
+    Ticket,
+}
+
 pub(crate) struct NativeEngine {
     lower: Stage,
     stage_name: Option<Metadata>,
@@ -2263,6 +2297,10 @@ pub(crate) struct NativeEngine {
     complete_shape: Option<NewCompletePresence>,
     fresh_new_complete: Option<FreshNewComplete>,
     complete_catalogue_index: Option<usize>,
+    #[cfg(test)]
+    unlink_parent_sync_fault: Option<TestUnlinkParentSync>,
+    #[cfg(test)]
+    unlink_parent_sync_rejected: bool,
     #[cfg(all(test, not(feature = "product-private-backup")))]
     complete_write_fault: Option<bool>,
     #[cfg(all(test, not(feature = "product-private-backup")))]
@@ -2513,6 +2551,10 @@ impl NativeEngine {
             complete_shape: None,
             fresh_new_complete: None,
             complete_catalogue_index: None,
+            #[cfg(test)]
+            unlink_parent_sync_fault: None,
+            #[cfg(test)]
+            unlink_parent_sync_rejected: false,
             #[cfg(all(test, not(feature = "product-private-backup")))]
             complete_write_fault: None,
             #[cfg(all(test, not(feature = "product-private-backup")))]
@@ -3823,7 +3865,30 @@ impl NativeEngine {
             .perform(
                 parent,
                 || tick(until),
-                |file| file.sync_all().map_err(|_| Unavailable),
+                |file| {
+                    #[cfg(test)]
+                    {
+                        let selected = match self.unlink_parent_sync_fault {
+                            Some(TestUnlinkParentSync::Closure) => {
+                                matches!(slot, Slot::Scratch3)
+                                    && name == crate::restore_closure_model::CLOSURE_MEMBER
+                            }
+                            Some(TestUnlinkParentSync::Ticket) => {
+                                matches!(slot, Slot::Scratch0)
+                                    && name
+                                        == crate::restore_disposition_ticket_model::TICKET_MEMBER
+                            }
+                            None => false,
+                        };
+                        if selected && matches!(parent, Slot::State) && !directory {
+                            // AFTER unlink and retained-FD postcheck; use the
+                            // normal operation error path, never force success.
+                            self.unlink_parent_sync_rejected = true;
+                            return Err(Unavailable);
+                        }
+                    }
+                    file.sync_all().map_err(|_| Unavailable)
+                },
             )
             .map_err(|_| FirstError::StillFenced)?;
         self.gate(origin, until)

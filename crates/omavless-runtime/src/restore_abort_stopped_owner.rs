@@ -101,6 +101,8 @@ enum SelfInvocation {
     ConsumerRecovery,
     #[cfg(feature = "t4-manager-actor-service")]
     ClosureCut,
+    #[cfg(feature = "t4-manager-actor-service")]
+    CompleteOnlyCut,
     #[cfg(test)]
     Diagnostic,
 }
@@ -123,7 +125,10 @@ impl RecoveryProgress {
 impl SelfInvocation {
     #[cfg(feature = "t4-manager-actor-service")]
     fn progress(self) -> RecoveryProgress {
-        if matches!(self, Self::OldRecovery | Self::ClosureCut) {
+        if matches!(
+            self,
+            Self::OldRecovery | Self::ClosureCut | Self::CompleteOnlyCut
+        ) {
             RecoveryProgress::DiagnosticCli
         } else {
             RecoveryProgress::ConsumerSilent
@@ -133,7 +138,7 @@ impl SelfInvocation {
     fn lost_owner_recovery(self) -> bool {
         matches!(
             self,
-            Self::OldRecovery | Self::ConsumerRecovery | Self::ClosureCut
+            Self::OldRecovery | Self::ConsumerRecovery | Self::ClosureCut | Self::CompleteOnlyCut
         )
     }
 
@@ -146,6 +151,8 @@ impl SelfInvocation {
             Self::ConsumerRecovery => consumer_recovery_self(command),
             #[cfg(feature = "t4-manager-actor-service")]
             Self::ClosureCut => closure_cut_self(command),
+            #[cfg(feature = "t4-manager-actor-service")]
+            Self::CompleteOnlyCut => complete_only_cut_self(command),
             #[cfg(test)]
             Self::Diagnostic => super::diagnostic::exact_self(&arguments(command)?),
         }
@@ -528,6 +535,22 @@ fn closure_cut_self(command: &[u8]) -> Result<()> {
                     b"cut-new-complete-after-closure-with-history",
                     b"--confirm-private-history-closure-cut",
                 ])
+    {
+        return Err(());
+    }
+    Ok(())
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+fn complete_only_cut_self(command: &[u8]) -> Result<()> {
+    let args = arguments(command)?;
+    if args.len() != 4
+        || args[1..]
+            != [
+                b"developer".as_slice(),
+                b"cut-new-complete-only-with-history",
+                b"--confirm-private-history-complete-only-cut",
+            ]
     {
         return Err(());
     }
@@ -1573,6 +1596,10 @@ impl OldRecoveryOwner {
         Self::prepare_inner(uid, socket, SelfInvocation::ClosureCut)
     }
 
+    pub(crate) fn prepare_complete_only_cut(uid: u32, socket: &Path) -> Result<Self> {
+        Self::prepare_inner(uid, socket, SelfInvocation::CompleteOnlyCut)
+    }
+
     fn prepare_inner(uid: u32, socket: &Path, invocation: SelfInvocation) -> Result<Self> {
         // Reserve original command custody without a process query/capture.
         // The caller installs this guard before qualification can spawn a child.
@@ -2286,6 +2313,31 @@ mod tests {
             b"binary\0developer\0cut-new-complete-after-closure-with-history\0--confirm-private-closure-cut\0".as_slice(),
             b"binary\0developer\0cut-new-complete-after-closure-with-history\0--confirm-private-history-closure-cut\0extra\0".as_slice(),
             b"binary\0developer\0cut-new-complete-after-closure-with-history\0--confirm-private-history-closure-cut".as_slice(),
+        ] { assert!(invocation.validate(wrong).is_err()); }
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn complete_only_cut_self_is_exact_distinct_and_keeps_lost_owner_custody() {
+        let command = b"/usr/bin/omavless\0developer\0cut-new-complete-only-with-history\0--confirm-private-history-complete-only-cut\0";
+        let invocation = SelfInvocation::CompleteOnlyCut;
+        assert!(invocation.validate(command).is_ok());
+        assert!(invocation.lost_owner_recovery() && invocation.progress().enabled());
+        for other in [
+            SelfInvocation::ClosureCut,
+            SelfInvocation::Recovery,
+            SelfInvocation::OldRecovery,
+            SelfInvocation::ConsumerRecovery,
+        ] {
+            assert!(other.validate(command).is_err());
+        }
+        for wrong in [
+            b"binary\0developer\0cut-new-complete-after-closure-with-history\0--confirm-private-history-closure-cut\0".as_slice(),
+            b"binary\0developer\0cut-new-complete-only-with-history\0--confirm-private-history-closure-cut\0".as_slice(),
+            b"binary\0developer\0cut-new-complete-only-with-history\0--confirm-private-history-complete-only-cut\0extra\0".as_slice(),
+            b"binary\0developer\0cut-new-complete-only-with-history\0--confirm-private-history-complete-only-cut".as_slice(),
+            b"\0developer\0cut-new-complete-only-with-history\0--confirm-private-history-complete-only-cut\0".as_slice(),
+            b"binary\0tui\0".as_slice(),
         ] { assert!(invocation.validate(wrong).is_err()); }
     }
 

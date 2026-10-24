@@ -63,19 +63,22 @@ enum FreshRecoveryMode {
     NewCompleteOutput,
     CutNewCompleteAfterClosure,
     CutNewCompleteAfterClosureWithHistory,
+    CutNewCompleteOnlyWithHistory,
 }
 
 impl FreshRecoveryMode {
     fn closure_cut(self) -> bool {
         matches!(
             self,
-            Self::CutNewCompleteAfterClosure | Self::CutNewCompleteAfterClosureWithHistory
+            Self::CutNewCompleteAfterClosure
+                | Self::CutNewCompleteAfterClosureWithHistory
+                | Self::CutNewCompleteOnlyWithHistory
         )
     }
     fn admits_closure_cut(self, observed: &crate::restore_recovery_preview::Preview) -> bool {
         match self {
             Self::CutNewCompleteAfterClosure => observed.is_closure_cut_source(),
-            Self::CutNewCompleteAfterClosureWithHistory => {
+            Self::CutNewCompleteAfterClosureWithHistory | Self::CutNewCompleteOnlyWithHistory => {
                 observed.is_history_preserving_closure_cut_source()
             }
             _ => false,
@@ -90,7 +93,9 @@ type QuiescencePreparer = fn(
 ) -> Result<NativeOldRecoveryQuiescence, FirstError>;
 
 fn quiescence_preparer(mode: FreshRecoveryMode, previewed: bool) -> QuiescencePreparer {
-    if mode.closure_cut() {
+    if mode == FreshRecoveryMode::CutNewCompleteOnlyWithHistory {
+        NativeOldRecoveryQuiescence::prepare_complete_only_cut
+    } else if mode.closure_cut() {
         NativeOldRecoveryQuiescence::prepare_closure_cut
     } else if previewed {
         NativeOldRecoveryQuiescence::prepare_consumer
@@ -105,6 +110,17 @@ fn closure_cut_mode_selects_only_its_fixed_stopped_owner_constructor() {
     // Closed invocation identity is the boundary under test. Calling a real
     // stopped-owner constructor here would query host processes/manager.
     let fixed: QuiescencePreparer = NativeOldRecoveryQuiescence::prepare_closure_cut;
+    let complete_only: QuiescencePreparer = NativeOldRecoveryQuiescence::prepare_complete_only_cut;
+    for previewed in [false, true] {
+        assert!(std::ptr::fn_addr_eq(
+            quiescence_preparer(FreshRecoveryMode::CutNewCompleteOnlyWithHistory, previewed),
+            complete_only,
+        ));
+        assert!(!std::ptr::fn_addr_eq(
+            quiescence_preparer(FreshRecoveryMode::CutNewCompleteOnlyWithHistory, previewed),
+            fixed,
+        ));
+    }
     for mode in [
         FreshRecoveryMode::CutNewCompleteAfterClosure,
         FreshRecoveryMode::CutNewCompleteAfterClosureWithHistory,
@@ -169,6 +185,17 @@ fn closure_cut_wrong_prefix_refuses_before_native_capture_or_stop() {
             "history:unknown",
             "history:ticket-complete",
             "history:complete-only",
+            "complete-only-history:one",
+            "complete-only-history:seven",
+            "complete-only-history:empty",
+            "complete-only-history:full",
+            "complete-only-history:gap",
+            "complete-only-history:corrupt",
+            "complete-only-history:mode",
+            "complete-only-history:hardlink",
+            "complete-only-history:unknown",
+            "complete-only-history:ticket-complete",
+            "complete-only-history:complete-only",
         ] {
             let result = std::process::Command::new(std::env::current_exe().unwrap())
                 .args(["--exact", &test, "--test-threads=1"])
@@ -183,7 +210,11 @@ fn closure_cut_wrong_prefix_refuses_before_native_capture_or_stop() {
         return;
     };
     let case = case.to_str().unwrap();
-    let mode = if case.starts_with("history:") {
+    let complete_only_cut = case.starts_with("complete-only-history:");
+    let case = case.strip_prefix("complete-only-").unwrap_or(case);
+    let mode = if complete_only_cut {
+        FreshRecoveryMode::CutNewCompleteOnlyWithHistory
+    } else if case.starts_with("history:") {
         FreshRecoveryMode::CutNewCompleteAfterClosureWithHistory
     } else {
         FreshRecoveryMode::CutNewCompleteAfterClosure
@@ -1509,7 +1540,27 @@ impl FreshRecovery {
         )
     }
 
-    #[allow(clippy::too_many_arguments)] // two closed consuming producers, no caller step
+    pub(crate) fn cut_new_complete_only_with_history(
+        self,
+        source: &Path,
+        passphrase: &[u8],
+        paths: CutoverPaths,
+        desired_paths: DesiredPaths,
+        host_paths: NativeHostPaths,
+        uid: u32,
+    ) -> Result<(), FirstError> {
+        self.cut_new_complete_for_mode(
+            source,
+            passphrase,
+            paths,
+            desired_paths,
+            host_paths,
+            uid,
+            FreshRecoveryMode::CutNewCompleteOnlyWithHistory,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)] // closed consuming producers, no caller step
     fn cut_new_complete_for_mode(
         mut self,
         source: &Path,
@@ -1593,6 +1644,9 @@ impl FreshRecovery {
                 }
                 FreshRecoveryMode::CutNewCompleteAfterClosureWithHistory => engine
                     .cut_native_new_complete_after_closure_with_history(&mut origin, quiescence),
+                FreshRecoveryMode::CutNewCompleteOnlyWithHistory => {
+                    engine.cut_native_new_complete_only_with_history(&mut origin, quiescence)
+                }
                 _ => Err(FirstError::Admission),
             }
         })();
@@ -2329,6 +2383,7 @@ impl FreshRecovery {
                 | FreshRecoveryMode::NewCompleteOutput
                 | FreshRecoveryMode::CutNewCompleteAfterClosure
                 | FreshRecoveryMode::CutNewCompleteAfterClosureWithHistory
+                | FreshRecoveryMode::CutNewCompleteOnlyWithHistory
         );
         // Fixed development-driver phases only: no paths, archive data, errors
         // or credentials. Diagnostics must never alter recovery success.
@@ -2412,8 +2467,7 @@ impl FreshRecovery {
         // Fixed Source child barrier only: a broken preflight cannot reach real
         // native capture or system-manager queries during this regression.
         #[cfg(test)]
-        if mode.closure_cut() && std::env::var_os("OMAVLESS_SOURCE_CLOSURE_CUT_PREFLIGHT").is_some()
-        {
+        if std::env::var_os("OMAVLESS_SOURCE_CLOSURE_CUT_PREFLIGHT").is_some() {
             CLOSURE_CUT_CAPTURE_BOUNDARY_REACHED.store(true, Ordering::Release);
             return Err(FirstError::Admission);
         }
@@ -2499,6 +2553,7 @@ impl FreshRecovery {
                 | FreshRecoveryMode::NewCompleteOutput
                 | FreshRecoveryMode::CutNewCompleteAfterClosure
                 | FreshRecoveryMode::CutNewCompleteAfterClosureWithHistory
+                | FreshRecoveryMode::CutNewCompleteOnlyWithHistory
         ) {
             if let Some(expected) = &closure_cut_preview {
                 let current = crate::restore_recovery_preview::inspect_authenticated(
@@ -2525,7 +2580,8 @@ impl FreshRecovery {
             let mut qualify = || match mode {
                 FreshRecoveryMode::NewCompleteOutput
                 | FreshRecoveryMode::CutNewCompleteAfterClosure
-                | FreshRecoveryMode::CutNewCompleteAfterClosureWithHistory => {
+                | FreshRecoveryMode::CutNewCompleteAfterClosureWithHistory
+                | FreshRecoveryMode::CutNewCompleteOnlyWithHistory => {
                     engine.qualify_native_new_complete(&mut origin, backup, quiescence)
                 }
                 FreshRecoveryMode::NewTicketOutput => {

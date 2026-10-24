@@ -94,6 +94,19 @@ impl NativeOldRecoveryQuiescence {
         Self::prepare_inner(paths, uid, lock, OldRecoveryOwner::prepare_closure_cut)
     }
 
+    pub(crate) fn prepare_complete_only_cut(
+        paths: &CutoverPaths,
+        uid: u32,
+        lock: Arc<OnceLock<MigrationLock>>,
+    ) -> Result<Self> {
+        Self::prepare_inner(
+            paths,
+            uid,
+            lock,
+            OldRecoveryOwner::prepare_complete_only_cut,
+        )
+    }
+
     fn prepare_inner(
         paths: &CutoverPaths,
         uid: u32,
