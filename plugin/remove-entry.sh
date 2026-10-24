@@ -4,7 +4,7 @@
 # the existing reviewed standalone helper; no download or caller arguments.
 set -euo pipefail
 export PATH=/usr/bin:/bin LC_ALL=C
-readonly OV_REMOVAL_HELPER_SHA=5c5e811afb049ddfa332d905f2a5f0108244789e96fdb2cbfbc8ee0df0ee46c9
+readonly OV_REMOVAL_HELPER_SHA=1d6b49f18b54a25c9da8ca290b7a0214405fc6d83a46cdd041cb08d6755ca29e
 
 checked_removal_helper() {
   [[ $# == 0 ]] || return 2
