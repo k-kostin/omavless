@@ -11,6 +11,9 @@ const MEMBERS: [&[u8]; 4] = [b"OLD store", b"OLD template", b"NEW store", b"NEW 
 const DESIRED: &[u8] =
     br#"{"schemaVersion":1,"generation":0,"connected":false,"profileId":"","mode":"rule"}"#;
 
+#[path = "native_history_process_loss_tests.rs"]
+mod late_history_process_loss;
+
 fn write(path: &Path, bytes: &[u8]) -> File {
     let mut file = OpenOptions::new()
         .read(true)
