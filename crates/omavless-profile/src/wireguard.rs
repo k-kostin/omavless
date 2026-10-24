@@ -1349,7 +1349,13 @@ impl WireGuardProfile {
                         .expect("AWG booleans were validated")
                         .to_string()
                 } else if ["jc", "jmin", "jmax", "s1", "s2", "s3", "s4"].contains(&field.as_str()) {
-                    value.clone()
+                    // Native values are decimal. An unquoted leading-zero
+                    // spelling is octal to the pinned YAML decoder, so project
+                    // the validated number, not its private source spelling.
+                    value
+                        .parse::<u32>()
+                        .expect("AWG numeric fields were validated")
+                        .to_string()
                 } else {
                     yaml_string(value)
                 };

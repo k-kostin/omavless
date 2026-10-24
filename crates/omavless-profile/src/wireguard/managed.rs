@@ -343,6 +343,71 @@ mod tests {
     }
 
     #[test]
+    fn decimal_padding_does_not_become_yaml_octal_and_private_spelling_survives() {
+        let input = config(3).replace("S1 = 20", "S1 = 00012");
+        let profile = parse_wireguard_config(&input).unwrap();
+        assert_eq!(profile.managed_compatibility(), Ok(()));
+        let original = profile.private_record().unwrap();
+        let rendered = profile.render_mihomo_proxy("Test", None).unwrap();
+        assert!(rendered.lines().any(|line| line == "    s1: 12"));
+        assert!(!rendered.contains("s1: 00012"));
+        let exported = profile.private_config().unwrap();
+        assert!(
+            std::str::from_utf8(exported.expose_private_bytes())
+                .unwrap()
+                .contains("S1 = 00012\n")
+        );
+        let restored = parse_private_wireguard_record(original.expose_private_bytes()).unwrap();
+        assert_eq!(
+            restored.render_mihomo_proxy("Test", None).unwrap(),
+            rendered
+        );
+        assert_eq!(
+            profile.private_record().unwrap().expose_private_bytes(),
+            original.expose_private_bytes()
+        );
+    }
+
+    #[test]
+    fn every_awg_numeric_yaml_field_uses_decimal_without_rewriting_private_data() {
+        for generation in 1..=4 {
+            for (field, plain, spelling, output) in [
+                ("Jc", "4", "0004", "    jc: 4"),
+                ("Jmin", "10", "0010", "    jmin: 10"),
+                ("Jmax", "30", "+0030", "    jmax: 30"),
+                ("S1", "20", "00020", "    s1: 20"),
+                ("S2", "25", "00025", "    s2: 25"),
+                ("S3", "30", "00030", "    s3: 30"),
+                ("S4", "35", "00035", "    s4: 35"),
+            ] {
+                let base = config(generation);
+                let original_line = format!("{field} = {plain}\n");
+                if generation == 1 && matches!(field, "S3" | "S4") {
+                    assert!(!base.contains(&original_line));
+                    continue;
+                }
+                let private_line = format!("{field} = {spelling}\n");
+                let input = base.replace(&original_line, &private_line);
+                assert_ne!(input, base);
+                let profile = parse_wireguard_config(&input).unwrap();
+                assert_eq!(profile.managed_compatibility(), Ok(()));
+                assert!(
+                    profile
+                        .render_mihomo_proxy("Test", None)
+                        .unwrap()
+                        .lines()
+                        .any(|line| line == output)
+                );
+                assert!(
+                    std::str::from_utf8(profile.private_config().unwrap().expose_private_bytes())
+                        .unwrap()
+                        .contains(&private_line)
+                );
+            }
+        }
+    }
+
+    #[test]
     fn ipv6_and_nonconstant_keepalive_are_data_not_execution_permission() {
         let base = config(3);
         for input in [

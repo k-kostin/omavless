@@ -465,6 +465,15 @@ Earlier strict readers rejected explicit zero. Newly stored zero values require
 the updated application; downgrade compatibility is not implied by unchanged
 private record/schema field names or by the source round-trip tests.
 
+AWG Jc/Jmin/Jmax/S1–S4 are interpreted as decimal by the native parser.
+Their private spelling remains intact, but their numeric YAML projection uses
+canonical decimal integers: `S1 = 00012` becomes `s1: 12`, not YAML `00012`.
+The pinned Mihomo common YAML wrapper uses go.yaml.in/yaml/v3, whose resolver
+also accepts legacy octal literals. Forwarding the original spelling could
+therefore change a validated value before lazy UAPI admission. Header and timer
+range fields remain quoted strings; all existing managed bounds still apply.
+This source correction is not an installed handshake or packet-size result.
+
 H1–H4 use uint32 ordered, pairwise nonoverlapping ranges;
 legacy v1/v2 admission additionally requires each minimum >4, or its exact
 corresponding default singleton 1/2/3/4. Other low-header values/ranges stay

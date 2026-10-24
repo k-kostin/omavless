@@ -5,7 +5,8 @@ use base64::engine::general_purpose::STANDARD;
 use omavless_domain::config::assemble_runtime_config;
 use omavless_domain::private_store::{
     CompatibilityPointerTarget, PrivateStoreError, apply_candidate_compatibility_pointer_update,
-    apply_compatibility_pointer_update, parse_candidate_private_store, parse_private_store,
+    apply_compatibility_pointer_update, apply_profile_import, parse_candidate_private_store,
+    parse_private_store,
 };
 use omavless_domain::routing::{CustomRule, template_with_mode};
 use omavless_profile::wireguard::parse_wireguard_config;
@@ -146,6 +147,58 @@ fn four_uri_families_keep_legacy_config_parity_inside_a_mixed_store() {
                 new.expose_private_bytes() == old.as_bytes(),
                 "URI rendering stays unchanged"
             );
+        }
+    }
+}
+
+#[test]
+fn normal_store_preserves_awg_decimal_source_but_prepares_canonical_numeric_yaml() {
+    for generation in 1..=4 {
+        let input = native(generation)
+            .replace("Jc = 4\n", "Jc = 0004\n")
+            .replace("Jmin = 10\n", "Jmin = 0010\n")
+            .replace("Jmax = 30\n", "Jmax = +0030\n")
+            .replace("S1 = 20\n", "S1 = 00020\n")
+            .replace("S2 = 25\n", "S2 = 00025\n")
+            .replace("S3 = 30\n", "S3 = 00030\n")
+            .replace("S4 = 35\n", "S4 = 00035\n");
+        let imported = apply_profile_import(&base().to_string(), WG_ID, NAME, &input).unwrap();
+        let stored: Value = serde_json::from_slice(imported.payload()).unwrap();
+        let store = parse_private_store(std::str::from_utf8(imported.payload()).unwrap()).unwrap();
+        assert_eq!(store.managed_connection_compatibility(WG_ID), Ok(()));
+        for mode in ["global", "rule", "direct"] {
+            let prepared = store
+                .prepare_config_mode(WG_ID, TEMPLATE, SOCKET, mode)
+                .unwrap();
+            for expected in [
+                "    jc: 4",
+                "    jmin: 10",
+                "    jmax: 30",
+                "    s1: 20",
+                "    s2: 25",
+            ] {
+                assert!(prepared.lines().any(|line| line == expected));
+            }
+            if generation >= 2 {
+                assert!(prepared.lines().any(|line| line == "    s3: 30"));
+                assert!(prepared.lines().any(|line| line == "    s4: 35"));
+            }
+        }
+        let exported = store.profile_credential_export(WG_ID).unwrap();
+        let private = std::str::from_utf8(exported.expose_private_bytes()).unwrap();
+        assert!(private.contains("Jmin = 0010\n") && private.contains("Jmax = +0030\n"));
+        assert!(private.contains("S1 = 00020\n") && private.contains("S2 = 00025\n"));
+        let restored = parse_wireguard_config(private).unwrap();
+        assert_eq!(
+            restored.subscription_identity(),
+            parse_wireguard_config(&input)
+                .unwrap()
+                .subscription_identity()
+        );
+        let original = base();
+        assert_eq!(stored["profiles"][0], original["profiles"][0]);
+        for key in ["activeId", "lastId", "startup", "customRules", "vendorRoot"] {
+            assert_eq!(stored[key], original[key]);
         }
     }
 }
