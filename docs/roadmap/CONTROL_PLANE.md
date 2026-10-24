@@ -449,7 +449,23 @@ and exportable but are not currently connection-admitted.
 
 Nonconstant peer keepalive ranges are retained privately but explicitly
 unsupported for execution, never lowered to a minimum. Constant intervals
-remain representable. H1–H4 use uint32 ordered, pairwise nonoverlapping ranges;
+remain representable. A scalar `PersistentKeepalive = 0` explicitly disables
+persistent keepalive; it survives private store/export as zero and renders as
+`persistent-keepalive: 0`, distinct from an omitted field. Positive scalar
+intervals retain their uint16 bound. Zero-containing ranges remain rejected;
+this scalar support does not introduce randomized range execution.
+
+The pinned corresponding source binds this interpretation: Mihomo's
+`adapter/outbound/wireguard.go` forwards a nonzero scalar to each explicit peer
+and leaves a fresh peer's default interval zero otherwise. Vendored standard
+WireGuard and AWG v1/v3 timers do not arm persistent keepalive for zero.
+This does not disable ordinary authenticated handshake/data timers, prove
+installed timer behavior or widen any managed family/traffic-ready gate.
+Earlier strict readers rejected explicit zero. Newly stored zero values require
+the updated application; downgrade compatibility is not implied by unchanged
+private record/schema field names or by the source round-trip tests.
+
+H1–H4 use uint32 ordered, pairwise nonoverlapping ranges;
 legacy v1/v2 admission additionally requires each minimum >4, or its exact
 corresponding default singleton 1/2/3/4. Other low-header values/ranges stay
 private data but refuse connection because that engine would substitute defaults.

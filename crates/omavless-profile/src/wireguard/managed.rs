@@ -199,6 +199,7 @@ impl WireGuardProfile {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::wireguard::private_record::parse_private_wireguard_record;
 
     fn config(generation: u8) -> String {
         let mut fields = String::new();
@@ -225,6 +226,100 @@ mod tests {
         parse_wireguard_config(input)
             .unwrap()
             .managed_compatibility()
+    }
+
+    #[test]
+    fn explicit_disabled_keepalive_survives_private_roundtrip_and_managed_render() {
+        let input = config(0).replace("PersistentKeepalive = 25", "PersistentKeepalive = 0");
+        let profile = parse_wireguard_config(&input).unwrap();
+        let original = profile.private_record().unwrap();
+        let restored = parse_private_wireguard_record(original.expose_private_bytes()).unwrap();
+        let exported = restored.private_config().unwrap();
+        assert!(
+            std::str::from_utf8(exported.expose_private_bytes())
+                .unwrap()
+                .contains("PersistentKeepalive = 0\n")
+        );
+        let reparsed =
+            parse_wireguard_config(std::str::from_utf8(exported.expose_private_bytes()).unwrap())
+                .unwrap();
+        assert_eq!(reparsed.managed_compatibility(), Ok(()));
+        let rendered = reparsed.render_mihomo_proxy("Test", None).unwrap();
+        assert!(
+            rendered
+                .lines()
+                .any(|line| line == "  persistent-keepalive: 0")
+        );
+        assert_eq!(
+            reparsed.private_record().unwrap().expose_private_bytes(),
+            original.expose_private_bytes()
+        );
+        let omitted =
+            parse_wireguard_config(&config(0).replace("PersistentKeepalive = 25\n", "")).unwrap();
+        assert!(
+            !omitted
+                .render_mihomo_proxy("Test", None)
+                .unwrap()
+                .contains("persistent-keepalive:")
+        );
+        assert_ne!(
+            profile.subscription_identity(),
+            omitted.subscription_identity()
+        );
+    }
+
+    #[test]
+    fn scalar_keepalive_bounds_do_not_widen_range_or_family_admission() {
+        for generation in 0..=4 {
+            let base = config(generation);
+            for value in ["0", "1", "65535"] {
+                let input = base.replace(
+                    "PersistentKeepalive = 25",
+                    &format!("PersistentKeepalive = {value}"),
+                );
+                let profile = parse_wireguard_config(&input).unwrap();
+                assert_eq!(profile.managed_compatibility(), Ok(()));
+                assert!(
+                    profile
+                        .render_mihomo_proxy("Test", None)
+                        .unwrap()
+                        .lines()
+                        .any(|line| line == format!("  persistent-keepalive: {value}"))
+                );
+                assert_eq!(
+                    profile.render_mihomo_proxy("Test", Some("2001:db8::2")),
+                    Err(ManagedCompatibilityError::Ipv4Only)
+                );
+            }
+            for value in ["-1", "65536", "off", "false", "0-0", "0-25"] {
+                let input = base.replace(
+                    "PersistentKeepalive = 25",
+                    &format!("PersistentKeepalive = {value}"),
+                );
+                assert_eq!(
+                    parse_wireguard_config(&input).unwrap_err(),
+                    WireGuardError::InvalidKeepalive
+                );
+            }
+            let ranged = base.replace("PersistentKeepalive = 25", "PersistentKeepalive = 1-2");
+            if generation == 0 {
+                assert_eq!(
+                    parse_wireguard_config(&ranged).unwrap_err(),
+                    WireGuardError::InvalidKeepalive
+                );
+            } else {
+                let profile = parse_wireguard_config(&ranged).unwrap();
+                assert_eq!(
+                    profile.managed_compatibility(),
+                    Err(ManagedCompatibilityError::KeepaliveRange)
+                );
+                assert!(
+                    std::str::from_utf8(profile.private_config().unwrap().expose_private_bytes())
+                        .unwrap()
+                        .contains("PersistentKeepalive = 1-2\n")
+                );
+            }
+        }
     }
 
     #[test]
