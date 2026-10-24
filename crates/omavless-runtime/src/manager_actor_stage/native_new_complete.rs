@@ -763,6 +763,68 @@ impl NativeEngine {
         result
     }
 
+    /// One fixed process-loss point; a living caller gets only refusal/revoke.
+    /// No external step, PID, path, ordinary release or successful return.
+    pub(super) fn lose_new_complete_at_history_synced_inner<O: NativeGate>(
+        &mut self,
+        origin: &mut O,
+        uid: u32,
+        generation: u64,
+        desired: &[u8],
+        until: Instant,
+    ) -> Result<(), FirstError> {
+        let result = (|| {
+            if self.complete_presence().ok() != Some(NewCompletePresence::ClosureTicketComplete)
+                || !self
+                    .audit
+                    .target()
+                    .is_ok_and(|target| native_history::NAMES[1..].contains(&target))
+                || self.history
+                || self.disposition_done
+            {
+                return Err(FirstError::StillFenced);
+            }
+            self.check_new_complete_completed_inner(origin, until)?;
+            self.dispose_new_complete_inner(
+                origin,
+                uid,
+                generation,
+                desired,
+                &mut |step| {
+                    if step == NativeStep::HistorySynced {
+                        // Launcher owns this already-nonblocking channel. Readiness
+                        // is sampled, never a promise that this best-effort witness
+                        // will arrive. No OFD mutation, stream lock, flush or retry.
+                        let stderr = std::io::stderr();
+                        if let Ok(metadata) = nix::sys::stat::fstat(&stderr)
+                            && nix::sys::stat::SFlag::from_bits_truncate(metadata.st_mode)
+                                == nix::sys::stat::SFlag::S_IFIFO
+                            && let Ok(flags) =
+                                nix::fcntl::fcntl(&stderr, nix::fcntl::FcntlArg::F_GETFL)
+                            && nix::fcntl::OFlag::from_bits_truncate(flags)
+                                .contains(nix::fcntl::OFlag::O_NONBLOCK)
+                        {
+                            let _ = nix::unistd::write(
+                                &stderr,
+                                b"T4_HISTORY_SYNCED_PROCESS_LOSS_REACHED\n",
+                            );
+                        }
+                        let _ = nix::sys::signal::kill(
+                            nix::unistd::Pid::this(),
+                            nix::sys::signal::Signal::SIGKILL,
+                        );
+                        return Err(FirstError::StillFenced);
+                    }
+                    Ok(())
+                },
+                until,
+            )?;
+            Err(FirstError::StillFenced) // absent checkpoint cannot report completion
+        })();
+        self.revoke_native();
+        result
+    }
+
     #[allow(clippy::too_many_arguments)] // private closed finish/fault boundary
     fn dispose_new_complete_mode<O: NativeGate>(
         &mut self,

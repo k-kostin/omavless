@@ -103,6 +103,8 @@ enum SelfInvocation {
     ClosureCut,
     #[cfg(feature = "t4-manager-actor-service")]
     CompleteOnlyCut,
+    #[cfg(feature = "t4-manager-actor-service")]
+    HistorySyncedLoss,
     #[cfg(test)]
     Diagnostic,
 }
@@ -127,7 +129,7 @@ impl SelfInvocation {
     fn progress(self) -> RecoveryProgress {
         if matches!(
             self,
-            Self::OldRecovery | Self::ClosureCut | Self::CompleteOnlyCut
+            Self::OldRecovery | Self::ClosureCut | Self::CompleteOnlyCut | Self::HistorySyncedLoss
         ) {
             RecoveryProgress::DiagnosticCli
         } else {
@@ -138,7 +140,11 @@ impl SelfInvocation {
     fn lost_owner_recovery(self) -> bool {
         matches!(
             self,
-            Self::OldRecovery | Self::ConsumerRecovery | Self::ClosureCut | Self::CompleteOnlyCut
+            Self::OldRecovery
+                | Self::ConsumerRecovery
+                | Self::ClosureCut
+                | Self::CompleteOnlyCut
+                | Self::HistorySyncedLoss
         )
     }
 
@@ -153,6 +159,8 @@ impl SelfInvocation {
             Self::ClosureCut => closure_cut_self(command),
             #[cfg(feature = "t4-manager-actor-service")]
             Self::CompleteOnlyCut => complete_only_cut_self(command),
+            #[cfg(feature = "t4-manager-actor-service")]
+            Self::HistorySyncedLoss => history_synced_loss_self(command),
             #[cfg(test)]
             Self::Diagnostic => super::diagnostic::exact_self(&arguments(command)?),
         }
@@ -550,6 +558,22 @@ fn complete_only_cut_self(command: &[u8]) -> Result<()> {
                 b"developer".as_slice(),
                 b"cut-new-complete-only-with-history",
                 b"--confirm-private-history-complete-only-cut",
+            ]
+    {
+        return Err(());
+    }
+    Ok(())
+}
+
+#[cfg(feature = "t4-manager-actor-service")]
+fn history_synced_loss_self(command: &[u8]) -> Result<()> {
+    let args = arguments(command)?;
+    if args.len() != 4
+        || args[1..]
+            != [
+                b"developer".as_slice(),
+                b"lose-new-complete-at-history-synced",
+                b"--confirm-private-history-synced-process-loss",
             ]
     {
         return Err(());
@@ -1600,6 +1624,10 @@ impl OldRecoveryOwner {
         Self::prepare_inner(uid, socket, SelfInvocation::CompleteOnlyCut)
     }
 
+    pub(crate) fn prepare_history_synced_loss(uid: u32, socket: &Path) -> Result<Self> {
+        Self::prepare_inner(uid, socket, SelfInvocation::HistorySyncedLoss)
+    }
+
     fn prepare_inner(uid: u32, socket: &Path, invocation: SelfInvocation) -> Result<Self> {
         // Reserve original command custody without a process query/capture.
         // The caller installs this guard before qualification can spawn a child.
@@ -2337,6 +2365,32 @@ mod tests {
             b"binary\0developer\0cut-new-complete-only-with-history\0--confirm-private-history-complete-only-cut\0extra\0".as_slice(),
             b"binary\0developer\0cut-new-complete-only-with-history\0--confirm-private-history-complete-only-cut".as_slice(),
             b"\0developer\0cut-new-complete-only-with-history\0--confirm-private-history-complete-only-cut\0".as_slice(),
+            b"binary\0tui\0".as_slice(),
+        ] { assert!(invocation.validate(wrong).is_err()); }
+    }
+
+    #[cfg(feature = "t4-manager-actor-service")]
+    #[test]
+    fn history_synced_loss_self_is_exact_distinct_and_keeps_lost_owner_custody() {
+        let command = b"/usr/bin/omavless\0developer\0lose-new-complete-at-history-synced\0--confirm-private-history-synced-process-loss\0";
+        let invocation = SelfInvocation::HistorySyncedLoss;
+        assert!(invocation.validate(command).is_ok());
+        assert!(invocation.lost_owner_recovery() && invocation.progress().enabled());
+        for other in [
+            SelfInvocation::CompleteOnlyCut,
+            SelfInvocation::ClosureCut,
+            SelfInvocation::Recovery,
+            SelfInvocation::OldRecovery,
+            SelfInvocation::ConsumerRecovery,
+        ] {
+            assert!(other.validate(command).is_err());
+        }
+        for wrong in [
+            b"binary\0developer\0cut-new-complete-only-with-history\0--confirm-private-history-complete-only-cut\0".as_slice(),
+            b"binary\0developer\0lose-new-complete-at-history-synced\0--confirm-private-history-complete-only-cut\0".as_slice(),
+            b"binary\0developer\0lose-new-complete-at-history-synced\0--confirm-private-history-synced-process-loss\0extra\0".as_slice(),
+            b"binary\0developer\0lose-new-complete-at-history-synced\0--confirm-private-history-synced-process-loss".as_slice(),
+            b"\0developer\0lose-new-complete-at-history-synced\0--confirm-private-history-synced-process-loss\0".as_slice(),
             b"binary\0tui\0".as_slice(),
         ] { assert!(invocation.validate(wrong).is_err()); }
     }

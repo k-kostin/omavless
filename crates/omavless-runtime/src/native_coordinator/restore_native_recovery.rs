@@ -64,6 +64,7 @@ enum FreshRecoveryMode {
     CutNewCompleteAfterClosure,
     CutNewCompleteAfterClosureWithHistory,
     CutNewCompleteOnlyWithHistory,
+    LoseNewCompleteAtHistorySynced,
 }
 
 impl FreshRecoveryMode {
@@ -73,12 +74,15 @@ impl FreshRecoveryMode {
             Self::CutNewCompleteAfterClosure
                 | Self::CutNewCompleteAfterClosureWithHistory
                 | Self::CutNewCompleteOnlyWithHistory
+                | Self::LoseNewCompleteAtHistorySynced
         )
     }
     fn admits_closure_cut(self, observed: &crate::restore_recovery_preview::Preview) -> bool {
         match self {
             Self::CutNewCompleteAfterClosure => observed.is_closure_cut_source(),
-            Self::CutNewCompleteAfterClosureWithHistory | Self::CutNewCompleteOnlyWithHistory => {
+            Self::CutNewCompleteAfterClosureWithHistory
+            | Self::CutNewCompleteOnlyWithHistory
+            | Self::LoseNewCompleteAtHistorySynced => {
                 observed.is_history_preserving_closure_cut_source()
             }
             _ => false,
@@ -93,7 +97,9 @@ type QuiescencePreparer = fn(
 ) -> Result<NativeOldRecoveryQuiescence, FirstError>;
 
 fn quiescence_preparer(mode: FreshRecoveryMode, previewed: bool) -> QuiescencePreparer {
-    if mode == FreshRecoveryMode::CutNewCompleteOnlyWithHistory {
+    if mode == FreshRecoveryMode::LoseNewCompleteAtHistorySynced {
+        NativeOldRecoveryQuiescence::prepare_history_synced_loss
+    } else if mode == FreshRecoveryMode::CutNewCompleteOnlyWithHistory {
         NativeOldRecoveryQuiescence::prepare_complete_only_cut
     } else if mode.closure_cut() {
         NativeOldRecoveryQuiescence::prepare_closure_cut
@@ -160,6 +166,26 @@ enum RecoveredPairChoice {
     NewComplete,
 }
 
+#[cfg(test)]
+#[test]
+fn history_synced_loss_selects_only_its_exact_stopped_owner_constructor() {
+    let fixed: QuiescencePreparer = NativeOldRecoveryQuiescence::prepare_history_synced_loss;
+    for previewed in [false, true] {
+        let actual =
+            quiescence_preparer(FreshRecoveryMode::LoseNewCompleteAtHistorySynced, previewed);
+        assert!(std::ptr::fn_addr_eq(actual, fixed));
+        let wrong: [QuiescencePreparer; 4] = [
+            NativeOldRecoveryQuiescence::prepare,
+            NativeOldRecoveryQuiescence::prepare_consumer,
+            NativeOldRecoveryQuiescence::prepare_closure_cut,
+            NativeOldRecoveryQuiescence::prepare_complete_only_cut,
+        ];
+        for wrong in wrong {
+            assert!(!std::ptr::fn_addr_eq(actual, wrong));
+        }
+    }
+}
+
 #[cfg(all(test, not(feature = "product-private-backup")))]
 #[test]
 fn closure_cut_wrong_prefix_refuses_before_native_capture_or_stop() {
@@ -196,6 +222,17 @@ fn closure_cut_wrong_prefix_refuses_before_native_capture_or_stop() {
             "complete-only-history:unknown",
             "complete-only-history:ticket-complete",
             "complete-only-history:complete-only",
+            "history-synced:history:one",
+            "history-synced:history:seven",
+            "history-synced:history:empty",
+            "history-synced:history:full",
+            "history-synced:history:gap",
+            "history-synced:history:corrupt",
+            "history-synced:history:mode",
+            "history-synced:history:hardlink",
+            "history-synced:history:unknown",
+            "history-synced:history:ticket-complete",
+            "history-synced:history:complete-only",
         ] {
             let result = std::process::Command::new(std::env::current_exe().unwrap())
                 .args(["--exact", &test, "--test-threads=1"])
@@ -210,9 +247,13 @@ fn closure_cut_wrong_prefix_refuses_before_native_capture_or_stop() {
         return;
     };
     let case = case.to_str().unwrap();
+    let history_synced_loss = case.starts_with("history-synced:");
+    let case = case.strip_prefix("history-synced:").unwrap_or(case);
     let complete_only_cut = case.starts_with("complete-only-history:");
     let case = case.strip_prefix("complete-only-").unwrap_or(case);
-    let mode = if complete_only_cut {
+    let mode = if history_synced_loss {
+        FreshRecoveryMode::LoseNewCompleteAtHistorySynced
+    } else if complete_only_cut {
         FreshRecoveryMode::CutNewCompleteOnlyWithHistory
     } else if case.starts_with("history:") {
         FreshRecoveryMode::CutNewCompleteAfterClosureWithHistory
@@ -1560,6 +1601,27 @@ impl FreshRecovery {
         )
     }
 
+    pub(crate) fn lose_new_complete_at_history_synced(
+        self,
+        source: &Path,
+        passphrase: &[u8],
+        paths: CutoverPaths,
+        desired_paths: DesiredPaths,
+        host_paths: NativeHostPaths,
+        uid: u32,
+    ) -> Result<(), FirstError> {
+        self.cut_new_complete_for_mode(
+            source,
+            passphrase,
+            paths,
+            desired_paths,
+            host_paths,
+            uid,
+            FreshRecoveryMode::LoseNewCompleteAtHistorySynced,
+        )
+        .and(Err(FirstError::StillFenced))
+    }
+
     #[allow(clippy::too_many_arguments)] // closed consuming producers, no caller step
     fn cut_new_complete_for_mode(
         mut self,
@@ -1646,6 +1708,9 @@ impl FreshRecovery {
                     .cut_native_new_complete_after_closure_with_history(&mut origin, quiescence),
                 FreshRecoveryMode::CutNewCompleteOnlyWithHistory => {
                     engine.cut_native_new_complete_only_with_history(&mut origin, quiescence)
+                }
+                FreshRecoveryMode::LoseNewCompleteAtHistorySynced => {
+                    engine.lose_native_new_complete_at_history_synced(&mut origin, quiescence)
                 }
                 _ => Err(FirstError::Admission),
             }
@@ -2384,6 +2449,7 @@ impl FreshRecovery {
                 | FreshRecoveryMode::CutNewCompleteAfterClosure
                 | FreshRecoveryMode::CutNewCompleteAfterClosureWithHistory
                 | FreshRecoveryMode::CutNewCompleteOnlyWithHistory
+                | FreshRecoveryMode::LoseNewCompleteAtHistorySynced
         );
         // Fixed development-driver phases only: no paths, archive data, errors
         // or credentials. Diagnostics must never alter recovery success.
@@ -2554,6 +2620,7 @@ impl FreshRecovery {
                 | FreshRecoveryMode::CutNewCompleteAfterClosure
                 | FreshRecoveryMode::CutNewCompleteAfterClosureWithHistory
                 | FreshRecoveryMode::CutNewCompleteOnlyWithHistory
+                | FreshRecoveryMode::LoseNewCompleteAtHistorySynced
         ) {
             if let Some(expected) = &closure_cut_preview {
                 let current = crate::restore_recovery_preview::inspect_authenticated(
@@ -2581,7 +2648,8 @@ impl FreshRecovery {
                 FreshRecoveryMode::NewCompleteOutput
                 | FreshRecoveryMode::CutNewCompleteAfterClosure
                 | FreshRecoveryMode::CutNewCompleteAfterClosureWithHistory
-                | FreshRecoveryMode::CutNewCompleteOnlyWithHistory => {
+                | FreshRecoveryMode::CutNewCompleteOnlyWithHistory
+                | FreshRecoveryMode::LoseNewCompleteAtHistorySynced => {
                     engine.qualify_native_new_complete(&mut origin, backup, quiescence)
                 }
                 FreshRecoveryMode::NewTicketOutput => {

@@ -134,6 +134,9 @@ fn worker() {
         "before-rename" => Some(NativeStep::HistoryRenamePrepared),
         "after-rename" => Some(NativeStep::HistoryRenamed),
         "after-sync" => Some(NativeStep::HistorySynced),
+        "fixed-producer" | "fixed-producer-full" | "fixed-producer-broken" => {
+            Some(NativeStep::HistorySynced)
+        }
         "normal" => None,
         _ => panic!("closed test selector"),
     };
@@ -164,7 +167,11 @@ fn worker() {
         true,
         [MEMBERS[0], MEMBERS[1], &new, backup.template()],
     )
-    .with_complete(NewCompletePresence::CompleteOnly);
+    .with_complete(if value.starts_with("fixed-producer") {
+        NewCompletePresence::ClosureTicketComplete
+    } else {
+        NewCompletePresence::CompleteOnly
+    });
     let _past = prior_audits(&f.state, 1);
     let p = paths(&f.root);
     let uid = nix::unistd::getuid().as_raw();
@@ -191,6 +198,19 @@ fn worker() {
         &serde_json::to_vec(&baseline).unwrap(),
     ));
     f.capture("positive").unwrap();
+    if value.starts_with("fixed-producer") {
+        let until = Instant::now() + Duration::from_secs(15);
+        f.engine
+            .qualify_new_complete_inner(&mut f.gate, &mut |_| Ok(()), until)
+            .unwrap();
+        let result =
+            f.engine
+                .lose_new_complete_at_history_synced_inner(&mut f.gate, uid, 2, DESIRED, until);
+        assert!(result.is_err());
+        assert!(f.engine.sealed && !f.engine.disposition_ready() && !f.engine.ordinary_handoff);
+        drop(write(&control.join("reached"), b"living-refusal-revoked"));
+        panic!("fixed producer must terminate its original child, never return");
+    }
     f.finish_with(&mut |event| {
         if selected == Some(event) {
             let witness = match event {
@@ -237,6 +257,18 @@ fn native_loss_after_history_rename_retains_data_but_not_recovery_authority() {
 }
 
 #[test]
+fn fixed_native_history_synced_producer_loses_original_child_and_keeps_history_only() {
+    verify_case("fixed-producer");
+}
+
+#[test]
+fn fixed_native_history_synced_loss_does_not_block_on_late_full_or_broken_witness() {
+    for case in ["fixed-producer-full", "fixed-producer-broken"] {
+        verify_case(case);
+    }
+}
+
+#[test]
 fn native_history_worker_default_and_unknown_selector_create_no_data() {
     let quarantine: Quarantine = Rc::new(Cell::new(false));
     for selected in [None, Some("not-a-cut")] {
@@ -274,15 +306,42 @@ fn native_history_worker_default_and_unknown_selector_create_no_data() {
 fn verify_case(selected: &str) {
     let parent = crate::test_temp::home_parent().unwrap();
     let control = crate::test_temp::directory_under(&parent, "history-loss").unwrap();
-    let child = Command::new(std::env::current_exe().unwrap())
+    // This native-inner-only worker has exactly one fixed diagnostic write.
+    // Its pipe starts empty/nonblocking, no other writer or flag mutation.
+    let witness_pipe = selected.starts_with("fixed-producer").then(|| {
+        nix::unistd::pipe2(nix::fcntl::OFlag::O_NONBLOCK | nix::fcntl::OFlag::O_CLOEXEC).unwrap()
+    });
+    let mut full_bytes = 0;
+    if selected == "fixed-producer-full" {
+        let (_, writer) = witness_pipe.as_ref().unwrap();
+        for _ in 0..4096 {
+            match nix::unistd::write(writer, &[0; 4096]) {
+                Ok(4096) => full_bytes += 4096,
+                Err(nix::errno::Errno::EAGAIN) => break,
+                _ => panic!("bounded synthetic witness fill failed"),
+            }
+        }
+        assert!(full_bytes > 0 && full_bytes < 4096 * 4096);
+    }
+    let (witness_reader, witness_writer) = match witness_pipe {
+        Some((reader, writer)) if selected == "fixed-producer-broken" => {
+            drop(reader);
+            (None, Stdio::from(writer))
+        }
+        Some((reader, writer)) => (Some(reader), Stdio::from(writer)),
+        None => (None, Stdio::inherit()),
+    };
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command
         .arg("--exact")
         .arg(worker_name())
         .arg("--nocapture")
         .env(ROOT_ENV, &control)
         .env(CUT_ENV, selected)
         .stdin(Stdio::null())
-        .spawn()
-        .unwrap();
+        .stderr(witness_writer);
+    let child = command.spawn().unwrap();
+    drop(command); // no extra writer survives original child submission
     let pid = nix::unistd::Pid::from_raw(i32::try_from(child.id()).unwrap());
     let quarantine: Quarantine = Rc::new(Cell::new(false));
     let mut child = OwnedProcess::new(child, &quarantine);
@@ -292,13 +351,43 @@ fn verify_case(selected: &str) {
     if selected == "normal" {
         assert_eq!(status, WaitStatus::Exited(pid, 0));
     } else {
-        assert_eq!(status, WaitStatus::Signaled(pid, Signal::SIGKILL, false));
+        let living_refusal_revoked =
+            fs::read(control.join("reached")).is_ok_and(|bytes| bytes == b"living-refusal-revoked");
+        assert_eq!(
+            status,
+            WaitStatus::Signaled(pid, Signal::SIGKILL, false),
+            "living_refusal_revoked={living_refusal_revoked}"
+        );
     }
     assert!(!quarantine.get());
-    assert_eq!(
-        fs::read(control.join("reached")).unwrap(),
-        selected.as_bytes()
-    );
+    if let Some(reader) = witness_reader {
+        let mut bytes = [0; 4096];
+        if full_bytes > 0 {
+            let mut total = 0;
+            for _ in 0..4097 {
+                let count = nix::unistd::read(&reader, &mut bytes).unwrap();
+                if count == 0 {
+                    break;
+                }
+                assert!(bytes[..count].iter().all(|byte| *byte == 0));
+                total += count;
+                assert!(total <= full_bytes);
+            }
+            assert_eq!(total, full_bytes); // missing witness is deliberately NOT qualifying loss
+        } else {
+            let count = nix::unistd::read(&reader, &mut bytes).unwrap();
+            assert_eq!(&bytes[..count], b"T4_HISTORY_SYNCED_PROCESS_LOSS_REACHED\n");
+            assert_eq!(nix::unistd::read(&reader, &mut bytes).unwrap(), 0);
+        }
+        assert!(!control.join("reached").exists()); // no synthetic callback witness
+    } else if selected == "fixed-producer-broken" {
+        assert!(!control.join("reached").exists()); // no receiver/witness qualification
+    } else {
+        assert_eq!(
+            fs::read(control.join("reached")).unwrap(),
+            selected.as_bytes()
+        );
+    }
     let raw = fs::read(control.join("baseline.json")).unwrap();
     assert!(raw.len() < 1024 * 1024);
     let baseline: Baseline = serde_json::from_slice(&raw).unwrap();
