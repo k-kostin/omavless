@@ -440,7 +440,13 @@ inactive data import/edit and explicit Disconnect/Quit remain available. Invalid
 or missing reports never fall back to legacy configured-only readiness. See
 the [core report contract](../../tests/core_dns_adapter/TRAFFIC_READY.md).
 
-Initial managed admission requires IPv4 interface/AllowedIPs/endpoint transport.
+Initial managed admission requires IPv4 interface/AllowedIPs/endpoint transport
+and IPv4 imported DNS servers, when present. The pinned core sends imported DNS
+through the same WG outbound; an IPv4-only local address and peer AllowedIPs do
+not provide an IPv6 path to a DNS server. IPv6 or mixed DNS remains private data
+for editing/export, but refuses execution before intent/quiesce rather than
+dropping the IPv6 entry, falling back to system DNS or widening the tunnel.
+An omitted DNS setting stays omitted; IPv4 DNS lists retain their exact order.
 The renderer fixes one `peers[]` entry with its exact endpoint/public key/PSK
 and AllowedIPs; the adapter's synthesized root-peer path ignores root
 AllowedIPs. Per-proxy `ip-version: ipv4` also constrains hostname resolution,

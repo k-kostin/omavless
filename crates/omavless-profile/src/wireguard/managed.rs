@@ -108,6 +108,11 @@ impl WireGuardProfile {
         if self.addresses.iter().any(|ip| ip.address.is_ipv6())
             || self.allowed_ips.iter().any(|ip| ip.address.is_ipv6())
             || self.endpoint.kind == HostKind::Ipv6
+            || self.dns.iter().any(|dns| {
+                dns.parse::<IpAddr>()
+                    .expect("DNS addresses were validated")
+                    .is_ipv6()
+            })
         {
             return Err(E::Ipv4Only);
         }
@@ -405,6 +410,26 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn ipv6_dns_remains_private_data_but_cannot_enter_an_ipv4_only_tunnel() {
+        let input = config(0).replace("[Peer]", "DNS = 2001:db8::53\n[Peer]");
+        let profile = parse_wireguard_config(&input).unwrap();
+        let original = profile.private_record().unwrap();
+        assert_eq!(
+            profile.render_mihomo_proxy("Test", None),
+            Err(ManagedCompatibilityError::Ipv4Only)
+        );
+        assert!(
+            std::str::from_utf8(profile.private_config().unwrap().expose_private_bytes())
+                .unwrap()
+                .contains("DNS = 2001:db8::53\n")
+        );
+        assert_eq!(
+            profile.private_record().unwrap().expose_private_bytes(),
+            original.expose_private_bytes()
+        );
     }
 
     #[test]
