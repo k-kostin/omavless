@@ -8,7 +8,12 @@ use crate::restore_old_stopped::NativeOldRecoveryQuiescence;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use zeroize::Zeroizing;
+#[cfg(test)]
+#[path = "restore_recovery_observation_tests.rs"]
+mod observation_tests;
 static RECOVERY_RESERVED: AtomicBool = AtomicBool::new(false);
+#[cfg(test)]
+static CLOSURE_CUT_CAPTURE_BOUNDARY_REACHED: AtomicBool = AtomicBool::new(false);
 
 #[cfg(test)]
 #[test]
@@ -56,6 +61,77 @@ enum FreshRecoveryMode {
     FinalNewOutput,
     NewTicketOutput,
     NewCompleteOutput,
+    CutNewCompleteAfterClosure,
+    CutNewCompleteAfterClosureWithHistory,
+}
+
+impl FreshRecoveryMode {
+    fn closure_cut(self) -> bool {
+        matches!(
+            self,
+            Self::CutNewCompleteAfterClosure | Self::CutNewCompleteAfterClosureWithHistory
+        )
+    }
+    fn admits_closure_cut(self, observed: &crate::restore_recovery_preview::Preview) -> bool {
+        match self {
+            Self::CutNewCompleteAfterClosure => observed.is_closure_cut_source(),
+            Self::CutNewCompleteAfterClosureWithHistory => {
+                observed.is_history_preserving_closure_cut_source()
+            }
+            _ => false,
+        }
+    }
+}
+
+type QuiescencePreparer = fn(
+    &CutoverPaths,
+    u32,
+    Arc<OnceLock<MigrationLock>>,
+) -> Result<NativeOldRecoveryQuiescence, FirstError>;
+
+fn quiescence_preparer(mode: FreshRecoveryMode, previewed: bool) -> QuiescencePreparer {
+    if mode.closure_cut() {
+        NativeOldRecoveryQuiescence::prepare_closure_cut
+    } else if previewed {
+        NativeOldRecoveryQuiescence::prepare_consumer
+    } else {
+        NativeOldRecoveryQuiescence::prepare
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn closure_cut_mode_selects_only_its_fixed_stopped_owner_constructor() {
+    // Closed invocation identity is the boundary under test. Calling a real
+    // stopped-owner constructor here would query host processes/manager.
+    let fixed: QuiescencePreparer = NativeOldRecoveryQuiescence::prepare_closure_cut;
+    for mode in [
+        FreshRecoveryMode::CutNewCompleteAfterClosure,
+        FreshRecoveryMode::CutNewCompleteAfterClosureWithHistory,
+    ] {
+        for previewed in [false, true] {
+            assert!(std::ptr::fn_addr_eq(
+                quiescence_preparer(mode, previewed),
+                fixed
+            ));
+        }
+    }
+    for mode in [
+        FreshRecoveryMode::NewCompleteOutput,
+        FreshRecoveryMode::NewTicketOutput,
+        FreshRecoveryMode::RecoverOldToCompletion,
+    ] {
+        let legacy: QuiescencePreparer = NativeOldRecoveryQuiescence::prepare;
+        let consumer: QuiescencePreparer = NativeOldRecoveryQuiescence::prepare_consumer;
+        assert!(std::ptr::fn_addr_eq(
+            quiescence_preparer(mode, false),
+            legacy
+        ));
+        assert!(std::ptr::fn_addr_eq(
+            quiescence_preparer(mode, true),
+            consumer
+        ));
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -66,6 +142,175 @@ enum RecoveredPairChoice {
     FinalNew,
     NewTicket,
     NewComplete,
+}
+
+#[cfg(all(test, not(feature = "product-private-backup")))]
+#[test]
+fn closure_cut_wrong_prefix_refuses_before_native_capture_or_stop() {
+    const PROBE: &str = "OMAVLESS_SOURCE_CLOSURE_CUT_PREFLIGHT";
+    let Some(case) = std::env::var_os(PROBE) else {
+        let test = format!(
+            "{}::closure_cut_wrong_prefix_refuses_before_native_capture_or_stop",
+            module_path!().split_once("::").unwrap().1
+        );
+        for case in [
+            "all-three",
+            "ticket-complete",
+            "complete-only",
+            "prior-history",
+            "history:one",
+            "history:seven",
+            "history:empty",
+            "history:full",
+            "history:gap",
+            "history:corrupt",
+            "history:mode",
+            "history:hardlink",
+            "history:unknown",
+            "history:ticket-complete",
+            "history:complete-only",
+        ] {
+            let result = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", &test, "--test-threads=1"])
+                .env(PROBE, case)
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "fixed Source preflight child {case} failed"
+            );
+        }
+        return;
+    };
+    let case = case.to_str().unwrap();
+    let mode = if case.starts_with("history:") {
+        FreshRecoveryMode::CutNewCompleteAfterClosureWithHistory
+    } else {
+        FreshRecoveryMode::CutNewCompleteAfterClosure
+    };
+    use crate::restore_closure_model::CLOSURE_MEMBER;
+    use crate::restore_disposition_complete_model::COMPLETE_MEMBER;
+    use crate::restore_disposition_ticket_model::TICKET_MEMBER;
+    use crate::restore_executor_candidate::successor::tests::second;
+    use std::os::unix::fs::PermissionsExt;
+    let (f, lock, ticket, complete) = crate::restore_recovery_preview::tests::final_shape(true);
+    for (name, bytes) in [
+        (TICKET_MEMBER, ticket.encode().to_vec()),
+        (COMPLETE_MEMBER, complete.encode().to_vec()),
+    ] {
+        let path = f.paths.state_directory.join(name);
+        std::fs::write(&path, bytes).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    if matches!(
+        case,
+        "ticket-complete" | "complete-only" | "history:ticket-complete" | "history:complete-only"
+    ) {
+        std::fs::remove_file(f.paths.state_directory.join(CLOSURE_MEMBER)).unwrap();
+    }
+    if matches!(case, "complete-only" | "history:complete-only") {
+        std::fs::remove_file(f.paths.state_directory.join(TICKET_MEMBER)).unwrap();
+    }
+    let prior = match case {
+        "prior-history"
+        | "history:one"
+        | "history:corrupt"
+        | "history:mode"
+        | "history:hardlink"
+        | "history:unknown"
+        | "history:ticket-complete"
+        | "history:complete-only" => 1,
+        "history:seven" => 7,
+        "history:full" => 8,
+        _ => 0,
+    };
+    for index in 0..prior {
+        let name = if index == 0 {
+            "restore-disposition.history".to_owned()
+        } else {
+            format!("restore-disposition.history.{index}")
+        };
+        let path = f.paths.state_directory.join(name);
+        std::fs::write(&path, complete.encode()).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let first = f.paths.state_directory.join("restore-disposition.history");
+    match case {
+        "history:gap" => {
+            let path = f
+                .paths
+                .state_directory
+                .join("restore-disposition.history.1");
+            std::fs::write(&path, complete.encode()).unwrap();
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        "history:corrupt" => std::fs::write(&first, b"invalid audit").unwrap(),
+        "history:mode" => {
+            std::fs::set_permissions(&first, std::fs::Permissions::from_mode(0o644)).unwrap()
+        }
+        "history:hardlink" => std::fs::hard_link(&first, f.root.join("extra-audit-link")).unwrap(),
+        "history:unknown" => {
+            std::fs::write(
+                f.paths
+                    .state_directory
+                    .join("restore-disposition.history.8"),
+                complete.encode(),
+            )
+            .unwrap();
+        }
+        _ => {}
+    }
+    let archive = f.root.join("synthetic.ovb");
+    let password = b"Source synthetic preflight password";
+    std::fs::write(
+        &archive,
+        omavless_domain::private_backup::seal(second().store(), second().template(), password)
+            .unwrap(),
+    )
+    .unwrap();
+    std::fs::set_permissions(&archive, std::fs::Permissions::from_mode(0o600)).unwrap();
+    drop(lock);
+    let host = NativeHostPaths::new(
+        "/usr/lib/omavless-dns/mihomo".into(),
+        f.root.join("data"),
+        f.config.clone(),
+        f.paths.runtime_base.join("omavless"),
+        "/proc".into(),
+        "/sys/class/net".into(),
+    );
+    let desired = DesiredPaths {
+        directory: f.paths.state_directory.clone(),
+        file: f.paths.state_directory.join("desired.json"),
+    };
+    let mut recovery = FreshRecovery::reserve().unwrap();
+    assert!(
+        recovery
+            .recover_to_completion(
+                &archive,
+                password,
+                f.paths.clone(),
+                desired,
+                host,
+                f.uid,
+                mode
+            )
+            .is_err()
+    );
+    assert_eq!(
+        CLOSURE_CUT_CAPTURE_BOUNDARY_REACHED.load(Ordering::Acquire),
+        matches!(case, "all-three" | "history:one" | "history:seven")
+    );
+    assert!(recovery.old_quiescence.is_none() && recovery.normal_owner.is_none());
+    let slot = recovery.original.lock().unwrap();
+    let held = slot.as_ref().unwrap();
+    assert!(held.authenticated.is_some() && held.lock.get().is_some());
+    assert!(held.host.is_none() && held.facts.is_none());
+    assert!(held.boundary.as_ref().unwrap().directories.is_empty());
+    assert!(f.paths.state_directory.join(COMPLETE_MEMBER).exists());
+    assert_eq!(
+        f.paths.state_directory.join(TICKET_MEMBER).exists(),
+        !matches!(case, "complete-only" | "history:complete-only")
+    );
 }
 
 fn recovery_progress(previewed: bool) -> crate::restore_abort_cli::stopped_owner::RecoveryProgress {
@@ -1175,7 +1420,9 @@ impl NativeRecoveryOrigin<'_> {
                 !observation.owned_core_running
                     && observation.owned_auxiliary_mihomo_count == 0
                     && observation.visible_mihomo_count == 0
-                    && observation.visible_tun_count == 0
+                    // The real observer still inventories every interface and
+                    // refuses incomplete/ambiguous scope. A known foreign TUN
+                    // alone is neither our resource nor recovery authority.
                     && observation.managed_tun_count == 0
                     && !observation.owned_controller_config_verified
                     && !observation.desired_profile_matches_owned
@@ -1219,6 +1466,145 @@ impl NativeRecoveryOrigin<'_> {
 
 #[allow(dead_code)]
 impl FreshRecovery {
+    /// Fixed development producer for one later recovery prefix. Consumes this
+    /// fresh authenticated session; DATA success is NOT a typed release. Drop
+    /// retains the same original lock, engine and stopped-owner quiescence.
+    pub(crate) fn cut_new_complete_after_closure(
+        self,
+        source: &Path,
+        passphrase: &[u8],
+        paths: CutoverPaths,
+        desired_paths: DesiredPaths,
+        host_paths: NativeHostPaths,
+        uid: u32,
+    ) -> Result<(), FirstError> {
+        self.cut_new_complete_for_mode(
+            source,
+            passphrase,
+            paths,
+            desired_paths,
+            host_paths,
+            uid,
+            FreshRecoveryMode::CutNewCompleteAfterClosure,
+        )
+    }
+
+    pub(crate) fn cut_new_complete_after_closure_with_history(
+        self,
+        source: &Path,
+        passphrase: &[u8],
+        paths: CutoverPaths,
+        desired_paths: DesiredPaths,
+        host_paths: NativeHostPaths,
+        uid: u32,
+    ) -> Result<(), FirstError> {
+        self.cut_new_complete_for_mode(
+            source,
+            passphrase,
+            paths,
+            desired_paths,
+            host_paths,
+            uid,
+            FreshRecoveryMode::CutNewCompleteAfterClosureWithHistory,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)] // two closed consuming producers, no caller step
+    fn cut_new_complete_for_mode(
+        mut self,
+        source: &Path,
+        passphrase: &[u8],
+        paths: CutoverPaths,
+        desired_paths: DesiredPaths,
+        host_paths: NativeHostPaths,
+        uid: u32,
+        mode: FreshRecoveryMode,
+    ) -> Result<(), FirstError> {
+        if !crate::product_scope::restore_enabled() || !mode.closure_cut() {
+            return Err(FirstError::Admission);
+        }
+        self.recover_to_completion(
+            source,
+            passphrase,
+            paths,
+            desired_paths,
+            host_paths,
+            uid,
+            mode,
+        )?;
+        let result = (|| {
+            if self.disposition_attempted
+                || !self.available.load(Ordering::Acquire)
+                || self.normal_owner.is_some()
+                || self.released
+                || self.preview_binding.is_some()
+                || Arc::strong_count(&self.original) != 1
+                || Arc::strong_count(&self.destination) != 1
+                || Arc::strong_count(&self.available) != 1
+            {
+                return Err(FirstError::StillFenced);
+            }
+            self.disposition_attempted = true;
+            let mut slot = self.original.lock().map_err(|_| FirstError::StillFenced)?;
+            let destination = self
+                .destination
+                .lock()
+                .map_err(|_| FirstError::StillFenced)?;
+            if destination.is_some() {
+                return Err(FirstError::StillFenced);
+            }
+            let held = slot.as_mut().ok_or(FirstError::StillFenced)?;
+            if held.failed_lock.is_some()
+                || held.scope.load(Ordering::Acquire)
+                || Arc::strong_count(&held.scope) != 1
+                || Arc::strong_count(&held.lock) != 2
+            {
+                return Err(FirstError::StillFenced);
+            }
+            let RecoveryHeld {
+                lock,
+                boundary,
+                host,
+                engine,
+                facts,
+                ..
+            } = held;
+            let facts = facts.as_ref().ok_or(FirstError::StillFenced)?;
+            let mut origin = NativeRecoveryOrigin {
+                lock: lock.get().ok_or(FirstError::StillFenced)?,
+                boundary: boundary.as_ref().ok_or(FirstError::StillFenced)?,
+                host: host.as_mut().ok_or(FirstError::StillFenced)?,
+                paths: &facts.paths,
+                desired_paths: &facts.desired_paths,
+                marker: facts.marker.clone(),
+                desired: facts.desired.clone(),
+                marker_bytes: facts.marker_bytes.clone(),
+                desired_bytes: facts.desired_bytes.clone(),
+                login_bytes: facts.login_bytes.clone(),
+                uid: facts.uid,
+            };
+            let quiescence = self
+                .old_quiescence
+                .as_mut()
+                .ok_or(FirstError::StillFenced)?;
+            match mode {
+                FreshRecoveryMode::CutNewCompleteAfterClosure => {
+                    engine.cut_native_new_complete_after_closure(&mut origin, quiescence)
+                }
+                FreshRecoveryMode::CutNewCompleteAfterClosureWithHistory => engine
+                    .cut_native_new_complete_after_closure_with_history(&mut origin, quiescence),
+                _ => Err(FirstError::Admission),
+            }
+        })();
+        self.available.store(false, Ordering::Release);
+        if let Ok(mut slot) = self.original.lock()
+            && let Some(held) = slot.as_mut()
+        {
+            held.engine.revoke_native();
+        }
+        result
+    }
+
     /// Distinct consuming release, not the historical in-process owner transfer.
     /// Every fallible check runs while the original keeper remains installed.
     pub(crate) fn dispose_and_release_old(self) -> Result<ReleasedOldConfiguration, FirstError> {
@@ -1941,6 +2327,8 @@ impl FreshRecovery {
                 | FreshRecoveryMode::FinalNewOutput
                 | FreshRecoveryMode::NewTicketOutput
                 | FreshRecoveryMode::NewCompleteOutput
+                | FreshRecoveryMode::CutNewCompleteAfterClosure
+                | FreshRecoveryMode::CutNewCompleteAfterClosureWithHistory
         );
         // Fixed development-driver phases only: no paths, archive data, errors
         // or credentials. Diagnostics must never alter recovery success.
@@ -2001,6 +2389,34 @@ impl FreshRecovery {
             return Err(FirstError::StillFenced);
         }
         phase(b"Restore recovery: boundary\n");
+        // Producer-only admission DATA under this existing lease, BEFORE any
+        // native boundary capture, manager observation or stopped-owner work.
+        // The ordinary NewComplete consumer still admits all three prefixes.
+        let closure_cut_preview = if mode.closure_cut() {
+            let observed = crate::restore_recovery_preview::inspect_authenticated(
+                &host_paths.config_directory,
+                &paths,
+                uid,
+                held.lock.get().ok_or(FirstError::Admission)?,
+                held.authenticated.as_ref().ok_or(FirstError::Prepare)?,
+                ciphertext,
+            )
+            .map_err(|_| FirstError::Admission)?;
+            if !mode.admits_closure_cut(&observed) {
+                return Err(FirstError::Admission);
+            }
+            Some(observed)
+        } else {
+            None
+        };
+        // Fixed Source child barrier only: a broken preflight cannot reach real
+        // native capture or system-manager queries during this regression.
+        #[cfg(test)]
+        if mode.closure_cut() && std::env::var_os("OMAVLESS_SOURCE_CLOSURE_CUT_PREFLIGHT").is_some()
+        {
+            CLOSURE_CUT_CAPTURE_BOUNDARY_REACHED.store(true, Ordering::Release);
+            return Err(FirstError::Admission);
+        }
         if let Some(expected) = &self.preview_binding {
             let observed = crate::restore_recovery_preview::inspect_authenticated(
                 &host_paths.config_directory,
@@ -2081,41 +2497,75 @@ impl FreshRecovery {
                 | FreshRecoveryMode::FinalNewOutput
                 | FreshRecoveryMode::NewTicketOutput
                 | FreshRecoveryMode::NewCompleteOutput
+                | FreshRecoveryMode::CutNewCompleteAfterClosure
+                | FreshRecoveryMode::CutNewCompleteAfterClosureWithHistory
         ) {
+            if let Some(expected) = &closure_cut_preview {
+                let current = crate::restore_recovery_preview::inspect_authenticated(
+                    &normal_paths.config_directory,
+                    &paths,
+                    uid,
+                    lock.get().ok_or(FirstError::Admission)?,
+                    backup,
+                    ciphertext,
+                )
+                .map_err(|_| FirstError::Admission)?;
+                if !expected.same(&current) {
+                    return Err(FirstError::Admission);
+                }
+            }
             phase(b"Restore recovery: stopped service\n");
             // Only the authenticated, same-graph consumer preview above selects
             // the ordinary TUI invocation. Legacy CLI and Abort guards retain
             // their exact argument grammar and all stopped-owner observations.
-            let prepare = if self.preview_binding.is_some() {
-                NativeOldRecoveryQuiescence::prepare_consumer
-            } else {
-                NativeOldRecoveryQuiescence::prepare
-            };
+            let prepare = quiescence_preparer(mode, self.preview_binding.is_some());
             self.old_quiescence = Some(Box::new(prepare(&paths, uid, Arc::clone(lock))?));
             let quiescence = self.old_quiescence.as_mut().ok_or(FirstError::Admission)?;
             phase(b"Restore recovery: engine\n");
-            match mode {
-                FreshRecoveryMode::NewCompleteOutput => {
-                    engine.qualify_native_new_complete(&mut origin, backup, quiescence)?
+            let mut qualify = || match mode {
+                FreshRecoveryMode::NewCompleteOutput
+                | FreshRecoveryMode::CutNewCompleteAfterClosure
+                | FreshRecoveryMode::CutNewCompleteAfterClosureWithHistory => {
+                    engine.qualify_native_new_complete(&mut origin, backup, quiescence)
                 }
                 FreshRecoveryMode::NewTicketOutput => {
-                    engine.qualify_native_new_ticket(&mut origin, backup, quiescence)?
+                    engine.qualify_native_new_ticket(&mut origin, backup, quiescence)
                 }
                 FreshRecoveryMode::FinalNewOutput => {
-                    engine.qualify_native_final_new(&mut origin, backup, quiescence)?
+                    engine.qualify_native_final_new(&mut origin, backup, quiescence)
                 }
                 FreshRecoveryMode::FinalOldOutput => {
-                    engine.qualify_native_final_old(&mut origin, backup, quiescence)?
+                    engine.qualify_native_final_old(&mut origin, backup, quiescence)
                 }
                 FreshRecoveryMode::MixedIntentToOldCompletion => {
-                    engine.recover_native_mixed_to_completion(&mut origin, backup, quiescence)?
+                    engine.recover_native_mixed_to_completion(&mut origin, backup, quiescence)
                 }
                 FreshRecoveryMode::RecoverOldToCompletion => {
-                    engine.recover_native_old_to_completion(&mut origin, backup, quiescence)?
+                    engine.recover_native_old_to_completion(&mut origin, backup, quiescence)
                 }
-                FreshRecoveryMode::CommittedNewToCompletion => engine
-                    .recover_native_committed_to_completion(&mut origin, backup, quiescence)?,
-                _ => return Err(FirstError::Admission),
+                FreshRecoveryMode::CommittedNewToCompletion => {
+                    engine.recover_native_committed_to_completion(&mut origin, backup, quiescence)
+                }
+                _ => Err(FirstError::Admission),
+            };
+            if let Some(expected) = &closure_cut_preview {
+                // Native capture must not silently adopt a prior audit changed
+                // during stopped-owner observation. Compare with the ORIGINAL
+                // authenticated graph after qualification; the same engine now
+                // retains those exact originals through its unlink/sync gates.
+                crate::native_coordinator::qualify_then_recheck_cut(expected, qualify, || {
+                    crate::restore_recovery_preview::inspect_authenticated(
+                        &normal_paths.config_directory,
+                        &paths,
+                        uid,
+                        lock.get().ok_or(FirstError::Admission)?,
+                        backup,
+                        ciphertext,
+                    )
+                    .map_err(|_| FirstError::Admission)
+                })?;
+            } else {
+                qualify()?;
             }
             *facts = Some(OriginFacts {
                 paths: paths.clone(),

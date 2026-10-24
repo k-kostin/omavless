@@ -28,7 +28,7 @@ use std::path::Path;
 
 #[cfg(test)]
 #[path = "restore_recovery_preview_tests.rs"]
-mod tests;
+pub(crate) mod tests;
 
 /// Closed proposed procedure, not a user-selectable executor step or grant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,6 +57,12 @@ pub enum Error {
 type Result<T> = std::result::Result<T, Error>;
 const REFUSE: Error = Error::Unavailable;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ClosureCutSource {
+    EmptyHistory,
+    WithPriorHistory,
+}
+
 /// No private content or reusable authority. Equal hashes do not authorize I/O.
 /// No public constructor/decoder: a worker returns this observation to its UI.
 pub struct Preview {
@@ -65,6 +71,8 @@ pub struct Preview {
     pub(crate) graph: [u8; 32],
     profiles: usize,
     subscriptions: usize,
+    // Producer-only comparison DATA. Never changes ordinary consumer Choice.
+    closure_cut_source: Option<ClosureCutSource>,
 }
 /// One private local worker. Its displayed observation cannot be supplied by
 /// IPC or edited by the UI. Confirm consumes the exact stored nonce/binding.
@@ -142,6 +150,15 @@ impl Preview {
             && self.ciphertext == other.ciphertext
             && self.graph == other.graph
             && self.counts() == other.counts()
+            && self.closure_cut_source == other.closure_cut_source
+    }
+    pub(crate) fn is_closure_cut_source(&self) -> bool {
+        self.choice == Choice::NewComplete
+            && self.closure_cut_source == Some(ClosureCutSource::EmptyHistory)
+    }
+    pub(crate) fn is_history_preserving_closure_cut_source(&self) -> bool {
+        self.choice == Choice::NewComplete
+            && self.closure_cut_source == Some(ClosureCutSource::WithPriorHistory)
     }
 }
 
@@ -277,7 +294,7 @@ fn snapshot(
     uid: u32,
     lock: &MigrationLock,
     backup: &OpenedBackup,
-) -> Result<(Choice, [u8; 32])> {
+) -> Result<(Choice, [u8; 32], Option<ClosureCutSource>)> {
     if !lock.authorizes(paths, uid) {
         return Err(REFUSE);
     }
@@ -544,7 +561,16 @@ fn snapshot(
     {
         return Err(REFUSE);
     }
-    Ok((choice, hash.finalize().into()))
+    let closure_cut_source = (choice == Choice::NewComplete
+        && records[2].is_some()
+        && records[6].is_some()
+        && records[7].is_some())
+    .then_some(if history_count == 0 {
+        ClosureCutSource::EmptyHistory
+    } else {
+        ClosureCutSource::WithPriorHistory
+    });
+    Ok((choice, hash.finalize().into(), closure_cut_source))
 }
 
 /// Caller already authenticated the SAME guarded ciphertext. This temporary
@@ -581,6 +607,7 @@ fn inspect_with_hook(
         ciphertext,
         profiles: backup.profile_count(),
         subscriptions: backup.subscription_count(),
+        closure_cut_source: first.2,
     })
 }
 

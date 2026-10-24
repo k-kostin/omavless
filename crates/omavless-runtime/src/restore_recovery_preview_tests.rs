@@ -12,7 +12,7 @@ fn write(path: &Path, bytes: &[u8]) {
     fs::write(path, bytes).unwrap();
     fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
 }
-fn final_shape(commit: bool) -> (Fixture, MigrationLock, Ticket, CompleteRecord) {
+pub(crate) fn final_shape(commit: bool) -> (Fixture, MigrationLock, Ticket, CompleteRecord) {
     let f = Fixture::new();
     let lock = f.lock();
     let old_store = fs::read(f.config.join("profiles.json")).unwrap();
@@ -49,6 +49,65 @@ fn final_shape(commit: bool) -> (Fixture, MigrationLock, Ticket, CompleteRecord)
 }
 fn inspect(f: &Fixture, lock: &MigrationLock) -> Result<Preview> {
     inspect_authenticated(&f.config, &f.paths, f.uid, lock, second(), [42; 32])
+}
+
+#[test]
+fn recovery_preview_history_preserving_cut_is_distinct_from_empty_history_contract() {
+    for prior in 1..HISTORY.len() {
+        let (f, lock, ticket, complete) = final_shape(true);
+        write(
+            &f.paths.state_directory.join(TICKET_MEMBER),
+            &ticket.encode(),
+        );
+        write(
+            &f.paths.state_directory.join(COMPLETE_MEMBER),
+            &complete.encode(),
+        );
+        for name in &HISTORY[..prior] {
+            write(&f.paths.state_directory.join(name), &complete.encode());
+        }
+        let observed = inspect(&f, &lock).unwrap();
+        assert_eq!(observed.choice(), Choice::NewComplete);
+        assert!(!observed.is_closure_cut_source());
+        assert!(observed.is_history_preserving_closure_cut_source());
+    }
+}
+
+#[test]
+fn recovery_preview_history_cut_rejects_prior_inode_or_bytes_drift_between_snapshots() {
+    for same_bytes in [false, true] {
+        let (f, lock, ticket, complete) = final_shape(true);
+        write(
+            &f.paths.state_directory.join(TICKET_MEMBER),
+            &ticket.encode(),
+        );
+        write(
+            &f.paths.state_directory.join(COMPLETE_MEMBER),
+            &complete.encode(),
+        );
+        let path = f.paths.state_directory.join(HISTORY[0]);
+        write(&path, &complete.encode());
+        let result = inspect_with_hook(
+            &f.config,
+            &f.paths,
+            f.uid,
+            &lock,
+            second(),
+            [42; 32],
+            || {
+                if same_bytes {
+                    fs::rename(&path, f.root.join("original-audit")).unwrap();
+                    write(&path, &complete.encode());
+                } else {
+                    write(&path, b"torn prior audit");
+                }
+            },
+        );
+        assert!(result.is_err());
+        assert!(f.paths.state_directory.join(CLOSURE_MEMBER).exists());
+        assert!(f.paths.state_directory.join(TICKET_MEMBER).exists());
+        assert!(f.paths.state_directory.join(COMPLETE_MEMBER).exists());
+    }
 }
 
 #[test]

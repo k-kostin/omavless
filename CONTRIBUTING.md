@@ -80,11 +80,15 @@ Keep durable private stdout/stderr and the original exit status. A later isolate
 pass does not relabel an earlier failed run, and this scheduling problem does
 not warrant changing application recovery code.
 
-The Rust runner optimizes only `sha2` in Cargo's test profile, explicitly keeping
-its debug assertions and overflow checks. Runtime code keeps its default debug
-profile; release builds, lint/check commands and the parity executable are not
-changed. Every original test configuration/filter remains required. A focused
-speed measurement is not evidence of whole-CI speed or timing-sensitive coverage.
+The Rust runner optimizes only `sha2` and `argon2` in Cargo's test profile,
+explicitly keeping debug assertions and overflow checks in both dependencies.
+These per-invocation overrides are passed only to `cargo test`; ordinary
+build/check/clippy/run commands, release builds and the parity executable are
+unchanged. Runtime code keeps its default debug profile. Real cryptography,
+Argon2id's 64 MiB/three passes/one lane, inputs, fault cases and deadlines are
+unchanged. Every original test configuration/filter remains required. A focused
+speed measurement is not evidence of whole-CI speed or timing-sensitive
+coverage.
 Static format/type/lint checks run before executable tests. Each command emits
 an `OVT_CHECK_END` line with its closed label, elapsed seconds and original exit
 status; arguments are not repeated. This is command wall time, not a separate

@@ -9,13 +9,17 @@ if ! command -v cc >/dev/null 2>&1; then
   exit 2
 fi
 
-# Optimize only SHA-256 in test builds. Keep runtime code at its normal debug
-# profile and retain assertions/overflow checks even in the optimized dependency.
-# CLI test-profile overrides cannot affect cargo check/clippy/run or release builds.
-sha2_test_profile=(
+# Optimize only SHA-256 and Argon2 in cargo test builds. Keep runtime code at
+# its normal debug profile, and retain dependency assertions/overflow checks.
+# These per-invocation overrides are absent from ordinary build/check/clippy/run
+# and release commands; real KDF parameters, inputs and fault cases stay unchanged.
+crypto_test_profile=(
   --config profile.test.package.sha2.opt-level=3
   --config profile.test.package.sha2.debug-assertions=true
   --config profile.test.package.sha2.overflow-checks=true
+  --config profile.test.package.argon2.opt-level=3
+  --config profile.test.package.argon2.debug-assertions=true
+  --config profile.test.package.argon2.overflow-checks=true
 )
 
 # Closed labels only: never print command arguments, environment or private inputs.
@@ -69,60 +73,60 @@ close_drain_skips=()
 for close_drain_test in "${close_drain_tests[@]}"; do
   close_drain_skips+=(--skip "$close_drain_test")
 done
-run_check test-default-workspace cargo test "${sha2_test_profile[@]}" --workspace --locked --exclude omavless-dns-broker --exclude omavless-dns-resolved -- \
+run_check test-default-workspace cargo test "${crypto_test_profile[@]}" --workspace --locked --exclude omavless-dns-broker --exclude omavless-dns-resolved -- \
   --skip core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn \
   "${close_drain_skips[@]}"
-run_check test-helper-drain cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --lib \
+run_check test-helper-drain cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --lib \
   core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn -- \
   --exact --test-threads=1
 for close_drain_test in "${close_drain_tests[@]}"; do
-  run_check test-default-proof-drain cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --lib "$close_drain_test" -- --exact --test-threads=1
+  run_check test-default-proof-drain cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --lib "$close_drain_test" -- --exact --test-threads=1
 done
 # These suites launch real private bus processes and assert short wire deadlines.
 # Concurrent fork/exec can also briefly inherit another test's flock descriptor
 # before CLOEXEC closes it, turning a malformed-journal test into an unrelated
 # ownership refusal. Serialize these fixtures, not production operations; their
 # explicit race/failure cases and all assertions remain enabled.
-run_check test-dns-serial cargo test "${sha2_test_profile[@]}" --locked -p omavless-dns-broker -p omavless-dns-resolved -- --test-threads=1
+run_check test-dns-serial cargo test "${crypto_test_profile[@]}" --locked -p omavless-dns-broker -p omavless-dns-resolved -- --test-threads=1
 run_check pty-tui python3 tests/test-tui-terminal.py "${CARGO_TARGET_DIR:-target}/debug/examples/fixture_preview"
 run_check build-import-preview cargo build --locked -p omavless-tui --example private_import_preview
 run_check pty-import python3 tests/test-tui-import-terminal.py "${CARGO_TARGET_DIR:-target}/debug/examples/private_import_preview"
 # Real ordinary client, fixed same-UID synthetic peer; not daemon/store/VPN acceptance.
 run_check build-native-tui cargo build --locked -p omavless-runtime --bin omavless --no-default-features --features tui
 run_check wire-native-import bash tests/run-tui-native-import-wire.sh "${CARGO_TARGET_DIR:-target}/debug/omavless"
-run_check test-tui-commands cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --features tui tui_commands_conform_to_canonical_mutation_parser
-run_check test-private-import cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --features tui tui_private_import_uses_existing_canonical
-run_check test-import-entry cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --bin omavless --features tui tui_import_entry::tests
-run_check test-close-tui cargo test "${sha2_test_profile[@]}" --locked -p omavless-tui --features developer-conditional-close
-run_check test-close-runtime cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --features developer-conditional-close --lib developer_connection_close::tests
-run_check test-close-terminal cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --features developer-conditional-close --lib \
+run_check test-tui-commands cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features tui tui_commands_conform_to_canonical_mutation_parser
+run_check test-private-import cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features tui tui_private_import_uses_existing_canonical
+run_check test-import-entry cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --bin omavless --features tui tui_import_entry::tests
+run_check test-close-tui cargo test "${crypto_test_profile[@]}" --locked -p omavless-tui --features developer-conditional-close
+run_check test-close-runtime cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features developer-conditional-close --lib developer_connection_close::tests
+run_check test-close-terminal cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features developer-conditional-close --lib \
   native_coordinator::connection_close::tests::terminal_demo_is_closed_and_original_operation_cannot_be_replaced_or_resent -- --exact
-run_check test-close-diagnostics cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --features developer-conditional-close --lib \
+run_check test-close-diagnostics cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features developer-conditional-close --lib \
   native_coordinator::connection_close::tests::client_reply_diagnostic_discards_private_values_and_reports_only_closed_enums -- --exact
-run_check test-close-ui cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --features developer-conditional-close --lib real_ui_
-run_check test-close-receipt cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --lib managed_close_receipt::tests
-run_check test-close-release-pair cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --features developer-conditional-close --lib release_pair::tests
-run_check test-managed-pair cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --lib managed_pair::tests
+run_check test-close-ui cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features developer-conditional-close --lib real_ui_
+run_check test-close-receipt cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --lib managed_close_receipt::tests
+run_check test-close-release-pair cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features developer-conditional-close --lib release_pair::tests
+run_check test-managed-pair cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --lib managed_pair::tests
 # Backup-only is a distinct artifact configuration, not inferred from the
 # product+T4 union below. These are ordinary source controls; VM gates stay ignored.
-run_check test-backup-tui cargo test "${sha2_test_profile[@]}" --locked -p omavless-tui --features private-backup
-run_check test-backup-close-tui cargo test "${sha2_test_profile[@]}" --locked -p omavless-tui --features developer-conditional-close,private-backup
-run_check test-t4-pair cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --lib --features t4-manager-actor-service normal_pair
-run_check test-t4-backup cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --lib --features t4-manager-actor-service backup_tui_
-run_check test-t4-restore cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --lib --features t4-manager-actor-service restore_tui_
+run_check test-backup-tui cargo test "${crypto_test_profile[@]}" --locked -p omavless-tui --features private-backup
+run_check test-backup-close-tui cargo test "${crypto_test_profile[@]}" --locked -p omavless-tui --features developer-conditional-close,private-backup
+run_check test-t4-pair cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --lib --features t4-manager-actor-service normal_pair
+run_check test-t4-backup cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --lib --features t4-manager-actor-service backup_tui_
+run_check test-t4-restore cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --lib --features t4-manager-actor-service restore_tui_
 # Public 0.9.8 narrows this research implementation to Backup. Retain full
 # T4-only Restore/fence tests above and check the product restriction separately.
-run_check test-product-scope cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --features product-private-backup --lib product_scope
-run_check test-production-owner cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --features product-private-backup --lib production_owner::tests::
-run_check test-product-pair cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --features product-private-backup --lib normal_pair_promoted_candidate
-run_check test-product-tui cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --features product-private-backup --bin omavless normal_tui_
+run_check test-product-scope cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-backup --lib product_scope
+run_check test-production-owner cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-backup --lib production_owner::tests::
+run_check test-product-pair cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-backup --lib normal_pair_promoted_candidate
+run_check test-product-tui cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-backup --bin omavless normal_tui_
 # Released setup helper is a separate executable feature. Backup-only tests
 # alone do not compile or exercise its retained update/preparation boundaries.
 # These are owned inert source fixtures, not installed host/DNS acceptance.
-run_check test-setup-upgrade cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --features product-private-backup,setup-upgrade082 --lib setup_upgrade082
-run_check test-dns-maintenance cargo test "${sha2_test_profile[@]}" --locked -p omavless-dns-broker --features release-package --lib maintenance_mask -- --test-threads=1
-run_check test-image-scope cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --lib --features product-private-backup,product-image-witness product_scope
-run_check test-image-pair cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --lib --features product-private-backup,product-image-witness normal_pair_promoted_candidate
+run_check test-setup-upgrade cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-backup,setup-upgrade082 --lib setup_upgrade082
+run_check test-dns-maintenance cargo test "${crypto_test_profile[@]}" --locked -p omavless-dns-broker --features release-package --lib maintenance_mask -- --test-threads=1
+run_check test-image-scope cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --lib --features product-private-backup,product-image-witness product_scope
+run_check test-image-pair cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --lib --features product-private-backup,product-image-witness normal_pair_promoted_candidate
 # Internal 0.9.8 assembly: compilation selects both opt-ins, not host activation.
 # Run ordinary synthetic/private-file tests only; all VM/resource gates stay ignored.
 # This real-crypto fixture checks downstream canonical-stage retention after
@@ -130,15 +134,15 @@ run_check test-image-pair cargo test "${sha2_test_profile[@]}" --locked -p omavl
 # spending that budget beside unrelated crypto/process-heavy union tests.
 # It exists only with t4-manager-actor-service, not in the default runtime.
 canonical_stage_retention_test='manager_actor_service::transfer::tests::failed_canonical_stage_keeps_auth_and_normalized_private_returns'
-run_check test-image-t4 cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --lib --features product-image-witness,t4-manager-actor-service -- \
+run_check test-image-t4 cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --lib --features product-image-witness,t4-manager-actor-service -- \
   --skip core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn \
   --skip "$canonical_stage_retention_test" \
   "${close_drain_skips[@]}"
 for close_drain_test in "${close_drain_tests[@]}"; do
-  run_check test-image-proof-drain cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --lib --features product-image-witness,t4-manager-actor-service \
+  run_check test-image-proof-drain cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --lib --features product-image-witness,t4-manager-actor-service \
     "$close_drain_test" -- --exact --test-threads=1
 done
-run_check test-canonical-retention cargo test "${sha2_test_profile[@]}" --locked -p omavless-runtime --lib --features product-image-witness,t4-manager-actor-service \
+run_check test-canonical-retention cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --lib --features product-image-witness,t4-manager-actor-service \
   "$canonical_stage_retention_test" -- --exact --test-threads=1
 run_check parity cargo run --quiet --locked -p omavless-parity -- \
   compare tests/parity_cases/r0-reference.json tests/parity_cases/r0-candidate.json
