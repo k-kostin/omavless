@@ -39,6 +39,7 @@ pub(super) struct FreshNewComplete {
 enum NewCompleteDisposition {
     Finish,
     CutAfterClosure,
+    CutAfterTicket,
 }
 
 // Two fixed producer contracts. Neither audit bytes nor a UI-selected step can
@@ -674,6 +675,94 @@ impl NativeEngine {
         result
     }
 
+    /// Fixed later cut: only all-three with retained nonempty history.
+    /// Success remains sealed DATA and cannot grant history publication or Start.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn cut_new_complete_only_with_history_inner<O: NativeGate>(
+        &mut self,
+        origin: &mut O,
+        uid: u32,
+        generation: u64,
+        desired: &[u8],
+        until: Instant,
+    ) -> Result<(), FirstError> {
+        let result = (|| {
+            if self.complete_presence().ok() != Some(NewCompletePresence::ClosureTicketComplete)
+                || !self
+                    .audit
+                    .target()
+                    .is_ok_and(|target| native_history::NAMES[1..].contains(&target))
+                || self.history
+                || self.disposition_done
+            {
+                return Err(FirstError::StillFenced);
+            }
+            self.check_new_complete_completed_inner(origin, until)?;
+            self.dispose_new_complete_mode(
+                origin,
+                uid,
+                generation,
+                desired,
+                &mut |_| Ok(()),
+                until,
+                NewCompleteDisposition::CutAfterTicket,
+            )?;
+            if !self.disposition
+                || self.disposition_done
+                || self.history
+                || self.ordinary_handoff
+                || !self.unlinked[Slot::Scratch3 as usize]
+                || !self.unlinked[Slot::Scratch0 as usize]
+                || self.unlinked[Slot::Scratch1 as usize]
+            {
+                return Err(FirstError::StillFenced);
+            }
+            for (slot, name) in [
+                (Slot::Scratch3, CLOSURE_MEMBER),
+                (Slot::Scratch0, TICKET_MEMBER),
+            ] {
+                self.lower
+                    .io
+                    .perform(
+                        slot,
+                        || tick(until),
+                        |file| {
+                            let before = self.lower.original[slot as usize]
+                                .as_ref()
+                                .ok_or(Unavailable)?;
+                            let now = file.metadata().map_err(|_| Unavailable)?;
+                            if before.nlink() == 0
+                                && now.nlink() == 0
+                                && same_member(before, &now)
+                                && before.gid() == now.gid()
+                            {
+                                Ok(())
+                            } else {
+                                Err(Unavailable)
+                            }
+                        },
+                    )
+                    .map_err(|_| FirstError::StillFenced)?;
+                if !matches!(
+                    fstatat(
+                        self.lower
+                            .io
+                            .original(Slot::State)
+                            .map_err(|_| FirstError::StillFenced)?,
+                        name,
+                        AtFlags::AT_SYMLINK_NOFOLLOW,
+                    ),
+                    Err(nix::errno::Errno::ENOENT)
+                ) {
+                    return Err(FirstError::StillFenced);
+                }
+            }
+            self.gate(origin, until)
+        })();
+        self.revoke_native();
+        result
+    }
+
     #[allow(clippy::too_many_arguments)] // private closed finish/fault boundary
     fn dispose_new_complete_mode<O: NativeGate>(
         &mut self,
@@ -737,6 +826,9 @@ impl NativeEngine {
                 origin,
                 until,
             )?;
+            if matches!(mode, NewCompleteDisposition::CutAfterTicket) {
+                return Ok(()); // fixed stop AFTER ticket own_unlink + parent sync
+            }
             cut(NativeStep::DispositionTicketUnlinked)?;
         }
         self.finish_native_history(origin, &complete, cut, until)

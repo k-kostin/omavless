@@ -34,9 +34,19 @@ pub(crate) fn history_closure_cut_arguments_admitted(arguments: &[OsString]) -> 
         ]
 }
 
-enum ClosureCutEntry {
+pub(crate) fn history_complete_only_cut_arguments_admitted(arguments: &[OsString]) -> bool {
+    arguments
+        == [
+            "developer",
+            "cut-new-complete-only-with-history",
+            "--confirm-private-history-complete-only-cut",
+        ]
+}
+
+enum CompleteCutEntry {
     EmptyHistory,
-    WithPriorHistory,
+    ClosureWithPrior,
+    CompleteOnlyWithPrior,
 }
 
 /// A separate fresh stopped-owner process, not daemon IPC or ordinary recovery.
@@ -44,16 +54,22 @@ enum ClosureCutEntry {
 pub(crate) fn cut_new_complete_after_closure_from_private_input(
     input: impl Read,
 ) -> Result<(), Error> {
-    cut_complete_from_private_input(input, ClosureCutEntry::EmptyHistory)
+    cut_complete_from_private_input(input, CompleteCutEntry::EmptyHistory)
 }
 
 pub(crate) fn cut_new_complete_after_closure_with_history_from_private_input(
     input: impl Read,
 ) -> Result<(), Error> {
-    cut_complete_from_private_input(input, ClosureCutEntry::WithPriorHistory)
+    cut_complete_from_private_input(input, CompleteCutEntry::ClosureWithPrior)
 }
 
-fn cut_complete_from_private_input(input: impl Read, entry: ClosureCutEntry) -> Result<(), Error> {
+pub(crate) fn cut_new_complete_only_with_history_from_private_input(
+    input: impl Read,
+) -> Result<(), Error> {
+    cut_complete_from_private_input(input, CompleteCutEntry::CompleteOnlyWithPrior)
+}
+
+fn cut_complete_from_private_input(input: impl Read, entry: CompleteCutEntry) -> Result<(), Error> {
     if !crate::product_scope::restore_enabled() {
         return Err(Error::Disabled);
     }
@@ -68,7 +84,7 @@ fn cut_complete_from_private_input(input: impl Read, entry: ClosureCutEntry) -> 
     let host = NativeHostPaths::current(&runtime.directory).map_err(|_| Error::RecoveryRefused)?;
     let recovery = FreshRecovery::reserve().map_err(|_| Error::RecoveryRefused)?;
     let result = match entry {
-        ClosureCutEntry::EmptyHistory => recovery.cut_new_complete_after_closure(
+        CompleteCutEntry::EmptyHistory => recovery.cut_new_complete_after_closure(
             Path::new(request.archive.0.as_str()),
             request.passphrase.0.as_bytes(),
             paths,
@@ -76,7 +92,15 @@ fn cut_complete_from_private_input(input: impl Read, entry: ClosureCutEntry) -> 
             host,
             uid.as_raw(),
         ),
-        ClosureCutEntry::WithPriorHistory => recovery.cut_new_complete_after_closure_with_history(
+        CompleteCutEntry::ClosureWithPrior => recovery.cut_new_complete_after_closure_with_history(
+            Path::new(request.archive.0.as_str()),
+            request.passphrase.0.as_bytes(),
+            paths,
+            desired,
+            host,
+            uid.as_raw(),
+        ),
+        CompleteCutEntry::CompleteOnlyWithPrior => recovery.cut_new_complete_only_with_history(
             Path::new(request.archive.0.as_str()),
             request.passphrase.0.as_bytes(),
             paths,
