@@ -17,6 +17,7 @@ const TUN: &str = "b50ae28a1409c7bce8e96e6c6966cf57d8ace754";
 pub(crate) struct Hashes {
     pub core: [u8; 32],
     pub broker: [u8; 32],
+    pub k1_device: bool,
 }
 
 #[derive(Deserialize)]
@@ -206,6 +207,7 @@ pub(crate) fn decode(raw: &[u8], architecture: &str) -> Result<Hashes, ()> {
     Ok(Hashes {
         core: hash(&r.sha256.mihomo)?,
         broker: hash(&r.sha256.broker)?,
+        k1_device: k1,
     })
 }
 
@@ -246,8 +248,16 @@ mod tests {
             four["managed_device"] = serde_json::json!("omavless0");
             four["enrollment_policy"] = serde_json::json!("omavless0-ipv4-development-v1");
             four["managed_device_source"] = serde_json::json!(K1_SOURCE);
-            assert!(decode(&serde_json::to_vec(&four).unwrap(), arch).is_ok());
-            assert!(decode(&serde_json::to_vec(&three).unwrap(), arch).is_ok());
+            assert!(
+                decode(&serde_json::to_vec(&four).unwrap(), arch)
+                    .unwrap()
+                    .k1_device
+            );
+            assert!(
+                !decode(&serde_json::to_vec(&three).unwrap(), arch)
+                    .unwrap()
+                    .k1_device
+            );
             for key in [
                 "schema",
                 "package_flavor",

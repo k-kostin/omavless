@@ -433,8 +433,15 @@ The separately verified conditional-close family retains its own fixed
 `/connections/conditional-capabilities` report and original Session binding;
 the normal traffic-ready family grants NO conditional-close authority.
 Older two-patch and unmanaged URI paths retain configured-only compatibility.
-New WG/AWG activation specifically requires the verified normal traffic-ready
-family before intent/quiesce, repeated at prepare/start/login. Active replacement
+WG/AWG source admission accepts the verified normal traffic-ready family or
+the exact three-patch `release-close` family: both fixed read-only reports derive
+`ready` from the pinned core's `tunnel.Status() == Running`. Each keeps its own
+endpoint, strict receipt/hash binding and before/after observations; no endpoint
+fallback or copied boolean qualifies another family. The separate K1 close/device
+family remains WG-refused pending its own qualification. This source composition
+is not installed WG-on-close-pair evidence and grants no close permit.
+The requirement holds before intent/quiesce, repeated at prepare/start/login.
+Active replacement
 derives this requirement from sealed candidate credentials, not a client label;
 inactive data import/edit and explicit Disconnect/Quit remain available. Invalid
 or missing reports never fall back to legacy configured-only readiness. See
