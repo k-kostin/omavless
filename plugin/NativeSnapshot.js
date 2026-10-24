@@ -710,6 +710,22 @@ function importInput(value) {
   } catch (_) { return false }
 }
 
+function managedImportNoteKey(note) {
+  if (note === undefined || note === "") return "import.managed_scope"
+  switch (note) {
+  case "managed_ipv4_only": return "import.managed_ipv4_only"
+  case "managed_keepalive_range": return "import.managed_keepalive_range"
+  case "managed_header_ranges": return "import.managed_header_ranges"
+  case "managed_legacy_headers": return "import.managed_legacy_headers"
+  case "managed_padding": return "import.managed_padding"
+  case "managed_legacy_padding": return "import.managed_legacy_padding"
+  case "managed_junk_budget": return "import.managed_junk_budget"
+  case "managed_special_junk": return "import.managed_special_junk"
+  case "managed_numeric_parameters": return "import.managed_numeric_parameters"
+  default: return "import.managed_unavailable"
+  }
+}
+
 function parseImportPreview(raw, revision) {
   try {
     if (typeof raw !== "string" || raw.length > 262144 || unescape(encodeURIComponent(raw)).length > 262144) return null

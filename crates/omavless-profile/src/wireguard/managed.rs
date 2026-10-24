@@ -17,6 +17,23 @@ pub enum ManagedCompatibilityError {
     NumericParameters,
 }
 
+impl ManagedCompatibilityError {
+    /// Closed, data-free preview codes. Clients own their localized wording.
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Ipv4Only => "managed_ipv4_only",
+            Self::KeepaliveRange => "managed_keepalive_range",
+            Self::HeaderRanges => "managed_header_ranges",
+            Self::LegacyHeaders => "managed_legacy_headers",
+            Self::Padding => "managed_padding",
+            Self::LegacyPadding => "managed_legacy_padding",
+            Self::JunkBudget => "managed_junk_budget",
+            Self::SpecialJunk => "managed_special_junk",
+            Self::NumericParameters => "managed_numeric_parameters",
+        }
+    }
+}
+
 impl fmt::Display for ManagedCompatibilityError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {

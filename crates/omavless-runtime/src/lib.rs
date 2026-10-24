@@ -9230,6 +9230,83 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "tui")]
+    fn managed_import_reason_socket_reaches_production_tui_without_effects() {
+        use base64::Engine as _;
+        use omavless_tui::{
+            app::App,
+            client,
+            i18n::Locale,
+            private_import::{State, Workspace},
+        };
+        let base = temporary_base("managed-reason-tui-socket");
+        let (mut owner, _, calls) = native_owner_fixture(&base);
+        owner.batch_coordinator().host_mut().fresh_result = Ok(fresh_empty_facts());
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let store_path = base.join("config/profiles.json");
+        let original = fs::read(&store_path).unwrap();
+        let calls_before = calls.load(Ordering::Relaxed);
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(6)).unwrap());
+        let snapshot = client::load(&mut |request| {
+            call(&paths, request.method(), request.params())
+                .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+        })
+        .unwrap();
+        let instance = snapshot.metadata.instance_id.clone();
+        let revision = snapshot.revision;
+        let now = std::time::Instant::now();
+        let mut app = App::new(Locale::En);
+        app.actions_enabled = true;
+        app.import_enabled = true;
+        app.accept(Ok(snapshot), now);
+        assert!(app.import_available(now));
+        for (serial, awg) in [
+            (1, ""),
+            (
+                2,
+                "Jc = 4\nJmin = 10\nJmax = 30\nS1 = 20\nS2 = 25\nH1 = 100\nH2 = 200\nH3 = 300\nH4 = 400\n",
+            ),
+        ] {
+            let input = format!(
+                "[Interface]\nPrivateKey = {}\nAddress = 2001:db8::2/128\n{awg}[Peer]\nPublicKey = {}\nAllowedIPs = 0.0.0.0/0\nEndpoint = 192.0.2.2:51820\n",
+                base64::engine::general_purpose::STANDARD.encode([7_u8; 32]),
+                base64::engine::general_purpose::STANDARD.encode([9_u8; 32])
+            );
+            let mut workspace = Workspace::new(&instance, revision, serial).unwrap();
+            assert!(workspace.append(&input));
+            let request = workspace.classify(now).unwrap();
+            let response = call(&paths, request.method(), request.params()).unwrap();
+            assert_eq!(
+                response["result"]["profile"]["compatibilityNote"],
+                "managed_ipv4_only"
+            );
+            assert!(response.to_string().len() < 256 * 1024);
+            assert!(
+                !response
+                    .to_string()
+                    .contains(&base64::engine::general_purpose::STANDARD.encode([7_u8; 32]))
+            );
+            app.import = Some(workspace);
+            app.import_open = true;
+            app.finish_import(request.settle(Ok(response)));
+            let workspace = app.import.as_mut().unwrap();
+            assert_eq!(workspace.state(), State::Preview);
+            assert_eq!(
+                workspace.preview().unwrap().managed_note_key,
+                "import.managed_ipv4_only"
+            );
+            workspace.cancel();
+            assert_eq!(workspace.input_bytes(), 0);
+        }
+        worker.join().unwrap();
+        assert_eq!(fs::read(&store_path).unwrap(), original);
+        assert_eq!(calls.load(Ordering::Relaxed), calls_before);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn import_preview_uses_current_private_store_without_effects_and_fails_closed() {
         let base = temporary_base("import-preview");
         let (owner, cutover, calls) = native_owner_fixture(&base);

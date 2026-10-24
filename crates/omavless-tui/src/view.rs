@@ -736,7 +736,7 @@ fn draw_import(frame: &mut Frame, app: &App, import: &crate::private_import::Wor
         State::Preview => {
             if let Some(preview) = import.preview() {
                 if preview.native {
-                    lines.push(Line::from(tr("import.managed_scope")));
+                    lines.push(Line::from(tr(preview.managed_note_key)));
                 } else if preview.warning {
                     lines.push(Line::from(tr("tui.import_warning")));
                 }

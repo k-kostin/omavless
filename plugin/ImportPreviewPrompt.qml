@@ -9,6 +9,7 @@ import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
 import "I18n.js" as I18n
+import "NativeSnapshot.js" as NativeSnapshot
 
 // Review only non-reusable connection facts before a credential is saved.
 // Parsing and redaction happen in the backend; this surface never receives a
@@ -34,6 +35,10 @@ Item {
 
   function textFor(key, values) {
     return I18n.translate(key, locale, values || {})
+  }
+
+  function managedWarning() {
+    return prompt.textFor(NativeSnapshot.managedImportNoteKey(prompt.preview.compatibilityNote))
   }
 
   visible: false
@@ -169,7 +174,7 @@ Item {
         PlainText {
           width: parent.width
           visible: text.length > 0
-          text: prompt.nativeCredential ? prompt.textFor("import.managed_scope") : String(prompt.preview.compatibilityNote || "")
+          text: prompt.nativeCredential ? prompt.managedWarning() : String(prompt.preview.compatibilityNote || "")
           color: Commons.Color.accent
           font.family: prompt.fontFamily
           font.pixelSize: Style.font.caption
