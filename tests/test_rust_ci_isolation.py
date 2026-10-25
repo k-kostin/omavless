@@ -11,6 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CANONICAL_STAGE_TEST = "manager_actor_service::transfer::tests::failed_canonical_stage_keeps_auth_and_normalized_private_returns"
+AUXILIARY_TEARDOWN_TEST = "auxiliary_core::tests::finish_inventory_refusal_retains_owned_child_and_first_failure_evidence"
 ARGON2_TEST_PROFILE = [
     "--config", "profile.test.package.argon2.opt-level=3",
     "--config", "profile.test.package.argon2.debug-assertions=true",
@@ -19,7 +20,56 @@ ARGON2_TEST_PROFILE = [
 
 
 class RustCiIsolationTests(unittest.TestCase):
-    def runner_trace(self, fail_test=False, fail_canonical_stage=False, fail_clippy=False):
+    def without_auxiliary_scheduling(self, commands):
+        """Undo only the two independently asserted skip/exact pairs."""
+        selected = [c for c in commands if AUXILIARY_TEARDOWN_TEST in c]
+        self.assertEqual(len(selected), 4)
+        for features in (None, "product-image-witness,t4-manager-actor-service"):
+            same = [c for c in selected if
+                    (c[c.index("--features") + 1] if "--features" in c else None) == features]
+            self.assertEqual(len(same), 2)
+            isolated = next(c for c in same if "--exact" in c)
+            skipped = next(c for c in same if "--skip" in c)
+            self.assertEqual(isolated[-4:],
+                             [AUXILIARY_TEARDOWN_TEST, "--", "--exact", "--test-threads=1"])
+            self.assertIn("--lib", isolated)
+            self.assertIn("--locked", isolated)
+            self.assertEqual(isolated[isolated.index("-p") + 1], "omavless-runtime")
+            self.assertNotIn("--ignored", isolated)
+            self.assertLess(commands.index(isolated), commands.index(skipped))
+            expected = ["cargo", "test"]
+            if isolated[2:3] == ["--config"]:
+                expected += [
+                    "--config", "profile.test.package.sha2.opt-level=3",
+                    "--config", "profile.test.package.sha2.debug-assertions=true",
+                    "--config", "profile.test.package.sha2.overflow-checks=true",
+                ] + ARGON2_TEST_PROFILE
+            expected += ["--locked", "-p", "omavless-runtime", "--lib"]
+            if features is not None:
+                expected += ["--features", features]
+            expected += [AUXILIARY_TEARDOWN_TEST, "--", "--exact", "--test-threads=1"]
+            self.assertEqual(isolated, expected)
+        restored = []
+        for row in commands:
+            command = row[:]
+            if AUXILIARY_TEARDOWN_TEST in command:
+                if "--exact" in command:
+                    continue
+                index = command.index(AUXILIARY_TEARDOWN_TEST)
+                self.assertEqual(command[index - 1], "--skip")
+                del command[index - 1:index + 1]
+            restored.append(command)
+        return restored
+
+    def test_auxiliary_inventory_teardown_is_exact_and_isolated_in_both_configurations(self):
+        result, commands = self.runner_trace()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        restored = self.without_auxiliary_scheduling(commands)
+        self.assertEqual(len(commands) - len(restored), 2)
+        self.assertFalse(any(AUXILIARY_TEARDOWN_TEST in c for c in restored))
+
+    def runner_trace(self, fail_test=False, fail_canonical_stage=False, fail_clippy=False,
+                     fail_auxiliary_inventory=False):
         """Execute only the shell recipe; every external leaf is an inert stub."""
         with tempfile.TemporaryDirectory(prefix="rust-recipe-") as directory:
             scratch = Path(directory)
@@ -41,6 +91,9 @@ class RustCiIsolationTests(unittest.TestCase):
                 "if os.environ.get('RECIPE_FAIL_CANONICAL_STAGE') == '1' and '--exact' in row and "
                 + repr(CANONICAL_STAGE_TEST) + " in row:\n"
                 "    sys.exit(19)\n"
+                "if os.environ.get('RECIPE_FAIL_AUXILIARY_INVENTORY') == '1' and '--exact' in row and "
+                + repr(AUXILIARY_TEARDOWN_TEST) + " in row:\n"
+                "    sys.exit(21)\n"
             )
             stub.chmod(0o755)
             for name in ("cargo", "rustfmt", "python3", "cc", "bash"):
@@ -51,6 +104,7 @@ class RustCiIsolationTests(unittest.TestCase):
                      "CARGO_TARGET_DIR": "target", "RECIPE_TRACE": str(trace),
                      "RECIPE_FAIL": "1" if fail_test else "0",
                      "RECIPE_FAIL_CLIPPY": "1" if fail_clippy else "0",
+                     "RECIPE_FAIL_AUXILIARY_INVENTORY": "1" if fail_auxiliary_inventory else "0",
                      "RECIPE_FAIL_CANONICAL_STAGE": "1" if fail_canonical_stage else "0"},
                 capture_output=True, text=True, timeout=10,
             )
@@ -78,7 +132,7 @@ class RustCiIsolationTests(unittest.TestCase):
         # Remove ONLY the exact new Argon2 argv before comparing the original
         # recipe. Do not regenerate the baseline digest to conceal other changes.
         legacy_execution = []
-        for command in execution:
+        for command in self.without_auxiliary_scheduling(execution):
             if command[:2] == ["cargo", "test"]:
                 self.assertEqual(command[8:14], ARGON2_TEST_PROFILE)
                 command = command[:8] + command[14:]
@@ -114,6 +168,7 @@ class RustCiIsolationTests(unittest.TestCase):
                 command = command[:2] + command[2 + len(profile):]
             self.assertFalse(any("profile." in arg for arg in command))
             normalized.append(command)
+        normalized = self.without_auxiliary_scheduling(normalized)
         # Assert each bounded import addition explicitly, then retain the exact
         # pre-import command multiset: no prior feature/filter/deadline/parity gate
         # may disappear behind an opaque replacement digest.
@@ -153,7 +208,37 @@ class RustCiIsolationTests(unittest.TestCase):
         self.assertEqual(commands[-1][:2], ["cargo", "test"])
         self.assertFalse(any(c[:2] in [["cargo", "test"], ["cargo", "build"],
                                      ["cargo", "run"]] for c in commands[:-1]))
-        self.assertRegex(result.stderr, r"OVT_CHECK_END test-default-workspace-13 elapsed_s=\d+ exit=17")
+        self.assertRegex(result.stderr, r"OVT_CHECK_END test-auxiliary-inventory-13 elapsed_s=\d+ exit=17")
+
+    def test_auxiliary_inventory_failure_stops_before_parallel_tests(self):
+        result, commands = self.runner_trace(fail_auxiliary_inventory=True)
+        self.assertEqual(result.returncode, 21, result.stderr)
+        self.assertEqual(commands[-1][-4:],
+                         [AUXILIARY_TEARDOWN_TEST, "--", "--exact", "--test-threads=1"])
+        self.assertEqual(sum(c[:2] == ["cargo", "test"] for c in commands), 1)
+        self.assertRegex(result.stderr,
+                         r"OVT_CHECK_END test-auxiliary-inventory-13 elapsed_s=\d+ exit=21")
+
+    def test_auxiliary_normalization_rejects_missing_or_parallel_execution(self):
+        result, commands = self.runner_trace()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        isolated = [i for i, c in enumerate(commands)
+                    if AUXILIARY_TEARDOWN_TEST in c and "--exact" in c]
+        self.assertEqual(len(isolated), 2)
+        for index in isolated:
+            with self.subTest(index=index, mutation="missing"):
+                with self.assertRaises(AssertionError):
+                    self.without_auxiliary_scheduling(commands[:index] + commands[index + 1:])
+            changed = [c[:] for c in commands]
+            changed[index][-1] = "--test-threads=2"
+            with self.subTest(index=index, mutation="parallel"):
+                with self.assertRaises(AssertionError):
+                    self.without_auxiliary_scheduling(changed)
+            changed = [c[:] for c in commands]
+            changed[index].insert(2, "--release")
+            with self.subTest(index=index, mutation="different-profile"):
+                with self.assertRaises(AssertionError):
+                    self.without_auxiliary_scheduling(changed)
 
     def test_canonical_stage_retention_executes_once_in_the_same_union(self):
         result, commands = self.runner_trace()
