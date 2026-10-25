@@ -249,7 +249,8 @@ and GID/EGID must be0. One canonical nonroot UID is explicit input, never inferr
 from the caller. No path/hash/profile/receipt input is accepted. It holds and
 hashes the two exact fixed root755 single-link native ELF images under the
 existing five-second sampled deadline and rechecks those same inputs. It creates
-only the fixed root0700 parent and root600 record via exclusive no-follow open;
+only the fixed root0700 parent, root600 record and the shared administration
+lock described by the explicit upgrade contract, via exclusive no-follow open;
 whole payload/held-name identity and file+directory sync are checked. Existing
 record/foreign contents/provider socket refuses. Any partial/error publication
 leaves its prefix untouched for explicit ROOT reconciliation, not overwrite or
@@ -269,7 +270,14 @@ self-cgroup write, additional capability or context/budget renewal. Runtime
 parent is root0755 and socket ACL selects the enrolled UID. Native/DNS/
 netguard caps and unit policy are unchanged. Unit-active is not original binding
 or helper/client completion proof. Record or runtime/core inode/hash drift
-refuses; no upgrade/restart repair or stale-token adoption is provided.
+refuses; this create-only enrollment boundary provides no upgrade/restart repair
+or stale-token adoption. The separately scoped [explicit image upgrade](T3_PRODUCT_IMAGE_UPGRADE.md)
+adds only a root-administered exact predecessor-to-successor transition, after
+normal owner/helper retirement and checked package replacement. Its lifetime
+lock and retained journal are separate from effect permits; no interrupted
+prefix is repaired and no old close context or token survives the transition.
+Source and installed upgrade qualification remain distinct from the historical
+epoch checkpoints below.
 
 Explicit inert Arch mode:
 

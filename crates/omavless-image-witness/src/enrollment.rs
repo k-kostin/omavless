@@ -94,6 +94,9 @@ pub fn enroll_product(text: &str) -> Result<()> {
     }
     let parent = &parents.last().ok_or(Error::Refused)?.1;
     inputs.check(until)?;
+    // The selected persistent-filesystem profile and fixed administrator image
+    // must qualify before even a fresh directory prefix can be introduced.
+    crate::upgrade::preflight_enrollment_filesystems(until)?;
     // Existing directories are usable only when empty, root0700 and unchanged;
     // record existence always refuses, including apparently matching content.
     match fs::mkdirat(parent, "omavless-image-product", Mode::RWXU) {
@@ -127,6 +130,9 @@ pub fn enroll_product(text: &str) -> Result<()> {
     absent_at(&directory, RECORD)?;
     inputs.check(until)?;
     named_directory(DIRECTORY, &directory, id)?;
+    // Explicit root enrollment owns creation; the read-only provider never
+    // creates or repairs its shared/exclusive maintenance-lock object.
+    let enrollment_lease = crate::upgrade::initialize_enrollment_lock(&directory, until)?;
     let mut record = File::from(
         fs::openat(
             &directory,
@@ -207,6 +213,7 @@ pub fn enroll_product(text: &str) -> Result<()> {
     {
         return Err(Error::Refused);
     }
+    enrollment_lease.check(until)?;
     kernel::tick(until)
 }
 

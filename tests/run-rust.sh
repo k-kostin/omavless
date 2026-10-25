@@ -93,6 +93,9 @@ run_check test-helper-drain cargo test "${crypto_test_profile[@]}" --locked -p o
 for close_drain_test in "${close_drain_tests[@]}"; do
   run_check test-default-proof-drain cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --lib "$close_drain_test" -- --exact --test-threads=1
 done
+# Dependency unit tests are not executed by the runtime's Product-feature suite.
+# Keep root-only reboot fixtures explicitly separate from these source controls.
+run_check test-product-image-upgrade cargo test "${crypto_test_profile[@]}" --locked -p omavless-image-witness --features product-epochs --lib
 # These suites launch real private bus processes and assert short wire deadlines.
 # Concurrent fork/exec can also briefly inherit another test's flock descriptor
 # before CLOEXEC closes it, turning a malformed-journal test into an unrelated

@@ -12,10 +12,16 @@ mod protocol;
 mod service;
 mod status;
 #[cfg(feature = "product-epochs")]
+mod upgrade;
+#[cfg(feature = "product-epochs")]
 pub use enrollment::enroll_product;
 #[cfg(feature = "product-epochs")]
 pub use service::serve_product_epochs;
 pub use service::{Client, serve_development, serve_development_runtime};
+#[cfg(feature = "product-epochs")]
+pub use upgrade::{
+    Inspection, PreparedUpgrade, UpgradeRequest, enrollment_seal, inspect_upgrade, prepare_upgrade,
+};
 
 use std::fmt;
 

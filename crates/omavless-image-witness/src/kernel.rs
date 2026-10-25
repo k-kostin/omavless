@@ -242,6 +242,9 @@ pub(crate) struct Roots {
     client: Fixed,
     enrollment: Fixed,
     pub uid: u32,
+    // Declared last: the shared maintenance lock outlives every retained Root.
+    #[cfg(feature = "product-epochs")]
+    product_lease: Option<crate::upgrade::ProductLease>,
 }
 
 #[cfg(feature = "product-epochs")]
@@ -314,6 +317,12 @@ fn native_header(header: &[u8; 64]) -> bool {
 }
 impl Roots {
     pub(crate) fn capture(class: Class, until: Instant) -> Result<Self> {
+        #[cfg(feature = "product-epochs")]
+        let product_lease = if class.product() {
+            Some(crate::upgrade::ProductLease::acquire(until)?)
+        } else {
+            None
+        };
         let record = Fixed::open(class.enrollment(), 0o600, 512, until)?;
         let raw = bytes(&record.file, 512, until)?;
         let (uid, core_hash, client_hash) = enrollment(&raw, class)?;
@@ -327,14 +336,25 @@ impl Roots {
             client,
             enrollment: record,
             uid,
+            #[cfg(feature = "product-epochs")]
+            product_lease,
         };
         result.check(until)?;
         Ok(result)
     }
     pub(crate) fn check(&self, until: Instant) -> Result<()> {
+        #[cfg(feature = "product-epochs")]
+        if let Some(lease) = &self.product_lease {
+            lease.check(until)?;
+        }
         self.core.check(until)?;
         self.client.check(until)?;
-        self.enrollment.check(until)
+        self.enrollment.check(until)?;
+        #[cfg(feature = "product-epochs")]
+        if let Some(lease) = &self.product_lease {
+            lease.check(until)?;
+        }
+        tick(until)
     }
 }
 fn enrollment(raw: &[u8], class: Class) -> Result<(u32, [u8; 32], [u8; 32])> {
