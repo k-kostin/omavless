@@ -75,3 +75,33 @@ separate actual RuntimeServer/HTTP test provides that source composition.
 This is source/inert evidence, not installed native-core/provider/VM proof,
 whole T4, scheduled refresh, TUI/QML controls, final CI or release admission.
 The ordinary CLI already provides get/cancel; no new helper/driver is needed.
+
+## Selected refresh in the terminal client
+
+On the Subscriptions page, select the exact subscription with `n`/`p`, then
+press `s` and confirm. If the runtime advertises `subscriptions.refresh_selected`,
+`operations.get` and `operations.cancel` and this is the ordinary action/job
+client, the existing Jobs page owns the submitted handle. The confirmation
+names that subscription and rechecks selection, name, revision, runtime instance,
+capability and freshness. It never falls back to the profile cursor or all feeds.
+An older runtime or action client without the job adapter retains the unchanged
+unary confirmation; the read-only client cannot start either path. Profile-page
+refresh and refresh-all keep their existing entry points.
+
+Jobs shows progress for exactly one subscription, bounded import counts/reasons,
+and its existing `x` cancellation confirmation. A sent or lost cancel is not
+Cancelled: only the original terminal receipt establishes that result. Lost or
+malformed replies remain Unknown; subsequent reads use only the original handle,
+never a new start. Old-instance `not_found` cannot clear the barrier after restart.
+Closing the terminal does not cancel the runtime job or disconnect VPN. Success
+requires the selected method, exact handle/base revision, total1 and the single
+committed revision increment; impossible or private extra projection fields fail
+closed. Refresh jobs never fetch probe results or claim network health.
+
+The UI reuses the existing EN/RU refresh/Jobs controls and layout. Its source
+gate exercises actual App keys, production job requests/receipt parsing, stale,
+legacy, cancellation, lost-reply and malformed/private controls plus full affected
+TUI regressions and synthetic rendered EN/RU states. These are not installed
+native/VM evidence; the unchanged backend's earlier exact-source tests remain
+separate. No timer, persistent schedule, automatic retry, new runtime method,
+helper, QML flow or installation is introduced by this client slice.
