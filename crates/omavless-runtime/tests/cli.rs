@@ -259,6 +259,11 @@ fn selected_refresh_cli_refuses_malformed_or_unbound_success_without_resend() {
         "error",
         "summary",
         "envelope-revision",
+        "valid-reasons",
+        "reason-bool",
+        "reason-huge",
+        "reason-unknown",
+        "reason-zero",
     ] {
         let base = runtime_base();
         prepare_isolated_daemon_environment(&base);
@@ -275,7 +280,7 @@ fn selected_refresh_cli_refuses_malformed_or_unbound_success_without_resend() {
             let request =
                 decode_request(&read_unary_frame(&mut stream, FrameKind::Request).unwrap())
                     .unwrap();
-            let mut result = LongOperationProjection {
+            let mut projection = LongOperationProjection {
                 method: LongOperationMethod::SubscriptionRefreshSelected,
                 instance_id: "instance-1",
                 operation_id: "original",
@@ -291,9 +296,21 @@ fn selected_refresh_cli_refuses_malformed_or_unbound_success_without_resend() {
                 error: None,
                 import_summary: None,
                 import_reasons: None,
+            };
+            if fault == "valid-reasons" || fault.starts_with("reason-") {
+                projection.state = LongOperationState::Failed;
+                projection.outcome_revision = Some(7);
+                projection.cancellable = false;
+                projection.error =
+                    Some(omavless_control_protocol::StableErrorCode::InvalidArgument);
+                projection.import_reasons = Some(
+                    omavless_domain::subscription_feed::ImportSummary::rejected(
+                        omavless_domain::subscription_feed::ImportReason::UnsupportedField,
+                    )
+                    .reasons,
+                );
             }
-            .result_value()
-            .unwrap();
+            let mut result = projection.result_value().unwrap();
             match fault {
                 "empty" => result = serde_json::json!({}),
                 "method" => {
@@ -315,6 +332,22 @@ fn selected_refresh_cli_refuses_malformed_or_unbound_success_without_resend() {
                         serde_json::json!({"code":"private.invalid/password"})
                 }
                 "summary" => result["operation"]["importSummary"] = serde_json::json!({}),
+                "reason-bool" => {
+                    result["operation"]["error"]["details"]["importReasons"]["unsupported_field"] =
+                        serde_json::json!(true)
+                }
+                "reason-huge" => {
+                    result["operation"]["error"]["details"]["importReasons"]["unsupported_field"] =
+                        serde_json::json!(65537)
+                }
+                "reason-zero" => {
+                    result["operation"]["error"]["details"]["importReasons"]["unsupported_field"] =
+                        serde_json::json!(0)
+                }
+                "reason-unknown" => {
+                    result["operation"]["error"]["details"]["importReasons"] =
+                        serde_json::json!({"private.invalid/password":1})
+                }
                 _ => {}
             }
             let response = success_response(
@@ -339,8 +372,17 @@ fn selected_refresh_cli_refuses_malformed_or_unbound_success_without_resend() {
             ])
             .output()
             .unwrap();
-        assert_eq!(output.status.code(), Some(73), "fault {fault}");
-        assert!(output.stdout.is_empty());
+        if fault == "valid-reasons" {
+            assert!(output.status.success());
+            assert_eq!(
+                serde_json::from_slice::<Value>(&output.stdout).unwrap()["result"]["operation"]["error"]
+                    ["details"]["importReasons"],
+                serde_json::json!({"unsupported_field":1})
+            );
+        } else {
+            assert_eq!(output.status.code(), Some(73), "fault {fault}");
+            assert!(output.stdout.is_empty());
+        }
         assert!(!String::from_utf8_lossy(&output.stderr).contains("private.invalid"));
         let listener = worker.join().unwrap();
         listener.set_nonblocking(true).unwrap();

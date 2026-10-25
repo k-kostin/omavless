@@ -588,10 +588,17 @@ pub fn selected_refresh_start_response_matches(params: &Value, response: &Value)
             Some(StableErrorCode::parse(op["error"]["code"].as_str()?)?)
         };
         let import_reasons = if let Some(details) = op["error"].get("details") {
+            let counts = details["importReasons"].as_object()?;
+            if counts.len() > omavless_domain::subscription_feed::ImportReason::ALL.len() {
+                return None;
+            }
+            let total = counts.values().try_fold(0usize, |sum, value| {
+                sum.checked_add(usize::try_from(value.as_u64()?).ok()?)
+            })?;
             Some(
                 omavless_domain::subscription_feed::ImportReasons::from_value(
                     &details["importReasons"],
-                    65536,
+                    total,
                 )?,
             )
         } else {
@@ -684,6 +691,44 @@ mod tests {
             ))
             .is_ok()
         );
+    }
+
+    #[test]
+    fn selected_refresh_receipt_validation_preserves_bounded_failure_reasons() {
+        use omavless_domain::subscription_feed::{ImportReason, ImportSummary};
+        let params = json!({"instanceId":INSTANCE,"operationId":"selected","expectedRevision":7});
+        let result = LongOperationProjection {
+            method: LongOperationMethod::SubscriptionRefreshSelected,
+            instance_id: INSTANCE,
+            operation_id: "selected",
+            state: LongOperationState::Failed,
+            base_revision: 7,
+            outcome_revision: Some(7),
+            progress: LongOperationProgress {
+                completed: 0,
+                total: 1,
+            },
+            cancel_requested: false,
+            cancellable: false,
+            error: Some(StableErrorCode::InvalidArgument),
+            import_reasons: Some(ImportSummary::rejected(ImportReason::UnsupportedField).reasons),
+            import_summary: None,
+        }
+        .result_value()
+        .unwrap();
+        let response = omavless_control_protocol::success_response("selected", 7, result).unwrap();
+        assert!(selected_refresh_start_response_matches(&params, &response));
+        for reasons in [
+            json!({"unsupported_field":true}),
+            json!({"unsupported_field":0}),
+            json!({"unsupported_field":65537}),
+            json!({"unsupported_field":u64::MAX,"invalid_profile":1}),
+            json!({"private.invalid/password":1}),
+        ] {
+            let mut bad = response.clone();
+            bad["result"]["operation"]["error"]["details"]["importReasons"] = reasons;
+            assert!(!selected_refresh_start_response_matches(&params, &bad));
+        }
     }
 
     #[test]

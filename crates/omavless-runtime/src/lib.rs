@@ -8172,6 +8172,7 @@ mod tests {
             ("subscriptions.refresh_selected", "cancel"),
             ("subscriptions.refresh_selected", "error"),
             ("subscriptions.refresh_selected", "revoked"),
+            ("subscriptions.refresh_selected", "rejected"),
         ] {
             let base = temporary_base("batch-http-socket");
             let (owner, cutover, calls) = native_owner_fixture(&base);
@@ -8217,7 +8218,9 @@ mod tests {
                 }
                 arrived_tx.send(()).unwrap();
                 release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-                let body = if outcome == "error" {
+                let body = if outcome == "rejected" {
+                    "vless://22222222-2222-4222-8222-222222222222@192.0.2.2:443?security=none&type=tcp&fm=private-token#Managed"
+                } else if outcome == "error" {
                     "synthetic-private-error"
                 } else {
                     "vless://22222222-2222-4222-8222-222222222222@192.0.2.2:443?security=none&type=tcp#Managed"
@@ -8302,6 +8305,20 @@ mod tests {
             assert_eq!(terminal["result"]["operation"]["state"], expected);
             assert_eq!(terminal["result"]["operation"]["method"], method);
             assert_eq!(terminal["result"]["operation"]["progress"]["total"], 1);
+            if selected {
+                assert!(
+                    long_operation_protocol::selected_refresh_start_response_matches(
+                        &start_params,
+                        &terminal
+                    )
+                );
+            }
+            if outcome == "rejected" {
+                assert_eq!(
+                    terminal["result"]["operation"]["error"]["details"]["importReasons"],
+                    json!({"unsupported_field":1})
+                );
+            }
             let replay = call(&paths, method, start_params).unwrap();
             if outcome == "revoked" {
                 assert_eq!(replay["error"]["code"], "capability_unavailable");
