@@ -132,6 +132,13 @@ pub trait LifecycleHost {
     }
     #[cfg(feature = "product-image-witness")]
     #[doc(hidden)]
+    fn complete_group_close_epoch(
+        &mut self,
+        _original: &crate::conditional_close_candidate::GroupCompletion,
+    ) {
+    }
+    #[cfg(feature = "product-image-witness")]
+    #[doc(hidden)]
     fn matches_close_retirement(&self, _original: &crate::native_host::CloseObservation) -> bool {
         false
     }

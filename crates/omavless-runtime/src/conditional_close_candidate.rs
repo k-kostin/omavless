@@ -395,12 +395,23 @@ enum Phase {
     #[cfg(feature = "product-image-witness")]
     Retiring,
     Finished(Outcome),
+    #[cfg(feature = "product-image-witness")]
+    SetFinished(GroupAggregate),
 }
 impl Phase {
+    fn terminal(self) -> bool {
+        #[cfg(feature = "product-image-witness")]
+        if matches!(self, Self::SetFinished(_)) {
+            return true;
+        }
+        matches!(self, Self::Finished(_))
+    }
     fn accepts_proof(self) -> bool {
         match self {
             Self::BeforeEffect | Self::EffectAttempted => true,
             Self::Finished(_) => false,
+            #[cfg(feature = "product-image-witness")]
+            Self::SetFinished(_) => false,
             #[cfg(feature = "product-image-witness")]
             Self::Retiring => false,
         }
@@ -421,7 +432,7 @@ impl Gate {
     fn revoke(&mut self) {
         self.live = false;
         if let Some(reservation) = &mut self.reservation {
-            if !matches!(reservation.phase, Phase::Finished(_)) {
+            if !reservation.phase.terminal() {
                 reservation.cancelled = true;
             }
             if let Some(stream) = &reservation.stream {
@@ -498,7 +509,7 @@ impl Cancellation {
         let mut gate = self.lifetime.gate.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(r) = &mut gate.reservation
             && Arc::ptr_eq(&r.identity, &self.identity)
-            && !matches!(r.phase, Phase::Finished(_))
+            && !r.phase.terminal()
         {
             r.cancelled = true;
             if let Some(stream) = &r.stream {
@@ -611,6 +622,8 @@ pub(crate) struct Session {
     qualification_attempted: bool,
     owned_observation: Option<crate::native_host::CloseFacts>,
     expected_display: Option<serde_json::Value>,
+    #[cfg(feature = "product-image-witness")]
+    set_progress: Option<SetProgress>,
     #[cfg(test)]
     proof_pause: Option<(usize, Arc<std::sync::Barrier>)>,
     #[cfg(test)]
@@ -733,6 +746,8 @@ impl Session {
             qualification_attempted: false,
             owned_observation: None,
             expected_display: None,
+            #[cfg(feature = "product-image-witness")]
+            set_progress: None,
             #[cfg(test)]
             proof_pause: None,
             #[cfg(test)]
@@ -1289,6 +1304,17 @@ impl Session {
                     return Err(Outcome::RefusedBeforeWrite);
                 }
                 if effect {
+                    // Group progress belongs to the retained Session, outside
+                    // the unwindable member loop. Mark BEFORE the syscall,
+                    // including WouldBlock/error; no later member resets it.
+                    #[cfg(feature = "product-image-witness")]
+                    if let Some(progress) = &mut self.set_progress {
+                        let index = progress.current.ok_or(Outcome::RefusedBeforeWrite)?;
+                        if index >= progress.len {
+                            return Err(Outcome::RefusedBeforeWrite);
+                        }
+                        progress.attempted[index] = true;
+                    }
                     gate.reservation.as_mut().ok_or(Outcome::Unknown)?.phase =
                         Phase::EffectAttempted;
                 }
@@ -1530,6 +1556,11 @@ impl Session {
         }
         if let Phase::Finished(outcome) = r.phase {
             return outcome;
+        }
+        #[cfg(feature = "product-image-witness")]
+        if matches!(r.phase, Phase::SetFinished(_)) {
+            // A group terminal is never a scalar receipt or reusable session.
+            return Outcome::Unknown;
         }
         let outcome = if matches!(r.phase, Phase::BeforeEffect) {
             Outcome::RefusedBeforeWrite
@@ -1950,7 +1981,7 @@ impl Session {
         if self.lifetime.gate.lock().is_ok_and(|gate| {
             gate.reservation
                 .as_ref()
-                .is_some_and(|r| matches!(r.phase, Phase::Finished(_)))
+                .is_some_and(|r| r.phase.terminal())
         }) {
             // A session admits one effect only. A later selection cannot
             // inherit the first action's receipt or renew uncertain work.
@@ -2207,6 +2238,453 @@ impl Drop for Worker {
         {
             let _ = thread.join();
         }
+    }
+}
+
+// Set authority is intentionally distinct from the scalar close path. These
+// types exist only in the explicit Product build; registration/consent remains
+// the coordinator's responsibility, never a property of an Outcome enum.
+#[cfg(feature = "product-image-witness")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GroupMemberOutcome {
+    Closed,
+    Missing,
+    Changed,
+    Unsupported,
+    Unknown,
+    NotAttempted,
+}
+#[cfg(feature = "product-image-witness")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GroupAggregate {
+    AllClosed,
+    Partial,
+    Unknown,
+    RefusedBeforeWrite,
+}
+/// Bounded metadata only: never handles, controller identifiers or displays.
+#[cfg(feature = "product-image-witness")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct GroupOutcome {
+    members: Vec<GroupMemberOutcome>,
+}
+#[cfg(feature = "product-image-witness")]
+impl GroupOutcome {
+    pub(crate) fn members(&self) -> &[GroupMemberOutcome] {
+        &self.members
+    }
+    pub(crate) fn aggregate(&self) -> GroupAggregate {
+        if self.members.contains(&GroupMemberOutcome::Unknown) {
+            GroupAggregate::Unknown
+        } else if !self.members.is_empty()
+            && self
+                .members
+                .iter()
+                .all(|m| *m == GroupMemberOutcome::Closed)
+        {
+            GroupAggregate::AllClosed
+        } else if self
+            .members
+            .iter()
+            .all(|m| *m == GroupMemberOutcome::NotAttempted)
+        {
+            GroupAggregate::RefusedBeforeWrite
+        } else {
+            GroupAggregate::Partial
+        }
+    }
+    pub(crate) fn may_have_effect(&self) -> bool {
+        self.members
+            .iter()
+            .any(|m| matches!(m, GroupMemberOutcome::Closed | GroupMemberOutcome::Unknown))
+    }
+}
+/// Fixed storage is allocated before submission and survives caught unwinding.
+/// Only the guarded write site can mark a member attempted. Replies remain
+/// provisional until the SAME final proof terminalizes the whole set.
+#[cfg(feature = "product-image-witness")]
+struct SetProgress {
+    len: usize,
+    current: Option<usize>,
+    attempted: [bool; MAX_ROWS],
+    replies: [GroupMemberOutcome; MAX_ROWS],
+    finish_started: bool,
+}
+#[cfg(feature = "product-image-witness")]
+impl SetProgress {
+    fn new(len: usize) -> Self {
+        Self {
+            len,
+            current: None,
+            attempted: [false; MAX_ROWS],
+            replies: [GroupMemberOutcome::NotAttempted; MAX_ROWS],
+            finish_started: false,
+        }
+    }
+    fn reply(&mut self, index: usize, result: Outcome) {
+        if !self.attempted[index] {
+            return;
+        }
+        self.replies[index] = match result {
+            Outcome::Closed => GroupMemberOutcome::Closed,
+            Outcome::Missing => GroupMemberOutcome::Missing,
+            Outcome::Changed => GroupMemberOutcome::Changed,
+            Outcome::Unsupported => GroupMemberOutcome::Unsupported,
+            Outcome::Unknown | Outcome::RefusedBeforeWrite => GroupMemberOutcome::Unknown,
+        };
+    }
+    fn snapshot(&self) -> GroupOutcome {
+        GroupOutcome {
+            members: self.replies[..self.len].to_vec(),
+        }
+    }
+    fn settle(&mut self, proved: bool) -> GroupOutcome {
+        for index in 0..self.len {
+            if !self.attempted[index] {
+                self.replies[index] = GroupMemberOutcome::NotAttempted;
+            } else if !proved || self.replies[index] == GroupMemberOutcome::NotAttempted {
+                self.replies[index] = GroupMemberOutcome::Unknown;
+            }
+        }
+        self.current = None;
+        self.snapshot()
+    }
+}
+// No Clone/Debug/Serialize or caller constructor. A checked scalar package
+// permit is consumed privately during the distinct set authorization below.
+#[cfg(feature = "product-image-witness")]
+struct SetEffectPermit {
+    lifetime: Arc<Lifetime>,
+    identity: Arc<()>,
+}
+#[cfg(feature = "product-image-witness")]
+pub(crate) struct SetSession {
+    session: Session,
+    members: Vec<ObservedRow>,
+    permit: SetEffectPermit,
+}
+#[cfg(feature = "product-image-witness")]
+impl Session {
+    pub(crate) fn authorize_set(
+        mut self,
+        proof: crate::native_coordinator::connection_close::EffectProof,
+        expiry: Instant,
+        members: Vec<ObservedRow>,
+        _permit: CandidateEffectPermit,
+    ) -> Result<SetSession, Outcome> {
+        if !(1..=MAX_ROWS).contains(&members.len())
+            || Instant::now() >= expiry
+            || self.effect_proof.is_some()
+            || self.set_progress.is_some()
+            || self.owned_observation.is_none()
+            || !self.image_witness_selected()
+        {
+            return Err(Outcome::RefusedBeforeWrite);
+        }
+        #[cfg(not(test))]
+        if self.qualified_pair.is_none() {
+            return Err(Outcome::RefusedBeforeWrite);
+        }
+        #[cfg(test)]
+        if self.qualified_pair.is_none() && self.image_probe.is_none() {
+            return Err(Outcome::RefusedBeforeWrite);
+        }
+        let mut seen = BTreeSet::new();
+        for row in &members {
+            if row.target.binding != self.binding
+                || !Arc::ptr_eq(&row.target.session_identity, &self.identity)
+                || !seen.insert(row.target.target.id.as_str())
+            {
+                return Err(Outcome::RefusedBeforeWrite);
+            }
+        }
+        drop(seen);
+        {
+            let lifetime = Arc::clone(&self.lifetime);
+            let mut gate = lifetime
+                .gate
+                .lock()
+                .map_err(|_| Outcome::RefusedBeforeWrite)?;
+            self.check_locked(&mut gate)?;
+            if !gate
+                .reservation
+                .as_ref()
+                .is_some_and(|r| matches!(r.phase, Phase::BeforeEffect) && r.proofs == 0)
+            {
+                return Err(Outcome::RefusedBeforeWrite);
+            }
+        }
+        // Start ONCE, at the same transfer boundary as scalar authorize_effect.
+        // Rechecking members, all I/O and final Finish consume this one budget.
+        self.effect_proof = Some(proof);
+        self.confirmation_expiry = Some(expiry);
+        self.deadline = Some(Instant::now() + BUDGET);
+        self.set_progress = Some(SetProgress::new(members.len()));
+        let permit = SetEffectPermit {
+            lifetime: Arc::clone(&self.lifetime),
+            identity: Arc::clone(&self.identity),
+        };
+        Ok(SetSession {
+            session: self,
+            members,
+            permit,
+        })
+    }
+
+    fn finish_set(&mut self, allow_definitive: bool) -> GroupOutcome {
+        let progress = self
+            .set_progress
+            .as_mut()
+            .expect("set session has progress");
+        let eligible = allow_definitive
+            && !progress.finish_started
+            && progress.attempted[..progress.len].iter().any(|v| *v)
+            && !progress.replies[..progress.len].contains(&GroupMemberOutcome::Unknown);
+        // Persist before any fallible/possibly unwinding final RPC. The panic
+        // path may settle Unknown, but can NEVER call original Finish twice.
+        progress.finish_started = true;
+        let effect_lease = if eligible {
+            self.effect_lease(true)
+        } else {
+            Ok(None)
+        };
+        let lifetime = Arc::clone(&self.lifetime);
+        let mut gate = lifetime.gate.lock().unwrap_or_else(|e| e.into_inner());
+        let current = effect_lease
+            .as_ref()
+            .ok()
+            .and_then(|lease| lease.as_ref())
+            .and_then(|lease| lease.flight.as_ref())
+            .and_then(|flight| flight.current.as_ref());
+        let proved = eligible
+            && effect_lease.is_ok()
+            && self.check_locked_current(&mut gate, current).is_ok()
+            && self
+                .deadline
+                .is_some_and(|deadline| Instant::now() < deadline);
+        let progress = self
+            .set_progress
+            .as_mut()
+            .expect("set session has progress");
+        let Some(r) = &mut gate.reservation else {
+            return progress.settle(false);
+        };
+        if !Arc::ptr_eq(&r.identity, &self.identity) {
+            return progress.settle(false);
+        }
+        if let Phase::SetFinished(aggregate) = r.phase {
+            let result = progress.snapshot();
+            debug_assert_eq!(result.aggregate(), aggregate);
+            return result;
+        }
+        if r.phase.terminal() {
+            // Scalar terminal state is not a group completion, even internally.
+            return progress.settle(false);
+        }
+        let result = progress.settle(proved && matches!(r.phase, Phase::EffectAttempted));
+        r.phase = Phase::SetFinished(result.aggregate());
+        r.stream = None;
+        result
+    }
+
+    fn product_set_retirement_ready(&self, result: &GroupOutcome) -> bool {
+        self.product_witness_finished
+            && result.aggregate() == GroupAggregate::AllClosed
+            && self.lifetime.gate.lock().is_ok_and(|gate| {
+                gate.live
+                    && gate.reservation.as_ref().is_some_and(|r| {
+                        Arc::ptr_eq(&r.identity, &self.identity)
+                            && matches!(r.phase, Phase::SetFinished(GroupAggregate::AllClosed))
+                            && r.proofs == 0
+                    })
+            })
+    }
+}
+#[cfg(feature = "product-image-witness")]
+impl SetSession {
+    fn run(&mut self) -> GroupOutcome {
+        if !Arc::ptr_eq(&self.permit.identity, &self.session.identity)
+            || !Arc::ptr_eq(&self.permit.lifetime, &self.session.lifetime)
+        {
+            return self.session.finish_set(false);
+        }
+        // Validate the COMPLETE held selection before the first write. The
+        // Product coordinator has independently matched its inert preview;
+        // this is the ordinary worker-side observation check, applied to all.
+        if let Some(facts) = self.session.owned_observation.take() {
+            if facts.observe(&mut self.session).is_err() {
+                return self.session.finish_set(false);
+            }
+            let fresh = match self.session.discover_rows() {
+                Ok(rows) => rows,
+                Err(_) => return self.session.finish_set(false),
+            };
+            if !self.members.iter().all(|selected| {
+                fresh.iter().any(|row| {
+                    selected.target.same_selection(&row.target) && selected.display == row.display
+                })
+            }) {
+                return self.session.finish_set(false);
+            }
+        }
+        if !self.session.ready().is_ok_and(|ready| ready) {
+            return self.session.finish_set(false);
+        }
+        for (index, member) in self.members.iter().enumerate() {
+            self.session
+                .set_progress
+                .as_mut()
+                .expect("set progress")
+                .current = Some(index);
+            // The existing exchange performs a fresh durable/image/lifetime
+            // proof before EVERY POST chunk and never reconnects/resends.
+            let result = match self.session.exchange(Some(&member.target.target)) {
+                Ok((204, body)) if body.is_empty() => Outcome::Closed,
+                Ok((404, body)) if body.is_empty() => Outcome::Missing,
+                Ok((409, body)) if body.is_empty() => Outcome::Changed,
+                Ok((400 | 503, body)) if body.is_empty() => Outcome::Unsupported,
+                Err(Outcome::RefusedBeforeWrite) => Outcome::RefusedBeforeWrite,
+                _ => Outcome::Unknown,
+            };
+            self.session
+                .set_progress
+                .as_mut()
+                .expect("set progress")
+                .reply(index, result);
+            if result != Outcome::Closed {
+                break;
+            }
+        }
+        #[cfg(test)]
+        if let Some(barrier) = &self.session.before_finish {
+            barrier.wait();
+            barrier.wait();
+        }
+        self.session.finish_set(true)
+    }
+}
+
+#[cfg(feature = "product-image-witness")]
+struct GroupWorkerResult {
+    outcome: GroupOutcome,
+    retired: bool,
+}
+#[cfg(feature = "product-image-witness")]
+pub(crate) struct GroupWorker {
+    cancellation: Cancellation,
+    result: std::sync::mpsc::Receiver<GroupWorkerResult>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+/// Only the original worker can construct this AFTER whole SetSession Drop.
+/// It cannot be converted into a scalar completion or supplied as wire proof.
+#[cfg(feature = "product-image-witness")]
+pub struct GroupCompletion {
+    outcome: GroupOutcome,
+    original: Cancellation,
+    retired: bool,
+}
+#[cfg(feature = "product-image-witness")]
+impl GroupCompletion {
+    pub(crate) fn outcome(&self) -> &GroupOutcome {
+        &self.outcome
+    }
+    pub(crate) fn admits(&self, expected: &Cancellation) -> bool {
+        self.retired
+            && self.outcome.aggregate() == GroupAggregate::AllClosed
+            && Arc::ptr_eq(&self.original.identity, &expected.identity)
+            && Arc::ptr_eq(&self.original.lifetime, &expected.lifetime)
+            && self
+                .original
+                .lifetime
+                .gate
+                .lock()
+                .is_ok_and(|gate| gate.live && gate.reservation.is_none())
+    }
+}
+#[cfg(feature = "product-image-witness")]
+impl Scheduler {
+    pub(crate) fn start_set(&mut self, mut set: SetSession) -> Result<GroupWorker, Outcome> {
+        use std::sync::atomic::Ordering;
+        if self
+            .active
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return Err(Outcome::RefusedBeforeWrite);
+        }
+        let slot = Slot(Arc::clone(&self.active));
+        let cancellation = set.session.cancellation();
+        let (sender, result) = std::sync::mpsc::sync_channel(1);
+        #[cfg(test)]
+        let after_publish = self.after_publish.take();
+        #[cfg(test)]
+        if std::mem::take(&mut self.fail_next_spawn) {
+            drop(slot);
+            return Err(Outcome::RefusedBeforeWrite);
+        }
+        let thread = std::thread::Builder::new()
+            .name("omavless-close-set".into())
+            .spawn(move || {
+                let outcome =
+                    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| set.run())) {
+                        Ok(result) => result,
+                        Err(_) => set.session.finish_set(false),
+                    };
+                let retired = set.session.product_set_retirement_ready(&outcome);
+                // Drop targets, displays, permit, Session, channel and original
+                // reservation before releasing shared capacity or publication.
+                drop(set);
+                drop(slot);
+                let _ = sender.try_send(GroupWorkerResult { outcome, retired });
+                #[cfg(test)]
+                if let Some(barrier) = after_publish {
+                    barrier.wait();
+                    barrier.wait();
+                }
+            })
+            .map_err(|_| Outcome::RefusedBeforeWrite)?;
+        Ok(GroupWorker {
+            cancellation,
+            result,
+            thread: Some(thread),
+        })
+    }
+}
+#[cfg(feature = "product-image-witness")]
+impl GroupWorker {
+    pub(crate) fn cancel(&self) {
+        self.cancellation.cancel();
+    }
+    pub(crate) fn poll_epoch(&mut self) -> Option<GroupCompletion> {
+        let result = self.result.try_recv().ok();
+        if self
+            .thread
+            .as_ref()
+            .is_some_and(std::thread::JoinHandle::is_finished)
+            && let Some(thread) = self.thread.take()
+        {
+            let _ = thread.join();
+        }
+        result.map(|result| GroupCompletion {
+            outcome: result.outcome,
+            original: self.cancellation.clone(),
+            retired: result.retired,
+        })
+    }
+}
+#[cfg(feature = "product-image-witness")]
+impl Drop for GroupWorker {
+    fn drop(&mut self) {
+        self.cancel();
+        if self
+            .thread
+            .as_ref()
+            .is_some_and(std::thread::JoinHandle::is_finished)
+            && let Some(thread) = self.thread.take()
+        {
+            let _ = thread.join();
+        }
+        // No unfinished join and no early release of the original shared slot.
     }
 }
 
@@ -2716,20 +3194,25 @@ while True:
   body={'badabi':b'{"abi":2,"ready":true}','suspended':b'{"abi":1,"ready":false}','duplicated':b'{"abi":1,"abi":1,"ready":true}','extra':b'{"abi":1,"ready":true,"unknown":0}'}.get(variant,b'{"abi":1,"ready":true}')
   if os.path.exists(root+'/suspended'):body=b'{"abi":1,"ready":false}'
   head=b'HTTP/1.0 200 OK\r\n'
- elif line.startswith(b'GET /connections '):body=b'{"connections":[{"id":"11111111-1111-4111-8111-111111111111","omavlessCloseToken":"42"}]}';head=b'HTTP/1.0 200 OK\r\n'
+ elif line.startswith(b'GET /connections '):
+  body=b'{"connections":[{"id":"11111111-1111-4111-8111-111111111111","omavlessCloseToken":"42"}]}'
+  if variant.startswith('set-'):
+   body=json.dumps({'connections':[{'id':f'{n}'*8+'-'+f'{n}'*4+'-4'+f'{n}'*3+'-8'+f'{n}'*3+'-'+f'{n}'*12,'omavlessCloseToken':str(41+n)} for n in (1,2,3)]}).encode()
+  head=b'HTTP/1.0 200 OK\r\n'
  else:
   with open(root+'/effects','ab') as f:
    if variant=='hold-effect-record':
     open(root+'/effect-opened','wb').close(); deadline=time.monotonic()+3
     while not os.path.exists(root+'/release-effect-record') and time.monotonic()<deadline:time.sleep(0.002)
-   f.write(b'1\n')
+   f.write(line+b'\n' if variant.startswith('set-') else b'1\n')
   open(root+'/effect-recorded','wb').close()
   if variant=='stall-reply':
    open(root+'/effect-entered','wb').close(); deadline=time.monotonic()+10
    while not os.path.exists(root+'/release') and time.monotonic()<deadline:time.sleep(0.002)
   if variant=='drop':c.close();continue
   if variant=='partial':c.sendall(b'HTTP/1.0 204 No Content\r\nContent-Length: 1\r\n\r\n');c.close();continue
-  if variant=='bad-code':body=b'';head=b'HTTP/1.0 +204 No Content\r\n'
+  if variant=='set-partial' and b'/22222222-' in line:body=b'';head=b'HTTP/1.0 409 Conflict\r\n'
+  elif variant=='bad-code':body=b'';head=b'HTTP/1.0 +204 No Content\r\n'
   elif variant=='generic404':body=b'404 page not found';head=b'HTTP/1.0 404 Not Found\r\n'
   else:body=b'';head=b'HTTP/1.0 204 No Content\r\n'
  try:c.sendall(head+b'Content-Length: '+str(len(body)).encode()+b'\r\n\r\n'+body)
@@ -2790,6 +3273,165 @@ while True:
         let mut session = Session::bind(core, nix::unistd::Uid::current().as_raw()).unwrap();
         let target = session.discover().unwrap().remove(0);
         (session, target)
+    }
+
+    // Transport-only synthetic authority, never a Product permit/Finish claim.
+    // Actual owner/coordinator tests cover authorize_set and real proof hooks.
+    #[cfg(feature = "product-image-witness")]
+    fn transport_set(core: &mut OwnedCore, count: usize) -> SetSession {
+        let mut session = Session::bind(core, nix::unistd::Uid::current().as_raw()).unwrap();
+        let mut members = session.discover_rows().unwrap();
+        members.truncate(count);
+        assert_eq!(members.len(), count);
+        session.deadline = Some(Instant::now() + BUDGET);
+        session.set_progress = Some(SetProgress::new(count));
+        let permit = SetEffectPermit {
+            lifetime: Arc::clone(&session.lifetime),
+            identity: Arc::clone(&session.identity),
+        };
+        SetSession {
+            session,
+            members,
+            permit,
+        }
+    }
+    #[cfg(feature = "product-image-witness")]
+    fn group_result(worker: &mut GroupWorker) -> GroupCompletion {
+        let deadline = Instant::now() + Duration::from_secs(4);
+        loop {
+            if let Some(result) = worker.poll_epoch() {
+                return result;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "bounded original set worker did not finish"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+    #[cfg(feature = "product-image-witness")]
+    #[test]
+    fn selected_set_transport_addresses_only_members_and_stops_on_first_nonclosed() {
+        let _fixture = FIXTURE.lock().unwrap();
+        for (variant, count, expected) in [
+            ("set-ok", 2, vec![GroupMemberOutcome::Closed; 2]),
+            (
+                "set-partial",
+                3,
+                vec![
+                    GroupMemberOutcome::Closed,
+                    GroupMemberOutcome::Changed,
+                    GroupMemberOutcome::NotAttempted,
+                ],
+            ),
+        ] {
+            let (root, mut core) = peer_fixture(variant);
+            let set = transport_set(&mut core, count);
+            let original = set.session.cancellation();
+            let mut scheduler = Scheduler::default();
+            let mut worker = scheduler.start_set(set).unwrap();
+            let result = group_result(&mut worker);
+            assert_eq!(result.outcome().members(), expected);
+            assert!(result.outcome().may_have_effect());
+            assert!(
+                !result.admits(&original),
+                "no synthetic transport result supplies Product Finish"
+            );
+            let effects = fs::read_to_string(root.join("effects")).unwrap();
+            assert_eq!(effects.lines().count(), 2);
+            assert!(
+                effects
+                    .lines()
+                    .next()
+                    .unwrap()
+                    .starts_with("POST /connections/11111111-")
+            );
+            assert!(
+                effects
+                    .lines()
+                    .nth(1)
+                    .unwrap()
+                    .starts_with("POST /connections/22222222-")
+            );
+            assert!(!effects.contains("33333333-"));
+            assert!(!scheduler.active.load(std::sync::atomic::Ordering::Acquire));
+            assert!(original.lifetime.gate.lock().unwrap().reservation.is_none());
+            core.stop(Duration::from_secs(2)).unwrap();
+            drop(worker);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+    #[cfg(feature = "product-image-witness")]
+    #[test]
+    fn selected_set_panic_preserves_attempted_member_and_never_attempts_remainder() {
+        let _fixture = FIXTURE.lock().unwrap();
+        let (root, mut core) = peer_fixture("set-ok");
+        let mut set = transport_set(&mut core, 3);
+        set.session.panic_after_write = true;
+        let mut scheduler = Scheduler::default();
+        let mut worker = scheduler.start_set(set).unwrap();
+        let result = group_result(&mut worker);
+        assert_eq!(
+            result.outcome().members(),
+            &[
+                GroupMemberOutcome::Unknown,
+                GroupMemberOutcome::NotAttempted,
+                GroupMemberOutcome::NotAttempted,
+            ]
+        );
+        assert_eq!(result.outcome().aggregate(), GroupAggregate::Unknown);
+        wait_effect_record(&root);
+        assert_eq!(
+            fs::read_to_string(root.join("effects"))
+                .unwrap()
+                .lines()
+                .count(),
+            1
+        );
+        core.stop(Duration::from_secs(2)).unwrap();
+        drop(worker);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[cfg(feature = "product-image-witness")]
+    #[test]
+    fn selected_set_final_cancel_degrades_all_attempts_and_shares_scalar_slot() {
+        let _fixture = FIXTURE.lock().unwrap();
+        let (root, mut core) = peer_fixture("set-ok");
+        let (other_root, mut other_core) = peer_fixture("ok");
+        let mut set = transport_set(&mut core, 3);
+        let original = set.session.cancellation();
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        set.session.before_finish = Some(Arc::clone(&barrier));
+        let mut scheduler = Scheduler::default();
+        let mut worker = scheduler.start_set(set).unwrap();
+        barrier.wait();
+        let (other, selected) = prepared(&mut other_core);
+        assert!(
+            scheduler
+                .start(other, selected, CandidateEffectPermit::owned_fixture())
+                .is_err()
+        );
+        assert!(!other_root.join("effects").exists());
+        original.cancel();
+        barrier.wait();
+        let result = group_result(&mut worker);
+        assert_eq!(
+            result.outcome().members(),
+            &[GroupMemberOutcome::Unknown; 3]
+        );
+        assert!(!result.admits(&original));
+        assert_eq!(
+            fs::read_to_string(root.join("effects"))
+                .unwrap()
+                .lines()
+                .count(),
+            3
+        );
+        core.stop(Duration::from_secs(2)).unwrap();
+        other_core.stop(Duration::from_secs(2)).unwrap();
+        drop(worker);
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(other_root).unwrap();
     }
 
     struct DrainPeer {

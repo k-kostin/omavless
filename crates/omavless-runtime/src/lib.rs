@@ -520,6 +520,14 @@ trait NativeRuntimeOwner: Send {
         Option<mutation::ExternalCloseReceipt>,
         native_coordinator::NativeOwnerError,
     >;
+    #[cfg(feature = "product-image-witness")]
+    fn developer_set_confirmed(
+        &mut self,
+        result: native_coordinator::connection_close::SetDiscovered,
+    ) -> std::result::Result<
+        Option<mutation::ExternalSetReceipt>,
+        native_coordinator::NativeOwnerError,
+    >;
     #[cfg(feature = "developer-conditional-close")]
     fn close_registration(&mut self) -> lifecycle::CloseRegistration;
     #[cfg(feature = "product-image-witness")]
@@ -981,6 +989,18 @@ where
         self.owner
             .batch_coordinator()
             .complete_product_confirm(result)
+    }
+    #[cfg(feature = "product-image-witness")]
+    fn developer_set_confirmed(
+        &mut self,
+        result: native_coordinator::connection_close::SetDiscovered,
+    ) -> std::result::Result<
+        Option<mutation::ExternalSetReceipt>,
+        native_coordinator::NativeOwnerError,
+    > {
+        self.owner
+            .batch_coordinator()
+            .complete_connection_set(result)
     }
     #[cfg(feature = "developer-conditional-close")]
     fn close_registration(&mut self) -> lifecycle::CloseRegistration {
@@ -2267,6 +2287,17 @@ impl RuntimeServer {
         #[cfg(feature = "developer-conditional-close")]
         if developer_connection_close::METHODS
             .contains(&request["method"].as_str().unwrap_or_default())
+            || {
+                #[cfg(feature = "product-image-witness")]
+                {
+                    developer_connection_close::SET_METHODS
+                        .contains(&request["method"].as_str().unwrap_or_default())
+                }
+                #[cfg(not(feature = "product-image-witness"))]
+                {
+                    false
+                }
+            }
         {
             return self.dispatch_developer_close(request);
         }
@@ -3061,6 +3092,15 @@ fn dispatch_native(
             };
             #[cfg(not(feature = "developer-conditional-close"))]
             let development_methods: &[&str] = &[];
+            #[cfg(feature = "product-image-witness")]
+            let set_methods = if owner.close_registration() == lifecycle::CloseRegistration::Product
+            {
+                developer_connection_close::SET_METHODS
+            } else {
+                &[]
+            };
+            #[cfg(not(feature = "product-image-witness"))]
+            let set_methods: &[&str] = &[];
             #[cfg(feature = "t4-manager-actor-service")]
             let pair_methods = if runtime_ownership && owner.normal_private_pair_available() {
                 private_pair_api::advertised_methods()
@@ -3092,6 +3132,12 @@ fn dispatch_native(
                 .chain(
                     runtime_ownership
                         .then_some(development_methods)
+                        .into_iter()
+                        .flatten(),
+                )
+                .chain(
+                    runtime_ownership
+                        .then_some(set_methods)
                         .into_iter()
                         .flatten(),
                 )
@@ -4711,6 +4757,48 @@ mod tests {
 
     #[cfg(feature = "product-image-witness")]
     #[test]
+    fn selected_set_methods_are_unknown_and_unadvertised_without_product_registration() {
+        for registration in [
+            lifecycle::CloseRegistration::Disabled,
+            lifecycle::CloseRegistration::Developer,
+        ] {
+            let base = temporary_base("set-no-registration");
+            let paths = RuntimePaths::below(&base.join("runtime"));
+            let (mut owner, _cutover, calls) = native_owner_fixture(&base);
+            owner.batch_coordinator().host_mut().close_registration = registration;
+            let mut server = RuntimeServer::bind(paths).unwrap();
+            server.register_native_owner(
+                owner,
+                subscription_transport::HttpsSubscriptionTransport::new(),
+            );
+            let before = calls.load(Ordering::Relaxed);
+            let caps = server
+                .dispatch(&make_request("caps", "capabilities.get", json!({})).unwrap())
+                .unwrap();
+            for method in developer_connection_close::SET_METHODS {
+                assert!(
+                    !caps["result"]["methods"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|m| m == method)
+                );
+                let reply = server
+                    .dispatch(
+                        &make_request("set", method, json!({"instanceId":server.instance_id}))
+                            .unwrap(),
+                    )
+                    .unwrap();
+                assert_eq!(reply["error"]["code"], "unknown_method");
+            }
+            assert_eq!(calls.load(Ordering::Relaxed), before);
+            drop(server);
+            fs::remove_dir_all(base).unwrap();
+        }
+    }
+
+    #[cfg(feature = "product-image-witness")]
+    #[test]
     fn product_preview_view_hint_comes_from_actual_registered_server_serialization() {
         let base = temporary_base("product-view-wire");
         let paths = RuntimePaths::below(&base.join("runtime"));
@@ -4728,6 +4816,15 @@ mod tests {
         assert_eq!(wire["ok"], true);
         assert_eq!(wire["result"]["connectionCloseView"], "inert-preview-v1");
         for method in developer_connection_close::METHODS {
+            assert!(
+                wire["result"]["methods"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|v| v == method)
+            );
+        }
+        for method in developer_connection_close::SET_METHODS {
             assert!(
                 wire["result"]["methods"]
                     .as_array()

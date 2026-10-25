@@ -23,6 +23,11 @@ fn escape(text: &str) -> String {
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args().skip(1).collect();
+    #[cfg(feature = "developer-conditional-close")]
+    if args.len() == 4 && args[2].starts_with("set-") {
+        return selected_set_preview(&args);
+    }
+
     if args.len() != 4
         || !matches!(args[0].as_str(), "en" | "ru")
         || !matches!(args[1].as_str(), "70x24" | "60x24")
@@ -225,12 +230,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     view::clamp_scroll(&mut app, w, h, now);
     let mut terminal = Terminal::new(TestBackend::new(w, h))?;
     terminal.draw(|f| view::draw(f, &app, now))?;
+    write_cells(terminal.backend().buffer(), w, h, &args[3])
+}
+fn write_cells(
+    buffer: &ratatui::buffer::Buffer,
+    w: u16,
+    h: u16,
+    path: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut svg = format!(
         "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{}\" height=\"{}\"><rect width=\"100%\" height=\"100%\" fill=\"#000\"/><g fill=\"#fff\" font-family=\"DejaVu Sans Mono,monospace\" font-size=\"15\">",
         w * 10,
         h * 20
     );
-    for (i, cell) in terminal.backend().buffer().content.iter().enumerate() {
+    for (i, cell) in buffer.content.iter().enumerate() {
         if !cell.symbol().trim().is_empty() {
             svg.push_str(&format!(
                 "<text x=\"{}\" y=\"{}\">{}</text>",
@@ -245,8 +258,152 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .write(true)
         .create_new(true)
         .mode(0o600)
-        .open(&args[3])?;
+        .open(path)?;
     file.write_all(svg.as_bytes())?;
     file.sync_all()?;
     Ok(())
+}
+
+#[cfg(feature = "developer-conditional-close")]
+fn selected_set_preview(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    use omavless_tui::developer_close::{Input, Workspace};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    if !matches!(args[0].as_str(), "en" | "ru")
+        || !matches!(args[1].as_str(), "70x24" | "60x24")
+        || !matches!(
+            args[2].as_str(),
+            "set-select"
+                | "set-selected"
+                | "set-review"
+                | "set-review-middle"
+                | "set-review-later"
+                | "set-review-end"
+                | "set-confirm"
+                | "set-pending"
+                | "set-partial"
+                | "set-partial-middle"
+                | "set-partial-later"
+                | "set-partial-end"
+                | "set-unknown"
+                | "set-unknown-middle"
+                | "set-unknown-end"
+                | "set-unknown-later"
+                | "set-closed"
+                | "set-closed-middle"
+                | "set-expired"
+                | "set-closed-later"
+                | "set-empty"
+                | "set-refused"
+                | "set-busy-metadata"
+                | "set-busy-confirm"
+                | "set-closed-end"
+        )
+    {
+        return Err("invalid fixed selected-set preview".into());
+    }
+    let now = Instant::now();
+    let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
+    let call = |input| match input {
+        Input::Send(c) => c,
+        _ => panic!("fixed synthetic call"),
+    };
+    let ok = |result| Ok(json!({"ok":true,"revision":0,"result":result}));
+    let mut workspace = Workspace::new_selected_set(Locale::parse(&args[0]));
+    call(workspace.input(key(KeyCode::Char('r')), now, true));
+    if args[2] == "set-busy-metadata" {
+        return draw_selected_set(&workspace, args, now);
+    }
+
+    workspace.accept(
+        ok(json!({"version":1,"runtimeOwnership":true,"instanceId":"synthetic-set-preview"})),
+        now,
+    );
+    workspace.accept(ok(json!({"runtimeOwnership":true,"connectionCloseView":"inert-preview-v1","methods":["development.connection_sets.snapshot","development.connection_sets.prepare","development.connection_sets.confirm","development.connection_sets.receipt"]})),now);
+    let mut rows=(1..=6).map(|i|json!({"handle":format!("{i:x}").repeat(64),"display":{"host":format!("connection-{i}-{}.invalid","long-destination-".repeat(5)),"ip":"2001:db8::7","port":443,"network":"tcp","route":"direct"}})).collect::<Vec<_>>();
+    if args[2] == "set-empty" {
+        rows.clear();
+    }
+    workspace.accept(ok(json!({"schemaVersion":1,"scope":"development_owned_connection_set_close","instanceId":"synthetic-set-preview","rows":rows})),now);
+    if !matches!(args[2].as_str(), "set-select" | "set-empty") {
+        workspace.input(key(KeyCode::Char('a')), now, true);
+        if args[2] != "set-selected" {
+            workspace.input(key(KeyCode::Char('x')), now, true);
+            if !args[2].starts_with("set-review") {
+                let prepare = call(workspace.input(key(KeyCode::Enter), now, true));
+                assert_eq!(prepare.params()["handles"].as_array().unwrap().len(), 6);
+                workspace.accept(ok(json!({"schemaVersion":1,"scope":"development_owned_connection_set_close","instanceId":"synthetic-set-preview","rows":rows,"ticket":"a".repeat(64)})),now);
+                if !matches!(args[2].as_str(), "set-confirm" | "set-expired") {
+                    let confirm = call(workspace.input(key(KeyCode::Enter), now, true));
+                    let operation = confirm.params()["operationId"].clone();
+                    if args[2] == "set-busy-confirm" {
+                        return draw_selected_set(&workspace, args, now);
+                    }
+
+                    let (aggregate, members) = if args[2].starts_with("set-partial") {
+                        (
+                            "partial",
+                            vec![
+                                "closed",
+                                "closed",
+                                "changed",
+                                "not_attempted",
+                                "not_attempted",
+                                "not_attempted",
+                            ],
+                        )
+                    } else if args[2].starts_with("set-unknown") {
+                        (
+                            "unknown",
+                            vec![
+                                "unknown",
+                                "unknown",
+                                "not_attempted",
+                                "not_attempted",
+                                "not_attempted",
+                                "not_attempted",
+                            ],
+                        )
+                    } else if args[2] == "set-refused" {
+                        ("refused_before_write", vec!["not_attempted"; 6])
+                    } else {
+                        ("all_closed", vec!["closed"; 6])
+                    };
+                    let pending = args[2] == "set-pending";
+                    let wire = json!({"ok":true,"revision":1,"result":{"schemaVersion":1,"scope":"development_owned_connection_set_close","instanceId":"synthetic-set-preview","operationId":operation,"state":if pending{"pending"}else{"finished"},"receiptRevision":if pending{None}else{Some(1)},"aggregate":if pending{None}else{Some(aggregate)},"members":if pending{None}else{Some(members.iter().enumerate().map(|(index,outcome)|json!({"index":index,"outcome":outcome})).collect::<Vec<_>>())}}});
+                    workspace.accept(Ok(wire), now);
+                }
+            }
+        }
+    }
+    if args[2].ends_with("-middle") {
+        workspace.input(key(KeyCode::PageDown), now, true);
+    }
+    if args[2].ends_with("-later") {
+        workspace.input(key(KeyCode::PageDown), now, true);
+        workspace.input(key(KeyCode::PageDown), now, true);
+    }
+    if args[2].ends_with("-end") {
+        workspace.input(key(KeyCode::End), now, true);
+    }
+    let draw_at = if args[2] == "set-expired" {
+        now + std::time::Duration::from_secs(6)
+    } else {
+        now
+    };
+    draw_selected_set(&workspace, args, draw_at)
+}
+#[cfg(feature = "developer-conditional-close")]
+fn draw_selected_set(
+    workspace: &omavless_tui::developer_close::Workspace,
+    args: &[String],
+    now: Instant,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (w, h) = if args[1] == "70x24" {
+        (70, 24)
+    } else {
+        (60, 24)
+    };
+    let mut terminal = Terminal::new(TestBackend::new(w, h))?;
+    terminal.draw(|frame| workspace.draw(frame, now))?;
+    write_cells(terminal.backend().buffer(), w, h, &args[3])
 }

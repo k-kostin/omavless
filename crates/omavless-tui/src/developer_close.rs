@@ -21,6 +21,9 @@ const METHODS: [&str; 4] = [
     "development.connections.confirm",
     "development.connections.receipt",
 ];
+#[path = "developer_close_set.rs"]
+mod selected_set;
+
 const SCOPE: &str = "development_owned_single_connection_close";
 const LIFE: Duration = Duration::from_secs(5);
 const MIN_WIDTH: u16 = 70;
@@ -92,6 +95,13 @@ pub struct Workspace {
     terminal: bool,
     notice: &'static str,
     view: CloseView,
+    set_mode: bool,
+    set_selected: BTreeSet<usize>,
+    set_review: bool,
+    set_held: Vec<usize>,
+    set_results: Vec<&'static str>,
+    set_scroll: u16,
+    set_viewport: std::cell::Cell<(u16, u16)>,
 }
 
 fn opaque(text: &str) -> bool {
@@ -173,6 +183,13 @@ impl Workspace {
             terminal: false,
             notice: "tui.dev_close_refresh",
             view: CloseView::LiveSession,
+            set_mode: false,
+            set_selected: BTreeSet::new(),
+            set_review: false,
+            set_held: Vec::new(),
+            set_results: Vec::new(),
+            set_scroll: 0,
+            set_viewport: std::cell::Cell::new((MIN_WIDTH, MIN_HEIGHT)),
         }
     }
     fn call(&mut self, phase: Phase, method: &'static str, params: Value) -> Call {
@@ -202,6 +219,9 @@ impl Workspace {
         }
         if key.kind != KeyEventKind::Press {
             return Input::None;
+        }
+        if self.set_mode {
+            return self.input_set(key, now, wide);
         }
         if self.terminal {
             return Input::None;
@@ -296,6 +316,9 @@ impl Workspace {
         Input::None
     }
     pub fn accept(&mut self, response: Result<Value, ReadError>, now: Instant) -> Option<Call> {
+        if self.set_mode {
+            return self.accept_set(response, now);
+        }
         let phase = self.phase.take()?;
         if self.submitted {
             let result = response.ok().and_then(|v| self.receipt(&v));
@@ -402,6 +425,11 @@ impl Workspace {
         self.enabled = false;
         self.started = None;
         self.notice = "tui.dev_close_unavailable";
+        self.set_review = false;
+        self.set_held.clear();
+        self.set_selected.clear();
+        self.set_results.clear();
+        self.set_scroll = 0;
     }
     fn snapshot(&mut self, value: &Value) -> bool {
         let result = &value["result"];
@@ -413,7 +441,7 @@ impl Workspace {
         }
         if !exact(result, &["schemaVersion", "scope", "instanceId", "rows"])
             || result["schemaVersion"] != 1
-            || result["scope"] != SCOPE
+            || result["scope"] != self.workspace_scope()
             || result["instanceId"].as_str() != self.instance.as_deref()
         {
             return false;
@@ -546,6 +574,10 @@ impl Workspace {
         .find(|outcome| result["outcome"] == *outcome)
     }
     pub fn draw(&self, frame: &mut Frame<'_>, now: Instant) {
+        if self.set_mode {
+            self.draw_set(frame, now);
+            return;
+        }
         let tr = |key| self.locale.text(key);
         let [head, body, footer] = Layout::vertical([
             Constraint::Length(5),
@@ -644,7 +676,18 @@ impl Workspace {
 /// The production adapter supplies only the fixed authenticated unary client.
 /// One bounded worker; exiting drops client channels, never runtime commands.
 pub fn run(
+    call: impl FnMut(&Call) -> Result<Value, ReadError> + Send + 'static,
+) -> Result<(), &'static str> {
+    run_workspace(call, Workspace::new)
+}
+pub fn run_selected_set(
+    call: impl FnMut(&Call) -> Result<Value, ReadError> + Send + 'static,
+) -> Result<(), &'static str> {
+    run_workspace(call, Workspace::new_selected_set)
+}
+fn run_workspace(
     mut call: impl FnMut(&Call) -> Result<Value, ReadError> + Send + 'static,
+    factory: fn(Locale) -> Workspace,
 ) -> Result<(), &'static str> {
     use std::{
         io::IsTerminal,
@@ -710,7 +753,7 @@ pub fn run(
             }
         })
         .map_err(|_| "Could not start terminal input")?;
-    let mut workspace = Workspace::new(Locale::current());
+    let mut workspace = factory(Locale::current());
     while !stop.load(Ordering::Relaxed) {
         let now = Instant::now();
         if let Ok(result) = receive.try_recv()
@@ -816,6 +859,51 @@ mod tests {
             )
             .unwrap();
         workspace.accept(ok(snapshot()), now);
+    }
+
+    const SET_METHODS_TEST: [&str; 4] = [
+        "development.connection_sets.snapshot",
+        "development.connection_sets.prepare",
+        "development.connection_sets.confirm",
+        "development.connection_sets.receipt",
+    ];
+    fn ready_set(workspace: &mut Workspace, now: Instant) {
+        send(workspace.input(key(KeyCode::Char('r')), now, true));
+        workspace
+            .accept(
+                ok(json!({"version":1,"runtimeOwnership":true,"instanceId":"actual"})),
+                now,
+            )
+            .unwrap();
+        let snapshot=workspace.accept(ok(json!({"runtimeOwnership":true,"methods":SET_METHODS_TEST,"connectionCloseView":"inert-preview-v1"})),now).expect("set capabilities must reach fixed snapshot");
+        assert_eq!(snapshot.method(), SET_METHODS_TEST[0]);
+        workspace.accept(ok(json!({"schemaVersion":1,"scope":"development_owned_connection_set_close","instanceId":"actual","rows":[row(&"1".repeat(64)),row(&"2".repeat(64))]})),now);
+    }
+    #[test]
+    fn selected_set_keys_hold_review_exact_members_before_one_confirmation() {
+        let now = Instant::now();
+        let mut workspace = Workspace::new_selected_set(Locale::En);
+        ready_set(&mut workspace, now);
+        assert!(matches!(
+            workspace.input(key(KeyCode::Char(' ')), now, true),
+            Input::None
+        ));
+        workspace.input(key(KeyCode::Down), now, true);
+        workspace.input(key(KeyCode::Char(' ')), now, true);
+        assert!(
+            matches!(
+                workspace.input(key(KeyCode::Char('x')), now, true),
+                Input::None
+            ),
+            "review is local, no authority acquired"
+        );
+        let prepare = send(workspace.input(key(KeyCode::Enter), now, true));
+        assert_eq!(prepare.method(), SET_METHODS_TEST[1]);
+        assert_eq!(
+            prepare.params()["handles"],
+            json!(["1".repeat(64), "2".repeat(64)])
+        );
+        assert!(prepare.params().get("handle").is_none());
     }
 
     #[test]
@@ -1348,5 +1436,281 @@ mod tests {
         assert!(text.contains("203.0.113.99"));
         assert!(text.contains("Enter"));
         assert!(text.contains("Esc"));
+    }
+    fn prepared_set(workspace: &mut Workspace, now: Instant) -> Call {
+        ready_set(workspace, now);
+        workspace.input(key(KeyCode::Char('a')), now, true);
+        workspace.input(key(KeyCode::Char('x')), now, true);
+        let prepare = send(workspace.input(key(KeyCode::Enter), now, true));
+        let rows = prepare.params()["handles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|h| row(h.as_str().unwrap()))
+            .collect::<Vec<_>>();
+        workspace.accept(ok(json!({"schemaVersion":1,"scope":"development_owned_connection_set_close","instanceId":"actual","rows":rows,"ticket":"3".repeat(64)})),now);
+        send(workspace.input(key(KeyCode::Enter), now, true))
+    }
+    fn set_receipt(workspace: &Workspace, outcomes: &[&str], aggregate: &str) -> Value {
+        json!({"ok":true,"revision":workspace.revision+1,"result":{"schemaVersion":1,"scope":"development_owned_connection_set_close","instanceId":"actual",
+            "operationId":workspace.pending.as_ref().unwrap().operation,"state":"finished","receiptRevision":workspace.revision+1,"aggregate":aggregate,
+            "members":outcomes.iter().enumerate().map(|(i,outcome)|json!({"index":i,"outcome":outcome})).collect::<Vec<_>>()}})
+    }
+    #[test]
+    fn selected_set_partial_and_verified_unknown_are_spent_without_hidden_confirm() {
+        let now = Instant::now();
+        for (outcomes, aggregate) in [
+            (vec!["closed", "changed"], "partial"),
+            (vec!["unknown", "unknown"], "unknown"),
+            (vec!["closed", "closed"], "all_closed"),
+        ] {
+            let mut workspace = Workspace::new_selected_set(Locale::En);
+            let confirm = prepared_set(&mut workspace, now);
+            assert_eq!(confirm.method(), SET_METHODS_TEST[2]);
+            assert_eq!(confirm.params()["handles"].as_array().unwrap().len(), 2);
+            workspace.accept(Ok(set_receipt(&workspace, &outcomes, aggregate)), now);
+            assert_eq!(workspace.set_results, outcomes);
+            for code in [
+                KeyCode::Enter,
+                KeyCode::Char('r'),
+                KeyCode::Char('x'),
+                KeyCode::Char('a'),
+                KeyCode::Char(' '),
+            ] {
+                assert!(matches!(workspace.input(key(code), now, true), Input::None));
+            }
+            if aggregate == "unknown" {
+                let original = confirm.params()["operationId"].clone();
+                let receipt = send(workspace.input(key(KeyCode::Char('u')), now, true));
+                assert_eq!(receipt.method(), SET_METHODS_TEST[3]);
+                assert_eq!(receipt.params()["operationId"], original);
+                workspace.accept(
+                    Ok(set_receipt(&workspace, &["closed", "closed"], "all_closed")),
+                    now,
+                );
+                assert!(workspace.unknown);
+                assert!(!workspace.terminal);
+            } else {
+                assert!(workspace.terminal);
+            }
+        }
+    }
+    #[test]
+    fn selected_set_receipt_rejects_partial_cardinality_order_and_aggregate_lies() {
+        let now = Instant::now();
+        let mut workspace = Workspace::new_selected_set(Locale::Ru);
+        prepared_set(&mut workspace, now);
+        let good = set_receipt(&workspace, &["closed", "changed"], "partial");
+        assert!(workspace.parse_set_receipt(&good).is_some());
+        for bad in [
+            {
+                let mut v = good.clone();
+                v["result"]["members"].as_array_mut().unwrap().pop();
+                v
+            },
+            {
+                let mut v = good.clone();
+                v["result"]["members"][1]["index"] = json!(0);
+                v
+            },
+            {
+                let mut v = good.clone();
+                v["result"]["aggregate"] = json!("all_closed");
+                v
+            },
+            {
+                let mut v = good.clone();
+                v["result"]["receiptRevision"] = json!(0);
+                v
+            },
+            {
+                let mut v = good.clone();
+                v["result"]["members"][0]["controllerId"] = json!("never accepted");
+                v
+            },
+            set_receipt(&workspace, &["changed", "closed"], "partial"),
+            set_receipt(&workspace, &["unknown", "closed"], "unknown"),
+        ] {
+            assert!(workspace.parse_set_receipt(&bad).is_none());
+        }
+    }
+    #[test]
+    fn selected_set_full_review_expiry_resize_and_second_member_drift_refuse() {
+        let now = Instant::now();
+        let mut w = Workspace::new_selected_set(Locale::En);
+        ready_set(&mut w, now);
+        assert!(matches!(
+            w.input(key(KeyCode::Char('x')), now, true),
+            Input::None
+        ));
+        assert!(!w.set_review);
+        w.input(key(KeyCode::Char('a')), now, true);
+        w.input(key(KeyCode::Char('x')), now, true);
+        let prepare = send(w.input(key(KeyCode::Enter), now, true));
+        assert_eq!(prepare.method(), SET_METHODS_TEST[1]);
+        let mut rows = vec![row(&"1".repeat(64)), row(&"2".repeat(64))];
+        rows[1]["display"]["host"] = json!("changed.invalid");
+        w.accept(ok(json!({"schemaVersion":1,"scope":"development_owned_connection_set_close","instanceId":"actual","rows":rows,"ticket":"3".repeat(64)})),now);
+        assert!(!w.enabled);
+        assert!(!w.set_review);
+        assert!(w.pending.is_none());
+        let mut w = Workspace::new_selected_set(Locale::En);
+        ready_set(&mut w, now);
+        w.input(key(KeyCode::Char('a')), now, true);
+        w.input(key(KeyCode::Char('x')), now, true);
+        assert!(matches!(
+            w.input(key(KeyCode::Enter), now, false),
+            Input::None
+        ));
+        send(w.input(key(KeyCode::Enter), now, true));
+        let rows = vec![row(&"1".repeat(64)), row(&"2".repeat(64))];
+        w.accept(ok(json!({"schemaVersion":1,"scope":"development_owned_connection_set_close","instanceId":"actual","rows":rows,"ticket":"3".repeat(64)})),now);
+        assert!(matches!(
+            w.input(key(KeyCode::Enter), now + LIFE, true),
+            Input::None
+        ));
+        assert!(!w.prepared);
+        assert!(!w.enabled);
+    }
+    fn set_render(workspace: &Workspace, now: Instant) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(70, 24)).unwrap();
+        terminal.draw(|f| workspace.draw(f, now)).unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect()
+    }
+    #[test]
+    fn selected_set_review_and_results_end_and_overscroll_can_move_back_immediately() {
+        let now = Instant::now();
+        for locale in [Locale::En, Locale::Ru] {
+            let mut w = Workspace::new_selected_set(locale);
+            ready_set(&mut w, now);
+            let rows = (1..=12)
+                .map(|n| row(&format!("{n:064x}")))
+                .collect::<Vec<_>>();
+            assert!(w.snapshot(&ok(json!({"schemaVersion":1,"scope":"development_owned_connection_set_close","instanceId":"actual","rows":rows})).unwrap()));
+            w.input(key(KeyCode::Char('a')), now, true);
+            w.input(key(KeyCode::Char('x')), now, true);
+            set_render(&w, now);
+            for terminal in [false, true] {
+                w.terminal = terminal;
+                w.input(key(KeyCode::End), now, true);
+                let bottom = set_render(&w, now);
+                w.input(key(KeyCode::Up), now, true);
+                assert_ne!(set_render(&w, now), bottom, "End then Up must move visibly");
+                w.input(key(KeyCode::End), now, true);
+                w.input(key(KeyCode::PageUp), now, true);
+                assert_ne!(
+                    set_render(&w, now),
+                    bottom,
+                    "End then PageUp must move visibly"
+                );
+                for _ in 0..100 {
+                    w.input(key(KeyCode::PageDown), now, true);
+                }
+                w.input(key(KeyCode::Up), now, true);
+                assert_ne!(
+                    set_render(&w, now),
+                    bottom,
+                    "overscroll then Up must move visibly"
+                );
+            }
+        }
+    }
+    #[test]
+    fn selected_set_known_no_attempt_refusal_names_only_reachable_exit() {
+        let now = Instant::now();
+        for locale in [Locale::En, Locale::Ru] {
+            let mut w = Workspace::new_selected_set(locale);
+            prepared_set(&mut w, now);
+            let wire = set_receipt(
+                &w,
+                &["not_attempted", "not_attempted"],
+                "refused_before_write",
+            );
+            w.accept(Ok(wire), now);
+            assert!(w.terminal);
+            assert!(
+                locale.text(w.notice).contains('q'),
+                "spent refusal must name reachable exit"
+            );
+            assert!(matches!(
+                w.input(key(KeyCode::Char('r')), now, true),
+                Input::None
+            ));
+        }
+    }
+    #[test]
+    fn selected_set_narrow_confirmation_hides_unavailable_submit_hint() {
+        let now = Instant::now();
+        for locale in [Locale::En, Locale::Ru] {
+            let mut w = Workspace::new_selected_set(locale);
+            ready_set(&mut w, now);
+            w.input(key(KeyCode::Char('a')), now, true);
+            w.input(key(KeyCode::Char('x')), now, true);
+            send(w.input(key(KeyCode::Enter), now, true));
+            w.accept(ok(json!({"schemaVersion":1,"scope":"development_owned_connection_set_close","instanceId":"actual","rows":[row(&"1".repeat(64)),row(&"2".repeat(64))],"ticket":"3".repeat(64)})),now);
+            let mut terminal = Terminal::new(TestBackend::new(60, 24)).unwrap();
+            terminal.draw(|f| w.draw(f, now)).unwrap();
+            let text: String = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|c| c.symbol())
+                .collect();
+            assert!(
+                !text.contains("Enter"),
+                "disabled narrow confirmation must not advertise submission"
+            );
+            assert!(matches!(
+                w.input(key(KeyCode::Enter), now, false),
+                Input::None
+            ));
+            assert!(!w.submitted);
+            assert!(set_render(&w, now).contains("Enter"));
+        }
+    }
+    #[test]
+    fn selected_set_narrow_inflight_footer_offers_only_supported_exit() {
+        let now = Instant::now();
+        for locale in [Locale::En, Locale::Ru] {
+            for confirm in [false, true] {
+                let mut w = Workspace::new_selected_set(locale);
+                if confirm {
+                    prepared_set(&mut w, now);
+                } else {
+                    send(w.input(key(KeyCode::Char('r')), now, true));
+                }
+                let phase = w.phase;
+                assert!(phase.is_some());
+                assert!(matches!(
+                    w.input(key(KeyCode::Esc), now, false),
+                    Input::None
+                ));
+                assert!(w.phase == phase);
+                let mut terminal = Terminal::new(TestBackend::new(60, 24)).unwrap();
+                terminal.draw(|f| w.draw(f, now)).unwrap();
+                let text: String = terminal
+                    .backend()
+                    .buffer()
+                    .content
+                    .iter()
+                    .map(|c| c.symbol())
+                    .collect();
+                assert!(
+                    !text.contains("Esc"),
+                    "in-flight work must not advertise ignored cancellation"
+                );
+                assert!(matches!(
+                    w.input(key(KeyCode::Char('q')), now, false),
+                    Input::Close
+                ));
+            }
+        }
     }
 }

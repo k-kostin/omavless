@@ -45,7 +45,10 @@ run_check lint-tui cargo clippy --locked -p omavless-runtime --features tui --al
 run_check fmt-close-clients rustfmt --edition 2024 --check \
   crates/omavless-runtime/src/native_coordinator/connection_close_client_integration.rs \
   crates/omavless-runtime/src/native_coordinator/connection_close_client_terminal.rs \
-  crates/omavless-runtime/src/native_coordinator/connection_close_real_cli_foot.rs
+  crates/omavless-runtime/src/native_coordinator/connection_close_real_cli_foot.rs \
+  crates/omavless-runtime/src/native_coordinator/connection_close_set.rs \
+  crates/omavless-runtime/src/native_coordinator/connection_close_preview_tests.rs \
+  crates/omavless-runtime/src/native_coordinator/connection_close_preview.rs
 run_check lint-backup-close-tui cargo clippy --locked -p omavless-tui --all-targets --features developer-conditional-close,private-backup -- -D warnings
 run_check check-t4-only cargo check --locked -p omavless-runtime --no-default-features --features t4-manager-actor-service
 run_check lint-t4 cargo clippy --locked -p omavless-runtime --all-targets --features t4-manager-actor-service -- -D warnings

@@ -110,6 +110,20 @@ class RustCiIsolationTests(unittest.TestCase):
             )
             return result, [json.loads(line) for line in trace.read_text().splitlines()]
 
+    def without_selected_set_formatting(self, commands):
+        # Assert ONLY the newly maintained include! source/test operands, then
+        # retain every byte of the historical command recipe/hash below.
+        added = [
+            "crates/omavless-runtime/src/native_coordinator/connection_close_set.rs",
+            "crates/omavless-runtime/src/native_coordinator/connection_close_preview_tests.rs",
+            "crates/omavless-runtime/src/native_coordinator/connection_close_preview.rs",
+        ]
+        formatting = [row for row in commands if row[0] == "rustfmt"]
+        self.assertEqual(len(formatting), 1)
+        self.assertEqual(formatting[0][-len(added):], added)
+        return [row[:-len(added)] if row[0] == "rustfmt" else row[:]
+                for row in commands]
+
     def test_lint_failure_is_reported_before_any_test_or_fixture(self):
         result, commands = self.runner_trace(fail_clippy=True)
         self.assertEqual(result.returncode, 23, result.stderr)
@@ -137,6 +151,7 @@ class RustCiIsolationTests(unittest.TestCase):
                 self.assertEqual(command[8:14], ARGON2_TEST_PROFILE)
                 command = command[:8] + command[14:]
             legacy_execution.append(command)
+        static = self.without_selected_set_formatting(static)
         for rows, digest in [(static, "15533c34bf33cb3189a3b4bca162f6b165786bff2e4f9f84f449e99b94dd59a7"),
                              (legacy_execution, "19d3a07ff0ad54c42344d1859330e606a2d2ffcdfc197a5244864286bb32e4e3")]:
             payload = json.dumps(rows, separators=(",", ":")).encode()
@@ -169,6 +184,7 @@ class RustCiIsolationTests(unittest.TestCase):
             self.assertFalse(any("profile." in arg for arg in command))
             normalized.append(command)
         normalized = self.without_auxiliary_scheduling(normalized)
+        normalized = self.without_selected_set_formatting(normalized)
         # Assert each bounded import addition explicitly, then retain the exact
         # pre-import command multiset: no prior feature/filter/deadline/parity gate
         # may disappear behind an opaque replacement digest.

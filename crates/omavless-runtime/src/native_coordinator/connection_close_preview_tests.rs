@@ -34,6 +34,73 @@ fn fresh_confirm(fixture: &mut Fixture, operation: &str, row: &CloseDisplayRow) 
 }
 
 #[test]
+fn product_selected_set_actual_socket_closes_both_members_in_one_operation() {
+    let _fixtures = FIXTURES.lock().unwrap();
+    let (root, mut owner) = fixture_parts("ok", None);
+    owner.host_mut().install_product_preview_fixture_for_test();
+    let fixture = SocketFixture::from_parts(root, owner);
+    let require_ok = |reply: &serde_json::Value, stage: &str| {
+        assert!(
+            reply["ok"] == true,
+            "selected-set {stage} refused: {}",
+            reply["error"]["code"]
+        );
+    };
+    let snapshot = fixture.call(
+        "development.connection_sets.snapshot",
+        json!({"instanceId":fixture.instance}),
+    );
+    require_ok(&snapshot, "snapshot");
+    assert_eq!(
+        snapshot["result"]["scope"],
+        "development_owned_connection_set_close"
+    );
+    let rows = snapshot["result"]["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    let handles = rows.iter().map(|r| r["handle"].clone()).collect::<Vec<_>>();
+    let prepared = fixture.call(
+        "development.connection_sets.prepare",
+        json!({"instanceId":fixture.instance,"handles":handles}),
+    );
+    require_ok(&prepared, "prepared");
+    assert_eq!(prepared["result"]["rows"], snapshot["result"]["rows"]);
+    let submitted = fixture.call(
+        "development.connection_sets.confirm",
+        json!({"instanceId":fixture.instance,"expectedRevision":snapshot["revision"],
+            "operationId":"selected-set-two","handles":handles,
+            "ticket":prepared["result"]["ticket"]}),
+    );
+    require_ok(&submitted, "submitted");
+    let deadline = Instant::now() + Duration::from_secs(4);
+    let result = loop {
+        let receipt = fixture.call(
+            "development.connection_sets.receipt",
+            json!({"instanceId":fixture.instance,"operationId":"selected-set-two"}),
+        );
+        require_ok(&receipt, "receipt");
+        if receipt["result"]["state"] == "finished" {
+            break receipt;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "selected-set original did not finish"
+        );
+        std::thread::sleep(Duration::from_millis(2));
+    };
+    assert_eq!(result["result"]["aggregate"], "all_closed");
+    let members = result["result"]["members"].as_array().unwrap();
+    assert_eq!(members.len(), 2);
+    for (index, member) in members.iter().enumerate() {
+        assert_eq!(member["index"], index);
+        assert_eq!(member["outcome"], "closed");
+    }
+    assert_eq!(
+        result["result"]["receiptRevision"],
+        snapshot["revision"].as_u64().unwrap() + 1
+    );
+}
+
+#[test]
 fn product_preview_older_confirm_has_retained_refusal_without_fresh_acquisition() {
     use crate::mutation::{BeginOutcome, MutationKind, MutationRequest, MutationResult};
     let _fixtures = FIXTURES.lock().unwrap();
@@ -472,4 +539,287 @@ fn product_preview_fresh_image_provider_refusal_never_falls_back_or_writes() {
     );
     assert!(!fixture.root.join("r/effects").exists());
     assert!(fixture.owner.admit_connection_close_snapshot().is_err());
+}
+
+fn start_product_set(
+    fixture: &mut Fixture,
+    operation: &str,
+    fail_finish: bool,
+) -> (Vec<OpaqueToken>, OpaqueToken, u64) {
+    let rows = retain_inert_preview(fixture);
+    let handles = rows.iter().map(|r| r.handle).collect::<Vec<_>>();
+    let confirmation = fixture
+        .owner
+        .prepare_connection_set(handles.clone())
+        .unwrap();
+    let revision = fixture.owner.revision();
+    let mut task = match fixture
+        .owner
+        .admit_connection_set(operation, revision, handles.clone(), confirmation.ticket)
+        .unwrap()
+    {
+        SetAdmission::Discover(t) => t,
+        _ => panic!("fresh set required"),
+    };
+    if fail_finish {
+        task.discovery
+            .observation
+            .session_mut()
+            .install_image_finish_probe_for_test(Box::new(|_| {
+                Err(crate::conditional_close_candidate::Outcome::RefusedBeforeWrite)
+            }));
+    }
+    fixture
+        .owner
+        .complete_connection_set(task.observe())
+        .unwrap();
+    (handles, confirmation.ticket, revision)
+}
+fn set_result(fixture: &mut Fixture, operation: &str) -> ExternalSetReceipt {
+    let deadline = Instant::now() + Duration::from_secs(4);
+    loop {
+        if let Some(receipt) = fixture
+            .owner
+            .connection_set_receipt(operation)
+            .unwrap()
+            .unwrap()
+        {
+            return receipt;
+        }
+        assert!(Instant::now() < deadline, "bounded group terminal absent");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+#[test]
+fn product_selected_set_partial_unknown_and_finish_failure_retain_exact_members_without_resend() {
+    let _fixtures = FIXTURES.lock().unwrap();
+    for (variant, fail_finish, expected) in [
+        (
+            "set-partial",
+            false,
+            vec![
+                ExternalSetMember::Closed,
+                ExternalSetMember::Changed,
+                ExternalSetMember::NotAttempted,
+            ],
+        ),
+        (
+            "set-drop-second",
+            false,
+            vec![
+                ExternalSetMember::Unknown,
+                ExternalSetMember::Unknown,
+                ExternalSetMember::NotAttempted,
+            ],
+        ),
+        ("ok", true, vec![ExternalSetMember::Unknown; 2]),
+    ] {
+        let mut fixture = fixture(variant);
+        fixture
+            .owner
+            .host_mut()
+            .install_product_preview_fixture_for_test();
+        let (handles, ticket, revision) =
+            start_product_set(&mut fixture, "group-original", fail_finish);
+        let receipt = set_result(&mut fixture, "group-original");
+        assert_eq!(receipt.members, expected);
+        assert_eq!(receipt.revision, revision + 1);
+        let effects = fs::read(fixture.root.join("r/effects")).unwrap();
+        assert_eq!(effects, b"1\n2\n");
+        match fixture
+            .owner
+            .admit_connection_set("group-original", revision, handles, ticket)
+            .unwrap()
+        {
+            SetAdmission::Replay(r) => assert_eq!(r, receipt),
+            _ => panic!("replay must not rediscover"),
+        }
+        assert_eq!(fs::read(fixture.root.join("r/effects")).unwrap(), effects);
+        assert!(
+            fixture
+                .owner
+                .coordinator
+                .external_close_receipt("group-original")
+                .is_err(),
+            "wrong family read refused"
+        );
+        assert!(
+            fixture.owner.admit_connection_close_snapshot().is_err(),
+            "partial or Unknown cannot renew image factory"
+        );
+    }
+}
+#[test]
+fn product_selected_set_final_finish_is_once_and_all_closed_renews_after_drop() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let _fixtures = FIXTURES.lock().unwrap();
+    let mut fixture = product_preview_fixture();
+    let rows = retain_inert_preview(&mut fixture);
+    let handles = rows.iter().map(|r| r.handle).collect::<Vec<_>>();
+    let confirmation = fixture
+        .owner
+        .prepare_connection_set(handles.clone())
+        .unwrap();
+    let revision = fixture.owner.revision();
+    let mut task = match fixture
+        .owner
+        .admit_connection_set("group-finish", revision, handles, confirmation.ticket)
+        .unwrap()
+    {
+        SetAdmission::Discover(t) => t,
+        _ => panic!("fresh set required"),
+    };
+    let count = Arc::new(AtomicUsize::new(0));
+    let finished = Arc::clone(&count);
+    let checker = task
+        .discovery
+        .observation
+        .session()
+        .image_gate_checker_for_test();
+    task.discovery
+        .observation
+        .session_mut()
+        .install_image_finish_probe_for_test(Box::new(move |_| {
+            assert!(checker().0);
+            finished.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }));
+    fixture
+        .owner
+        .complete_connection_set(task.observe())
+        .unwrap();
+    assert_eq!(
+        set_result(&mut fixture, "group-finish").members,
+        vec![ExternalSetMember::Closed; 2]
+    );
+    assert_eq!(count.load(Ordering::SeqCst), 1);
+    assert!(fixture.owner.connection_close.cancellation.is_none());
+    assert!(
+        fixture.owner.admit_connection_close_snapshot().is_ok(),
+        "only original after-Drop group proof renews"
+    );
+}
+#[test]
+fn product_selected_set_full_preview_match_rejects_any_changed_member_before_all_posts() {
+    let _fixtures = FIXTURES.lock().unwrap();
+    for cut in ["removed", "reused", "display-drift"] {
+        let mut fixture = product_preview_fixture();
+        let rows = retain_inert_preview(&mut fixture);
+        let handles = rows.iter().map(|r| r.handle).collect::<Vec<_>>();
+        let confirmation = fixture
+            .owner
+            .prepare_connection_set(handles.clone())
+            .unwrap();
+        fs::write(fixture.root.join("r").join(cut), b"").unwrap();
+        let task = match fixture
+            .owner
+            .admit_connection_set("group-changed", 0, handles, confirmation.ticket)
+            .unwrap()
+        {
+            SetAdmission::Discover(t) => t,
+            _ => panic!("fresh set required"),
+        };
+        let receipt = fixture
+            .owner
+            .complete_connection_set(task.observe())
+            .unwrap()
+            .unwrap();
+        assert_eq!(receipt.members, vec![ExternalSetMember::NotAttempted; 2]);
+        assert_eq!(receipt.revision, 0);
+        assert!(!fixture.root.join("r/effects").exists());
+    }
+}
+
+#[cfg(feature = "tui")]
+#[test]
+fn product_selected_set_actual_socket_production_tui_retains_one_original_operation() {
+    use omavless_tui::developer_close::{Input, KeyCode, KeyEvent, KeyModifiers, Workspace};
+    use omavless_tui::i18n::Locale;
+    let _fixtures = FIXTURES.lock().unwrap();
+    for locale in [Locale::En, Locale::Ru] {
+        for (variant, aggregate, notice, members) in [
+            (
+                "ok",
+                "all_closed",
+                "tui.set_close_all_closed",
+                vec!["closed", "closed"],
+            ),
+            (
+                "set-partial",
+                "partial",
+                "tui.set_close_partial",
+                vec!["closed", "changed", "not_attempted"],
+            ),
+            (
+                "set-drop-second",
+                "unknown",
+                "tui.dev_close_unknown",
+                vec!["unknown", "unknown", "not_attempted"],
+            ),
+        ] {
+            let (root, mut owner) = fixture_parts(variant, None);
+            owner.host_mut().install_product_preview_fixture_for_test();
+            let fixture = SocketFixture::from_parts(root, owner);
+            let now = Instant::now();
+            let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
+            let mut workspace = Workspace::new_selected_set(locale);
+            let Input::Send(mut request) = workspace.input(key(KeyCode::Char('r')), now, true)
+            else {
+                panic!("explicit refresh")
+            };
+            loop {
+                let wire = fixture.call(request.method(), request.params());
+                assert_eq!(wire["ok"], true);
+                match workspace.accept(Ok(wire), now) {
+                    Some(next) => request = next,
+                    None => break,
+                }
+            }
+            workspace.input(key(KeyCode::Char('a')), now, true);
+            workspace.input(key(KeyCode::Char('x')), now, true);
+            let Input::Send(prepare) = workspace.input(key(KeyCode::Enter), now, true) else {
+                panic!("review then prepare")
+            };
+            assert_eq!(prepare.method(), "development.connection_sets.prepare");
+            workspace.accept(Ok(fixture.call(prepare.method(), prepare.params())), now);
+            let Input::Send(confirm) = workspace.input(key(KeyCode::Enter), now, true) else {
+                panic!("one explicit confirmation")
+            };
+            assert_eq!(confirm.method(), "development.connection_sets.confirm");
+            let operation = confirm.params()["operationId"].clone();
+            workspace.accept(Ok(fixture.call(confirm.method(), confirm.params())), now);
+            let deadline = Instant::now() + Duration::from_secs(4);
+            loop {
+                let Input::Send(receipt) =
+                    workspace.input(key(KeyCode::Char('u')), Instant::now(), true)
+                else {
+                    panic!("receipt only")
+                };
+                assert_eq!(receipt.method(), "development.connection_sets.receipt");
+                assert_eq!(receipt.params()["operationId"], operation);
+                let wire = fixture.call(receipt.method(), receipt.params());
+                let finished = wire["result"]["state"] == "finished";
+                if finished {
+                    assert_eq!(wire["result"]["aggregate"], aggregate);
+                }
+                workspace.accept(Ok(wire), Instant::now());
+                if finished {
+                    break;
+                }
+                assert!(Instant::now() < deadline);
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            let view = workspace.selected_set_result();
+            assert_eq!(
+                view,
+                Some((locale.text(notice), members.as_slice())),
+                "production client must consume actual aggregate and every member"
+            );
+            assert!(matches!(
+                workspace.input(key(KeyCode::Char('r')), Instant::now(), true),
+                Input::None
+            ));
+            assert_eq!(fs::read(fixture.root.join("r/effects")).unwrap(), b"1\n2\n");
+        }
+    }
 }

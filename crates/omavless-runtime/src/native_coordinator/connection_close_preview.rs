@@ -186,6 +186,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             .display
             .clone();
         let ticket = self.connection_close.entropy()?;
+        self.connection_close.pending_set = None;
         self.connection_close.pending = Some(Pending {
             handle,
             ticket,
