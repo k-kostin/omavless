@@ -24,6 +24,9 @@ documentation-only main updates require explicit owner authorization.
   [protocol roadmap](../../PROTOCOL_ROADMAP.md): preserved at their established
   paths; no roadmap is deleted or reduced for cosmetic cleanup.
 - [Architecture/roadmap index](../roadmap/README.md): feature contracts and status.
+- [T3 bounded selected-set close](T3_SELECTED_SET_CLOSE.md): explicit Product
+  source successor, per-member outcomes and preserved single-close boundaries.
+
 - [Development workflow](../roadmap/DEVELOPMENT_WORKFLOW.md): canonical branch,
   review and acceptance process. Its existing path is retained for continuity.
 - [Acceptance policy](../roadmap/ACCEPTANCE_ENVIRONMENTS.md) and

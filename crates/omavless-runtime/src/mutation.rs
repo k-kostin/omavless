@@ -55,12 +55,51 @@ pub(crate) enum ExternalCloseAdmission {
     Replay(ExternalCloseReceipt),
 }
 
+#[cfg(feature = "product-image-witness")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ExternalSetMember {
+    Closed,
+    Missing,
+    Changed,
+    Unsupported,
+    Unknown,
+    NotAttempted,
+}
+#[cfg(feature = "product-image-witness")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ExternalSetReceipt {
+    pub(crate) members: Vec<ExternalSetMember>,
+    pub(crate) revision: u64,
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ExternalFamily {
+    Single,
+    #[cfg(feature = "product-image-witness")]
+    Set(usize),
+}
+#[derive(Clone)]
+enum ExternalReceipt {
+    Single(ExternalCloseReceipt),
+    #[cfg(feature = "product-image-witness")]
+    Set(ExternalSetReceipt),
+}
+enum ExternalAdmission {
+    Reserved(ExternalCloseToken),
+    Replay(ExternalReceipt),
+}
+#[cfg(feature = "product-image-witness")]
+pub(crate) enum ExternalSetAdmission {
+    Reserved(ExternalCloseToken),
+    Replay(ExternalSetReceipt),
+}
+
 struct ExternalCloseEntry {
     operation_id: OperationId,
     digest: MutationDigest,
     token: ExternalCloseToken,
     base_revision: u64,
-    receipt: Option<ExternalCloseReceipt>,
+    receipt: Option<ExternalReceipt>,
+    family: ExternalFamily,
 }
 
 pub const DEFAULT_QUEUE_LIMIT: usize = 64;
@@ -485,6 +524,30 @@ impl MutationCoordinator {
         digest: MutationDigest,
         long_operation_id_in_use: bool,
     ) -> Result<ExternalCloseAdmission, CoordinatorError> {
+        match self.reserve_external_close_common(
+            operation_id,
+            expected_revision,
+            digest,
+            long_operation_id_in_use,
+            ExternalFamily::Single,
+        )? {
+            ExternalAdmission::Reserved(token) => Ok(ExternalCloseAdmission::Reserved(token)),
+            ExternalAdmission::Replay(ExternalReceipt::Single(receipt)) => {
+                Ok(ExternalCloseAdmission::Replay(receipt))
+            }
+            #[cfg(feature = "product-image-witness")]
+            _ => Err(CoordinatorError::OperationConflict),
+        }
+    }
+
+    fn reserve_external_close_common(
+        &mut self,
+        operation_id: &str,
+        expected_revision: u64,
+        digest: MutationDigest,
+        long_operation_id_in_use: bool,
+        family: ExternalFamily,
+    ) -> Result<ExternalAdmission, CoordinatorError> {
         let operation_id = OperationId::parse(operation_id)?;
         #[cfg(feature = "t4-manager-actor-service")]
         if self.pair_operations.known(&operation_id.0) {
@@ -498,12 +561,13 @@ impl MutationCoordinator {
             .iter()
             .find(|entry| entry.operation_id.0 == operation_id.0)
         {
-            if entry.digest != digest {
+            if entry.digest != digest || entry.family != family {
                 return Err(CoordinatorError::OperationConflict);
             }
             return entry
                 .receipt
-                .map(ExternalCloseAdmission::Replay)
+                .clone()
+                .map(ExternalAdmission::Replay)
                 .ok_or(CoordinatorError::Busy);
         }
         if expected_revision != self.revision {
@@ -533,8 +597,9 @@ impl MutationCoordinator {
             token: token.clone(),
             base_revision: self.revision,
             receipt: None,
+            family,
         });
-        Ok(ExternalCloseAdmission::Reserved(token))
+        Ok(ExternalAdmission::Reserved(token))
     }
 
     /// Product preview confirmations with an older revision cannot enter an
@@ -588,7 +653,8 @@ impl MutationCoordinator {
                     // scheduler; its entry is already terminal at publication.
                     token: ExternalCloseToken(Arc::new(())),
                     base_revision: self.revision,
-                    receipt: Some(receipt),
+                    receipt: Some(ExternalReceipt::Single(receipt)),
+                    family: ExternalFamily::Single,
                 });
                 Ok(ExternalCloseAdmission::Replay(receipt))
             }
@@ -606,8 +672,11 @@ impl MutationCoordinator {
             .iter_mut()
             .find(|entry| Arc::ptr_eq(&entry.token.0, &token.0))
             .ok_or(CoordinatorError::InvalidToken)?;
-        if let Some(receipt) = entry.receipt {
-            return Ok(receipt);
+        if entry.family != ExternalFamily::Single {
+            return Err(CoordinatorError::InvalidToken);
+        }
+        if let Some(ExternalReceipt::Single(receipt)) = &entry.receipt {
+            return Ok(*receipt);
         }
         // An effect may have changed controller state. Advance once only when
         // still on this reservation's revision; never overwrite a successor.
@@ -626,7 +695,7 @@ impl MutationCoordinator {
             outcome,
             revision: self.revision,
         };
-        entry.receipt = Some(receipt);
+        entry.receipt = Some(ExternalReceipt::Single(receipt));
         Ok(receipt)
     }
 
@@ -636,11 +705,136 @@ impl MutationCoordinator {
         operation_id: &str,
     ) -> Result<Option<Option<ExternalCloseReceipt>>, CoordinatorError> {
         let id = OperationId::parse(operation_id)?;
-        Ok(self
-            .external_closes
+        self.external_closes
             .iter()
             .find(|entry| entry.operation_id.0 == id.0)
-            .map(|entry| entry.receipt))
+            .map(|entry| {
+                if entry.family != ExternalFamily::Single {
+                    return Err(CoordinatorError::OperationConflict);
+                }
+                Ok(match &entry.receipt {
+                    Some(ExternalReceipt::Single(receipt)) => Some(*receipt),
+                    None => None,
+                    #[cfg(feature = "product-image-witness")]
+                    _ => return Err(CoordinatorError::OperationConflict),
+                })
+            })
+            .transpose()
+    }
+
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn reserve_external_set(
+        &mut self,
+        operation: &str,
+        revision: u64,
+        digest: MutationDigest,
+        long_id: bool,
+        count: usize,
+    ) -> Result<ExternalSetAdmission, CoordinatorError> {
+        if !(1..=128).contains(&count) {
+            return Err(CoordinatorError::InvalidBounds);
+        }
+        match self.reserve_external_close_common(
+            operation,
+            revision,
+            digest,
+            long_id,
+            ExternalFamily::Set(count),
+        ) {
+            Ok(ExternalAdmission::Reserved(token)) => Ok(ExternalSetAdmission::Reserved(token)),
+            Ok(ExternalAdmission::Replay(ExternalReceipt::Set(receipt))) => {
+                Ok(ExternalSetAdmission::Replay(receipt))
+            }
+            Ok(_) => Err(CoordinatorError::OperationConflict),
+            Err(CoordinatorError::RevisionConflict) if revision < self.revision => {
+                // Replay/cross-family namespaces were checked first. Preserve the
+                // same bounded pending/capacity/revision fences on stale refusal.
+                if self.active.is_some()
+                    || !self.queue.is_empty()
+                    || self.external_closes.len() == EXTERNAL_CLOSE_LIMIT
+                    || self.external_closes.iter().any(|e| e.receipt.is_none())
+                {
+                    return Err(CoordinatorError::Busy);
+                }
+                if self.revision == MAX_REVISION {
+                    return Err(CoordinatorError::RevisionExhausted);
+                }
+                #[cfg(feature = "t4-manager-actor-service")]
+                if self.pair_operations.unresolved() {
+                    return Err(CoordinatorError::Busy);
+                }
+                let receipt = ExternalSetReceipt {
+                    members: vec![ExternalSetMember::NotAttempted; count],
+                    revision: self.revision,
+                };
+                self.external_closes.push(ExternalCloseEntry {
+                    operation_id: OperationId::parse(operation)?,
+                    digest,
+                    token: ExternalCloseToken(Arc::new(())),
+                    base_revision: self.revision,
+                    family: ExternalFamily::Set(count),
+                    receipt: Some(ExternalReceipt::Set(receipt.clone())),
+                });
+                Ok(ExternalSetAdmission::Replay(receipt))
+            }
+            Err(error) => Err(error),
+        }
+    }
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn finish_external_set(
+        &mut self,
+        token: &ExternalCloseToken,
+        members: Vec<ExternalSetMember>,
+    ) -> Result<ExternalSetReceipt, CoordinatorError> {
+        let entry = self
+            .external_closes
+            .iter_mut()
+            .find(|e| Arc::ptr_eq(&e.token.0, &token.0))
+            .ok_or(CoordinatorError::InvalidToken)?;
+        if entry.family != ExternalFamily::Set(members.len()) {
+            return Err(CoordinatorError::InvalidToken);
+        }
+        if let Some(ExternalReceipt::Set(receipt)) = &entry.receipt {
+            return Ok(receipt.clone());
+        }
+        if members
+            .iter()
+            .any(|m| matches!(m, ExternalSetMember::Closed | ExternalSetMember::Unknown))
+            && entry.base_revision == self.revision
+        {
+            self.revision = self
+                .revision
+                .checked_add(1)
+                .filter(|r| *r <= MAX_REVISION)
+                .ok_or(CoordinatorError::RevisionExhausted)?;
+        }
+        let receipt = ExternalSetReceipt {
+            members,
+            revision: self.revision,
+        };
+        entry.receipt = Some(ExternalReceipt::Set(receipt.clone()));
+        Ok(receipt)
+    }
+    #[cfg(feature = "product-image-witness")]
+    pub(crate) fn external_set_receipt(
+        &self,
+        operation: &str,
+    ) -> Result<Option<Option<ExternalSetReceipt>>, CoordinatorError> {
+        let id = OperationId::parse(operation)?;
+        self.external_closes
+            .iter()
+            .find(|e| e.operation_id.0 == id.0)
+            .map(|e| {
+                if !matches!(e.family, ExternalFamily::Set(_)) {
+                    return Err(CoordinatorError::OperationConflict);
+                }
+                Ok(match &e.receipt {
+                    Some(ExternalReceipt::Set(r)) => Some(r.clone()),
+                    None => None,
+                    _ => return Err(CoordinatorError::OperationConflict),
+                })
+            })
+            .transpose()
     }
 
     /// Check whether bounded work outside the serialized owner may begin.
@@ -1760,5 +1954,66 @@ mod tests {
             }
         );
         assert!(!coordinator.active());
+    }
+    #[cfg(feature = "product-image-witness")]
+    #[test]
+    fn selected_set_shared_typed_ledger_partial_revision_replay_and_capacity() {
+        let mut c = MutationCoordinator::default();
+        let digest = MutationDigest::from_semantic_bytes(b"group");
+        let token = match c
+            .reserve_external_set("shared", 0, digest, false, 3)
+            .unwrap()
+        {
+            ExternalSetAdmission::Reserved(t) => t,
+            _ => panic!(),
+        };
+        assert!(matches!(
+            c.reserve_external_close("shared", 0, digest, false),
+            Err(CoordinatorError::OperationConflict)
+        ));
+        assert!(matches!(
+            c.reserve_external_set("pending-other", 0, digest, false, 1),
+            Err(CoordinatorError::Busy)
+        ));
+        let receipt = c
+            .finish_external_set(
+                &token,
+                vec![
+                    ExternalSetMember::Closed,
+                    ExternalSetMember::Changed,
+                    ExternalSetMember::NotAttempted,
+                ],
+            )
+            .unwrap();
+        assert_eq!(receipt.revision, 1);
+        assert_eq!(c.revision(), 1);
+        assert_eq!(
+            c.finish_external_set(&token, receipt.members.clone())
+                .unwrap(),
+            receipt
+        );
+        assert_eq!(c.revision(), 1);
+        assert!(c.external_close_receipt("shared").is_err());
+        for index in 1..EXTERNAL_CLOSE_LIMIT {
+            let id = format!("capacity-{index}");
+            let token = match c.reserve_external_close(&id, 1, digest, false).unwrap() {
+                ExternalCloseAdmission::Reserved(t) => t,
+                _ => panic!(),
+            };
+            c.finish_external_close(&token, ExternalCloseOutcome::Missing)
+                .unwrap();
+        }
+        assert_eq!(c.external_closes.len(), EXTERNAL_CLOSE_LIMIT);
+        assert!(matches!(
+            c.reserve_external_set("overflow", 1, digest, false, 1),
+            Err(CoordinatorError::Busy)
+        ));
+        assert!(
+            matches!(c.reserve_external_set("shared",0,digest,false,3),Ok(ExternalSetAdmission::Replay(r)) if r==receipt)
+        );
+        assert!(matches!(
+            c.reserve_external_set("shared", 0, digest, false, 2),
+            Err(CoordinatorError::OperationConflict)
+        ));
     }
 }

@@ -69,7 +69,7 @@ class RustCiIsolationTests(unittest.TestCase):
         self.assertFalse(any(AUXILIARY_TEARDOWN_TEST in c for c in restored))
 
     def runner_trace(self, fail_test=False, fail_canonical_stage=False, fail_clippy=False,
-                     fail_auxiliary_inventory=False):
+                     fail_auxiliary_inventory=False, fail_image_upgrade=False):
         """Execute only the shell recipe; every external leaf is an inert stub."""
         with tempfile.TemporaryDirectory(prefix="rust-recipe-") as directory:
             scratch = Path(directory)
@@ -94,6 +94,9 @@ class RustCiIsolationTests(unittest.TestCase):
                 "if os.environ.get('RECIPE_FAIL_AUXILIARY_INVENTORY') == '1' and '--exact' in row and "
                 + repr(AUXILIARY_TEARDOWN_TEST) + " in row:\n"
                 "    sys.exit(21)\n"
+                "if os.environ.get('RECIPE_FAIL_IMAGE_UPGRADE') == '1' and "
+                "row[:2] == ['cargo', 'test'] and 'omavless-image-witness' in row:\n"
+                "    sys.exit(29)\n"
             )
             stub.chmod(0o755)
             for name in ("cargo", "rustfmt", "python3", "cc", "bash"):
@@ -105,10 +108,51 @@ class RustCiIsolationTests(unittest.TestCase):
                      "RECIPE_FAIL": "1" if fail_test else "0",
                      "RECIPE_FAIL_CLIPPY": "1" if fail_clippy else "0",
                      "RECIPE_FAIL_AUXILIARY_INVENTORY": "1" if fail_auxiliary_inventory else "0",
-                     "RECIPE_FAIL_CANONICAL_STAGE": "1" if fail_canonical_stage else "0"},
+                     "RECIPE_FAIL_CANONICAL_STAGE": "1" if fail_canonical_stage else "0",
+                     "RECIPE_FAIL_IMAGE_UPGRADE": "1" if fail_image_upgrade else "0"},
                 capture_output=True, text=True, timeout=10,
             )
             return result, [json.loads(line) for line in trace.read_text().splitlines()]
+
+    def without_selected_set_formatting(self, commands):
+        # Assert ONLY the newly maintained include! source/test operands, then
+        # retain every byte of the historical command recipe/hash below.
+        added = [
+            "crates/omavless-runtime/src/native_coordinator/connection_close_set.rs",
+            "crates/omavless-runtime/src/native_coordinator/connection_close_preview_tests.rs",
+            "crates/omavless-runtime/src/native_coordinator/connection_close_preview.rs",
+        ]
+        formatting = [row for row in commands if row[0] == "rustfmt"]
+        self.assertEqual(len(formatting), 1)
+        self.assertEqual(formatting[0][-len(added):], added)
+        return [row[:-len(added)] if row[0] == "rustfmt" else row[:]
+                for row in commands]
+
+    def without_product_image_upgrade(self, commands):
+        added = [row for row in commands if "omavless-image-witness" in row]
+        self.assertEqual(len(added), 1)
+        command = added[0]
+        self.assertEqual(command[:2], ["cargo", "test"])
+        self.assertEqual(command[-6:], ["--locked", "-p", "omavless-image-witness",
+                                       "--features", "product-epochs", "--lib"])
+        self.assertNotIn("--ignored", command)
+        return [row for row in commands if row is not command]
+
+    def test_product_image_upgrade_controls_execute_in_the_hosted_recipe(self):
+        result, commands = self.runner_trace()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        original = self.without_product_image_upgrade(commands)
+        self.assertEqual(len(commands) - len(original), 1)
+
+    def test_product_image_upgrade_failure_stops_the_original_recipe(self):
+        result, commands = self.runner_trace(fail_image_upgrade=True)
+        self.assertEqual(result.returncode, 29, result.stderr)
+        self.assertEqual(commands[-1][-6:], ["--locked", "-p", "omavless-image-witness",
+                                            "--features", "product-epochs", "--lib"])
+        self.assertFalse(any(row[:2] == ["cargo", "test"] and "-p" in row
+                             and row[row.index("-p") + 1] == "omavless-dns-broker"
+                             for row in commands))
+        self.assertFalse(any(row[:2] == ["cargo", "run"] for row in commands))
 
     def test_lint_failure_is_reported_before_any_test_or_fixture(self):
         result, commands = self.runner_trace(fail_clippy=True)
@@ -132,11 +176,12 @@ class RustCiIsolationTests(unittest.TestCase):
         # Remove ONLY the exact new Argon2 argv before comparing the original
         # recipe. Do not regenerate the baseline digest to conceal other changes.
         legacy_execution = []
-        for command in self.without_auxiliary_scheduling(execution):
+        for command in self.without_auxiliary_scheduling(self.without_product_image_upgrade(execution)):
             if command[:2] == ["cargo", "test"]:
                 self.assertEqual(command[8:14], ARGON2_TEST_PROFILE)
                 command = command[:8] + command[14:]
             legacy_execution.append(command)
+        static = self.without_selected_set_formatting(static)
         for rows, digest in [(static, "15533c34bf33cb3189a3b4bca162f6b165786bff2e4f9f84f449e99b94dd59a7"),
                              (legacy_execution, "19d3a07ff0ad54c42344d1859330e606a2d2ffcdfc197a5244864286bb32e4e3")]:
             payload = json.dumps(rows, separators=(",", ":")).encode()
@@ -168,7 +213,8 @@ class RustCiIsolationTests(unittest.TestCase):
                 command = command[:2] + command[2 + len(profile):]
             self.assertFalse(any("profile." in arg for arg in command))
             normalized.append(command)
-        normalized = self.without_auxiliary_scheduling(normalized)
+        normalized = self.without_auxiliary_scheduling(self.without_product_image_upgrade(normalized))
+        normalized = self.without_selected_set_formatting(normalized)
         # Assert each bounded import addition explicitly, then retain the exact
         # pre-import command multiset: no prior feature/filter/deadline/parity gate
         # may disappear behind an opaque replacement digest.

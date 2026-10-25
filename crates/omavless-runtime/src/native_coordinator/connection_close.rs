@@ -23,6 +23,8 @@ use std::time::{Duration, Instant};
 
 #[cfg(feature = "product-image-witness")]
 include!("connection_close_preview.rs");
+#[cfg(feature = "product-image-witness")]
+include!("connection_close_set.rs");
 
 const CONFIRMATION_LIFETIME: Duration = Duration::from_secs(5);
 const ENTROPY_LIMIT: usize = 1024;
@@ -179,6 +181,7 @@ while True:
  elif line.startswith(b'GET /connections/conditional-capabilities '):body={'abi':1,'ready':True}
  elif line.startswith(b'GET /connections '):
   rows=[{'id':'11111111-1111-4111-8111-111111111111','omavlessCloseToken':'42','metadata':{'host':'same.invalid','destinationPort':'443','network':'tcp'},'chains':['DIRECT']},{'id':'22222222-2222-4222-8222-222222222222','omavlessCloseToken':'43','metadata':{'host':'same.invalid','destinationPort':'443','network':'tcp'},'chains':['DIRECT']}]
+  if variant.startswith('set-'):rows.append({'id':'33333333-3333-4333-8333-333333333333','omavlessCloseToken':'44','metadata':{'host':'same.invalid','destinationPort':'443','network':'tcp'},'chains':['DIRECT']})
   if os.path.exists(root+'/reverse'):rows.reverse()
   if os.path.exists(root+'/removed'):rows=rows[1:]
   if os.path.exists(root+'/reused'):rows[0]['omavlessCloseToken']='44'
@@ -191,7 +194,8 @@ while True:
    until=time.monotonic()+8
    while not os.path.exists(root+'/release') and time.monotonic()<until:time.sleep(.002)
   if variant=='drop':c.close();continue
-  status=204;body=None
+  if variant=='set-drop-second' and b'22222222-' in line:c.close();continue
+  status=409 if variant=='set-partial' and b'22222222-' in line else 204;body=None
  else:status=400;body=None
  data=b'' if body is None else json.dumps(body).encode()
  try:c.sendall(('HTTP/1.0 '+str(status)+' OK\r\nContent-Length: '+str(len(data))+'\r\n\r\n').encode()+data)
@@ -3008,6 +3012,10 @@ pub(super) struct CloseState {
     retiring: Option<Arc<()>>,
     #[cfg(feature = "product-image-witness")]
     preview: Option<InertPreview>,
+    #[cfg(feature = "product-image-witness")]
+    pending_set: Option<PendingSet>,
+    #[cfg(feature = "product-image-witness")]
+    active_set: Option<ActiveSet>,
 }
 impl CloseState {
     fn entropy(&mut self) -> Result<OpaqueToken, NativeOwnerError> {
@@ -3049,6 +3057,13 @@ impl CloseState {
         }
         if let Some(active) = &self.active {
             active.worker.cancel();
+        }
+        #[cfg(feature = "product-image-witness")]
+        {
+            if let Some(active) = &self.active_set {
+                active.worker.cancel();
+            }
+            self.pending_set = None;
         }
         self.pending = None;
         self.snapshot = None;
@@ -3368,6 +3383,10 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         if self.connection_close.active.is_some() {
             return Err(NativeOwnerError::Coordinator(CoordinatorError::Busy));
         }
+        #[cfg(feature = "product-image-witness")]
+        if self.connection_close.active_set.is_some() {
+            return Err(NativeOwnerError::Coordinator(CoordinatorError::Busy));
+        }
         let _lease = self.batch_lock()?;
         let context = self.close_context()?;
         let observation = self
@@ -3648,6 +3667,8 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     pub(crate) fn poll_connection_close(
         &mut self,
     ) -> Result<Option<ExternalCloseReceipt>, NativeOwnerError> {
+        #[cfg(feature = "product-image-witness")]
+        self.poll_connection_set()?;
         let Some(active) = self.connection_close.active.as_mut() else {
             return Ok(None);
         };

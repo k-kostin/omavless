@@ -21,8 +21,31 @@ pub(super) const METHODS: &[&str] = &[
     "development.connections.receipt",
 ];
 
+#[cfg(feature = "product-image-witness")]
+pub(super) const SET_METHODS: &[&str] = &[
+    "development.connection_sets.snapshot",
+    "development.connection_sets.prepare",
+    "development.connection_sets.confirm",
+    "development.connection_sets.receipt",
+];
+
 // No Debug: tokens and private display data must not enter a diagnostic log.
 pub(super) enum Action {
+    #[cfg(feature = "product-image-witness")]
+    SetPrepare {
+        handles: Vec<OpaqueToken>,
+    },
+    #[cfg(feature = "product-image-witness")]
+    SetConfirm {
+        operation: String,
+        expected_revision: u64,
+        handles: Vec<OpaqueToken>,
+        ticket: OpaqueToken,
+    },
+    #[cfg(feature = "product-image-witness")]
+    SetReceipt {
+        operation: String,
+    },
     Snapshot,
     Prepare {
         handle: OpaqueToken,
@@ -39,6 +62,11 @@ pub(super) enum Action {
 }
 
 pub(super) enum Admission {
+    #[cfg(feature = "product-image-witness")]
+    ConfirmSetPreview {
+        task: Box<crate::native_coordinator::connection_close::SetDiscovery>,
+        operation: String,
+    },
     Discover(Box<CloseDiscovery>),
     #[cfg(feature = "product-image-witness")]
     Retire(Box<crate::native_coordinator::connection_close::CloseRetirement>),
@@ -57,6 +85,20 @@ fn parse(request: &Value, instance: &str) -> Result<Action, StableErrorCode> {
         .as_object()
         .ok_or(StableErrorCode::InvalidArgument)?;
     let fields: &[&str] = match request["method"].as_str() {
+        #[cfg(feature = "product-image-witness")]
+        Some("development.connection_sets.snapshot") => &["instanceId"],
+        #[cfg(feature = "product-image-witness")]
+        Some("development.connection_sets.prepare") => &["instanceId", "handles"],
+        #[cfg(feature = "product-image-witness")]
+        Some("development.connection_sets.confirm") => &[
+            "instanceId",
+            "operationId",
+            "expectedRevision",
+            "handles",
+            "ticket",
+        ],
+        #[cfg(feature = "product-image-witness")]
+        Some("development.connection_sets.receipt") => &["instanceId", "operationId"],
         Some("development.connections.snapshot") => &["instanceId"],
         Some("development.connections.prepare") => &["instanceId", "handle"],
         Some("development.connections.confirm") => &[
@@ -100,7 +142,51 @@ fn parse(request: &Value, instance: &str) -> Result<Action, StableErrorCode> {
             .map(str::to_owned)
             .ok_or(StableErrorCode::InvalidArgument)
     };
+    #[cfg(feature = "product-image-witness")]
+    let handles = || {
+        let rows = params["handles"]
+            .as_array()
+            .filter(|a| !a.is_empty() && a.len() <= 128)
+            .ok_or(StableErrorCode::InvalidArgument)?;
+        let handles = rows
+            .iter()
+            .map(|v| {
+                v.as_str()
+                    .and_then(OpaqueToken::from_wire)
+                    .ok_or(StableErrorCode::InvalidArgument)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if handles
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            != handles.len()
+        {
+            return Err(StableErrorCode::InvalidArgument);
+        }
+        Ok(handles)
+    };
     match request["method"].as_str() {
+        #[cfg(feature = "product-image-witness")]
+        Some("development.connection_sets.snapshot") => Ok(Action::Snapshot),
+        #[cfg(feature = "product-image-witness")]
+        Some("development.connection_sets.prepare") => Ok(Action::SetPrepare {
+            handles: handles()?,
+        }),
+        #[cfg(feature = "product-image-witness")]
+        Some("development.connection_sets.confirm") => Ok(Action::SetConfirm {
+            operation: operation()?,
+            expected_revision: params["expectedRevision"]
+                .as_u64()
+                .filter(|r| *r <= omavless_control_protocol::MAX_REVISION)
+                .ok_or(StableErrorCode::InvalidArgument)?,
+            handles: handles()?,
+            ticket: token("ticket")?,
+        }),
+        #[cfg(feature = "product-image-witness")]
+        Some("development.connection_sets.receipt") => Ok(Action::SetReceipt {
+            operation: operation()?,
+        }),
         Some("development.connections.snapshot") => Ok(Action::Snapshot),
         Some("development.connections.prepare") => Ok(Action::Prepare {
             handle: token("handle")?,
@@ -146,6 +232,32 @@ fn receipt_projection(
     })
 }
 
+#[cfg(feature = "product-image-witness")]
+fn set_receipt_projection(
+    instance: &str,
+    operation: &str,
+    receipt: Option<crate::mutation::ExternalSetReceipt>,
+) -> Value {
+    use crate::mutation::ExternalSetMember as M;
+    let aggregate = receipt.as_ref().map(|r| {
+        if r.members.contains(&M::Unknown) {
+            "unknown"
+        } else if r.members.iter().all(|m| *m == M::Closed) {
+            "all_closed"
+        } else if r.members.iter().all(|m| *m == M::NotAttempted) {
+            "refused_before_write"
+        } else {
+            "partial"
+        }
+    });
+    let members=receipt.as_ref().map(|r|r.members.iter().enumerate().map(|(index,m)|json!({"index":index,"outcome":match m {
+        M::Closed=>"closed",M::Missing=>"missing",M::Changed=>"changed",M::Unsupported=>"unsupported",M::Unknown=>"unknown",
+        M::NotAttempted=>"not_attempted",
+    }})).collect::<Vec<_>>());
+    json!({"schemaVersion":1,"scope":"development_owned_connection_set_close","instanceId":instance,"operationId":operation,
+        "state":if receipt.is_some(){"finished"}else{"pending"},"aggregate":aggregate,"members":members,"receiptRevision":receipt.map(|r|r.revision)})
+}
+
 // DATA-only final wire wrapper, shared by ordinary and retired discovery.
 // The original owner has already retained the actual discovery; this function
 // cannot construct admission, permission, image evidence or a close operation.
@@ -173,6 +285,44 @@ impl<H: LifecycleHost + Send + 'static> RegisteredNativeOwner<H> {
         }
         coordinator.poll_connection_close()?;
         match action {
+            #[cfg(feature = "product-image-witness")]
+            Action::SetPrepare { handles } => {
+                let prepared = coordinator.prepare_connection_set(handles)?;
+                Ok(Admission::Respond(
+                    json!({"schemaVersion":1,"scope":"development_owned_connection_set_close","instanceId":instance,
+                    "ticket":prepared.ticket.to_wire(),"rows":prepared.rows.into_iter().map(|r|json!({"handle":r.handle.to_wire(),"display":r.display})).collect::<Vec<_>>()}),
+                ))
+            }
+            #[cfg(feature = "product-image-witness")]
+            Action::SetConfirm {
+                operation,
+                expected_revision,
+                handles,
+                ticket,
+            } => {
+                match coordinator.admit_connection_set(
+                    &operation,
+                    expected_revision,
+                    handles,
+                    ticket,
+                )? {
+                    crate::native_coordinator::connection_close::SetAdmission::Replay(r) => Ok(
+                        Admission::Respond(set_receipt_projection(instance, &operation, Some(r))),
+                    ),
+                    crate::native_coordinator::connection_close::SetAdmission::Discover(task) => {
+                        Ok(Admission::ConfirmSetPreview { task, operation })
+                    }
+                }
+            }
+            #[cfg(feature = "product-image-witness")]
+            Action::SetReceipt { operation } => {
+                let receipt = coordinator
+                    .connection_set_receipt(&operation)?
+                    .ok_or(NativeOwnerError::RecordNotFound)?;
+                Ok(Admission::Respond(set_receipt_projection(
+                    instance, &operation, receipt,
+                )))
+            }
             Action::Snapshot => {
                 #[cfg(not(feature = "product-image-witness"))]
                 return coordinator
@@ -298,6 +448,14 @@ impl RuntimeServer {
         request: &Value,
     ) -> Result<Value, omavless_control_protocol::ProtocolError> {
         let id = request["id"].as_str().unwrap_or("invalid");
+        #[allow(unused_mut)] // Product alone changes the response scope.
+        let snapshot_reply = |revision, mut result: Value| {
+            #[cfg(feature = "product-image-witness")]
+            if SET_METHODS.contains(&request["method"].as_str().unwrap_or_default()) {
+                result["scope"] = json!("development_owned_connection_set_close");
+            }
+            snapshot_success_response(id, revision, &self.instance_id, result)
+        };
         let fail = |revision, code| {
             error_response(id, revision, code, code == StableErrorCode::Busy, None)
         };
@@ -311,6 +469,12 @@ impl RuntimeServer {
                 return fail(0, StableErrorCode::UnknownMethod);
             };
             if owner.close_registration() == crate::lifecycle::CloseRegistration::Disabled {
+                return fail(owner.revision(), StableErrorCode::UnknownMethod);
+            }
+            #[cfg(feature = "product-image-witness")]
+            if SET_METHODS.contains(&request["method"].as_str().unwrap_or_default())
+                && owner.close_registration() != crate::lifecycle::CloseRegistration::Product
+            {
                 return fail(owner.revision(), StableErrorCode::UnknownMethod);
             }
         }
@@ -338,6 +502,12 @@ impl RuntimeServer {
             if owner.close_registration() == crate::lifecycle::CloseRegistration::Disabled {
                 return fail(owner.revision(), StableErrorCode::UnknownMethod);
             }
+            #[cfg(feature = "product-image-witness")]
+            if SET_METHODS.contains(&request["method"].as_str().unwrap_or_default())
+                && owner.close_registration() != crate::lifecycle::CloseRegistration::Product
+            {
+                return fail(owner.revision(), StableErrorCode::UnknownMethod);
+            }
             match owner.developer_close(action, &self.instance_id) {
                 Ok(Admission::Respond(result)) => {
                     return success_response(id, owner.revision(), result);
@@ -347,6 +517,24 @@ impl RuntimeServer {
             }
         };
         let discovery = match admission {
+            #[cfg(feature = "product-image-witness")]
+            Admission::ConfirmSetPreview { task, operation } => {
+                let result = (*task).observe();
+                let Ok(mut dispatcher) = self.dispatcher.try_lock() else {
+                    return fail(0, StableErrorCode::Busy);
+                };
+                let RuntimeDispatcher::Native(owner) = &mut *dispatcher else {
+                    return fail(0, StableErrorCode::CapabilityUnavailable);
+                };
+                return match owner.developer_set_confirmed(result) {
+                    Ok(receipt) => success_response(
+                        id,
+                        owner.revision(),
+                        set_receipt_projection(&self.instance_id, &operation, receipt),
+                    ),
+                    Err(error) => fail(owner.revision(), error.stable_code()),
+                };
+            }
             #[cfg(feature = "product-image-witness")]
             Admission::ConfirmPreview { task, operation } => {
                 let result = (*task).observe();
@@ -394,9 +582,7 @@ impl RuntimeServer {
                 return fail(0, StableErrorCode::CapabilityUnavailable);
             };
             return match owner.developer_close_preview(result) {
-                Ok(result) => {
-                    snapshot_success_response(id, owner.revision(), &self.instance_id, result)
-                }
+                Ok(result) => snapshot_reply(owner.revision(), result),
                 Err(error) => fail(owner.revision(), error.stable_code()),
             };
         }
@@ -414,9 +600,7 @@ impl RuntimeServer {
             Err(error) => return fail(owner.revision(), error.stable_code()),
         };
         match owner.developer_close_retain(discovered) {
-            Ok(result) => {
-                snapshot_success_response(id, owner.revision(), &self.instance_id, result)
-            }
+            Ok(result) => snapshot_reply(owner.revision(), result),
             Err(error) => fail(owner.revision(), error.stable_code()),
         }
     }

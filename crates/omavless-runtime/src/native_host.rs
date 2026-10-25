@@ -167,6 +167,21 @@ impl ProductImageEpochs {
             }
         }
     }
+    fn complete_group(&mut self, original: &crate::conditional_close_candidate::GroupCompletion) {
+        if !self.poisoned
+            && self
+                .active
+                .as_ref()
+                .is_some_and(|expected| original.admits(expected))
+        {
+            self.active = None;
+        } else {
+            self.poisoned = true;
+            if let Some(active) = &self.active {
+                active.cancel();
+            }
+        }
+    }
     fn revoke_if_used(&mut self) {
         if self.issued != 0 {
             self.poisoned = true;
@@ -1276,6 +1291,15 @@ impl LifecycleHost for NativeLifecycleHost {
     ) {
         if let Some(epochs) = &mut self.product_image {
             epochs.complete(original);
+        }
+    }
+    #[cfg(feature = "product-image-witness")]
+    fn complete_group_close_epoch(
+        &mut self,
+        original: &crate::conditional_close_candidate::GroupCompletion,
+    ) {
+        if let Some(epochs) = &mut self.product_image {
+            epochs.complete_group(original);
         }
     }
     fn capture_connection_close(

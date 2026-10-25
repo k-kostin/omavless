@@ -9,6 +9,13 @@ SRC = ROOT / "crates/omavless-runtime/src"
 
 
 class NormalSchedulingBoundary(unittest.TestCase):
+    def assert_snapshot_dispatch_path(self, dispatch):
+        marker = 'let snapshot_reply = |revision, mut result: Value| {'
+        self.assertEqual(dispatch.count(marker), 1)
+        reply = dispatch.split(marker, 1)[1].split('\n        };', 1)[0]
+        self.assertIn('snapshot_success_response(id, revision, &self.instance_id, result)', reply)
+        self.assertEqual(dispatch.count('snapshot_reply(owner.revision(), result)'), 2)
+
     def test_product_preview_is_inert_and_final_confirm_is_new_original_guarded_work(self):
         preview=(SRC/'native_coordinator/connection_close_preview.rs').read_text()
         inert=preview.split('struct InertPreview {',1)[1].split('}',1)[0]
@@ -34,7 +41,7 @@ class NormalSchedulingBoundary(unittest.TestCase):
         import json
         source = (SRC / 'developer_connection_close.rs').read_text()
         dispatch = source.split('pub(super) fn dispatch_developer_close(', 1)[1].split('#[cfg(test)]', 1)[0]
-        self.assertIn('snapshot_success_response(id, owner.revision(), &self.instance_id, result)', dispatch)
+        self.assert_snapshot_dispatch_path(dispatch)
         wrapper = source.split('fn snapshot_success_response(', 1)[1].split('impl<H:', 1)[0]
         self.assertIn('result["instanceId"] = json!(instance)', wrapper)
         self.assertIn('success_response(id, revision, result)', wrapper)
@@ -46,6 +53,22 @@ class NormalSchedulingBoundary(unittest.TestCase):
         fixture = json.loads((ROOT / 'tests/fixtures/t3_snapshot_server_wire.json').read_bytes())
         self.assertEqual(set(fixture['result']), {'schemaVersion', 'scope', 'instanceId', 'rows'})
         self.assertEqual(fixture['result']['instanceId'], 'same-original')
+
+    def test_snapshot_dispatch_guard_detects_encoder_bypass_and_identity_substitution(self):
+        source = (SRC / 'developer_connection_close.rs').read_text()
+        dispatch = source.split('pub(super) fn dispatch_developer_close(', 1)[1].split('#[cfg(test)]', 1)[0]
+        self.assert_snapshot_dispatch_path(dispatch)
+        for before, after in (
+            ('snapshot_success_response(id, revision, &self.instance_id, result)',
+             'success_response(id, revision, result)'),
+            ('snapshot_reply(owner.revision(), result)',
+             'success_response(id, owner.revision(), result)'),
+            ('snapshot_reply(owner.revision(), result)', 'snapshot_reply(0, result)'),
+            ('snapshot_success_response(id, revision, &self.instance_id, result)',
+             'snapshot_success_response(id, revision, "substituted", result)'),
+        ):
+            with self.subTest(mutation=after), self.assertRaises(AssertionError):
+                self.assert_snapshot_dispatch_path(dispatch.replace(before, after, 1))
 
     def test_product_epoch_source_is_optional_and_not_a_default_daemon_flag(self):
         manifest = tomllib.loads((SRC.parent / "Cargo.toml").read_text())

@@ -217,6 +217,15 @@ fn run() -> Result<(), CliError> {
         println!("omavless.tui.v1");
         return Ok(());
     }
+    #[cfg(all(feature = "tui", feature = "product-image-witness"))]
+    if arguments == ["tui", "--developer-conditional-close", "--selected-set"] {
+        let paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+        return omavless_tui::developer_close::run_selected_set(move |request| {
+            call(&paths, request.method(), request.params())
+                .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+        })
+        .map_err(CliError::Terminal);
+    }
     #[cfg(all(feature = "tui", feature = "developer-conditional-close"))]
     if arguments == ["tui", "--developer-conditional-close"] {
         let paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
@@ -335,6 +344,10 @@ fn run() -> Result<(), CliError> {
         #[cfg(all(feature = "tui", feature = "developer-conditional-close"))]
         println!(
             "  tui --developer-conditional-close  opt-in development workspace; not product pair adoption"
+        );
+        #[cfg(all(feature = "tui", feature = "product-image-witness"))]
+        println!(
+            "  tui --developer-conditional-close --selected-set  explicit Product set workspace"
         );
         println!(
             "{USAGE}\n  import preview                  read private input from stdin; private UI output"
