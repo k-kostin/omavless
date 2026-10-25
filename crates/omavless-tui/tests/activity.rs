@@ -180,6 +180,146 @@ fn confirmation_cancel_is_not_submission_and_outcomes_never_retain_error_text() 
 }
 
 #[test]
+fn activity_keeps_known_dns_refusal_after_notice_changes_without_private_targets() {
+    for locale in [Locale::En, Locale::Ru] {
+        let now = Instant::now();
+        let mut a = App::new(locale);
+        a.actions_enabled = true;
+        a.accept(Ok(snapshot()), now);
+        a.selected = Some("fixture-b".into());
+        a.prepare(Kind::Connect, Some(Mode::Global), now);
+        assert_eq!(
+            a.confirm(now, "private-operation-id".into()),
+            Action::Submit
+        );
+        let response = omavless_control_protocol::error_response(
+            "synthetic-request",
+            7,
+            omavless_control_protocol::StableErrorCode::DnsPairRequired,
+            false,
+            None,
+        )
+        .unwrap();
+        let outcome = a.pending.as_ref().unwrap().outcome(Ok(response));
+        a.finish(outcome, now);
+        assert!(!a.unknown && a.pending.is_none());
+        a.notice = "";
+        a.page = Page::Activity;
+        let screen = render(&a, now, 120, 32);
+        assert!(
+            screen.contains(locale.text("error.dns_pair_required")),
+            "{screen}"
+        );
+        assert!(
+            screen.contains(locale.text("tui.event_rejected")),
+            "{screen}"
+        );
+        assert!(!screen.contains("private-operation-id") && !screen.contains("Fixture Frankfurt"));
+    }
+}
+
+#[test]
+fn activity_known_reasons_are_finite_local_and_remain_readable_after_runtime_loss() {
+    use omavless_control_protocol::{StableErrorCode as Code, error_response};
+    let cases = [
+        (Code::Conflict, "tui.action_changed"),
+        (Code::Busy, "tui.action_busy"),
+        (Code::ManualRecoveryRequired, "tui.action_recovery"),
+        (Code::TransitionFailedRestored, "tui.action_restored"),
+        (Code::PermissionDenied, "tui.action_denied"),
+        (Code::DnsPairRequired, "error.dns_pair_required"),
+    ];
+    for locale in [Locale::En, Locale::Ru] {
+        let now = Instant::now();
+        let mut a = App::new(locale);
+        a.actions_enabled = true;
+        for (code, _) in cases {
+            a.accept(Ok(snapshot()), now);
+            a.selected = Some("fixture-b".into());
+            a.prepare(Kind::Connect, Some(Mode::Global), now);
+            assert_eq!(
+                a.confirm(now, "private-history-operation".into()),
+                Action::Submit
+            );
+            let mut reply = error_response("synthetic-request", 7, code, false, None).unwrap();
+            reply["error"]["message"] = "PRIVATE remote message".into();
+            let outcome = a.pending.as_ref().unwrap().outcome(Ok(reply));
+            a.finish(outcome, now);
+        }
+        // A later failed read and a different transient notice cannot erase history
+        // or turn these historical events into a fresh-state/network-health claim.
+        a.notice = "";
+        a.accept(Err(ReadError::Unavailable), now);
+        a.page = Page::Activity;
+        let screen = render(&a, now, 160, 48);
+        for (_, reason) in cases {
+            assert!(screen.contains(locale.text(reason)), "{screen}");
+        }
+        assert!(screen.contains(locale.text("tui.event_unavailable")));
+        assert!(!screen.contains("PRIVATE") && !screen.contains("private-history-operation"));
+        assert!(!screen.contains("Fixture Frankfurt") && !screen.contains("Missing translation"));
+        for offset in [0, 6, 12, 18, 24, 30, u16::MAX] {
+            a.inspection_scroll = offset;
+            view::clamp_scroll(&mut a, 70, 24, now);
+            let frame = render(&a, now, 70, 24);
+            assert!(frame.contains(locale.text("tui.action_close_hint")));
+            assert!(
+                frame.contains(locale.text("tui.inspection_keys")),
+                "{frame}"
+            );
+            println!(
+                "ACTIVITY_REASON_FRAME {locale:?} 70x24 offset={}\n{frame}\nACTIVITY_REASON_FRAME_END",
+                a.inspection_scroll
+            );
+        }
+        println!(
+            "ACTIVITY_REASON_FRAME {locale:?} 60x24 offset=0\n{}\nACTIVITY_REASON_FRAME_END",
+            render(&a, now, 60, 24)
+        );
+        assert!(a.pending.is_none() && a.confirmation.is_none() && !a.unknown);
+    }
+}
+
+#[test]
+fn activity_never_turns_unknown_retry_or_unrecognized_reason_into_known_history() {
+    for reason in [
+        "PRIVATE raw remote data",
+        "status.connected",
+        "tui.action_rejected",
+    ] {
+        let now = Instant::now();
+        let mut a = App::new(Locale::En);
+        a.actions_enabled = true;
+        a.accept(Ok(snapshot()), now);
+        a.prepare(Kind::Disconnect, None, now);
+        a.confirm(now, "private-history-operation".into());
+        a.finish(Outcome::Rejected(reason), now);
+        assert!(a.activity.newest_first().next().unwrap().event == Event::Rejected);
+        a.notice = "";
+        a.page = Page::Activity;
+        let screen = render(&a, now, 120, 32);
+        assert!(!screen.contains("PRIVATE") && !screen.contains("Missing translation"));
+        assert!(screen.contains("Runtime rejected command"));
+    }
+    let now = Instant::now();
+    let mut a = App::new(Locale::En);
+    a.actions_enabled = true;
+    a.accept(Ok(snapshot()), now);
+    a.prepare(Kind::Disconnect, None, now);
+    a.confirm(now, "private-history-operation".into());
+    a.finish(Outcome::Unknown, now);
+    key(&mut a, KeyCode::Char('u'), now);
+    assert_eq!(a.confirm(now, String::new()), Action::Submit);
+    a.finish(Outcome::Rejected("error.dns_pair_required"), now);
+    assert!(a.unknown && a.pending.is_some());
+    assert!(a.activity.newest_first().next().unwrap().event == Event::Unknown);
+    a.page = Page::Activity;
+    let screen = render(&a, now, 120, 32);
+    assert!(!screen.contains(a.locale.text("error.dns_pair_required")));
+    assert!(!screen.contains("private-history-operation"));
+}
+
+#[test]
 fn unknown_retry_remains_unknown_and_acknowledgement_does_not_rewrite_history() {
     let mut a = App::new(Locale::En);
     a.actions_enabled = true;

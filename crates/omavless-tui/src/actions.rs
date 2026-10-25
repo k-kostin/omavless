@@ -127,6 +127,20 @@ impl Request {
             }
             // Never render remote message/details or unfamiliar codes.
             return match v["error"]["code"].as_str() {
+                Some("dns_pair_required")
+                    if self.command.kind == Kind::Connect
+                        && v["revision"]
+                            .as_u64()
+                            .is_some_and(|r| r >= self.command.revision)
+                        && v["error"].as_object().is_some_and(|e| e.len() == 3)
+                        && v["error"]["retryable"] == false
+                        && v["error"]["message"]
+                            .as_str()
+                            .is_some_and(|m| m.len() <= 512)
+                        && v["error"].get("details").is_none() =>
+                {
+                    Outcome::Rejected("error.dns_pair_required")
+                }
                 Some("conflict" | "daemon_restarting") => Outcome::Rejected("tui.action_changed"),
                 Some("busy") => Outcome::Rejected("tui.action_busy"),
                 Some("manual_recovery_required") => Outcome::Rejected("tui.action_recovery"),

@@ -75,6 +75,14 @@ pub fn response(request: Read) -> Value {
                 {"host":null,"ip":"192.0.2.2","port":53,"network":"udp","route":"direct"}
             ],"instanceId":"fixture-runtime"
         }),
+        Read::ConnectionDetails => json!({
+            "schemaVersion":1,"scope":"owned_core_private_connection_details","availability":"observed",
+            "total":2,"shown":2,"truncated":false,
+            "rows":[
+                {"host":"example.invalid","ip":"203.0.113.8","port":443,"network":"tcp","route":"vpn","processName":"fixture-browser","chain":["Домашний узел","PROXY"]},
+                {"host":null,"ip":"192.0.2.2","port":53,"network":"udp","route":"direct","processName":null,"chain":["DIRECT"]}
+            ],"instanceId":"fixture-runtime"
+        }),
         Read::RouteCheck(target) => json!({
             "version":1,"query":target.as_str(),"source":"custom","outcome":"vpn",
             "ruleType":"DOMAIN","rulePayload":"example.invalid","target":"PROXY"

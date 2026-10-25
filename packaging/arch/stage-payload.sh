@@ -52,6 +52,10 @@ reject_symlink_components "$destdir"
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 repo_root=$(cd -- "$script_dir/../.." && pwd -P)
+unit_source="$repo_root/packaging/systemd/omavless-runtime.service"
+if [[ -n $product_helper ]]; then
+  unit_source="$repo_root/packaging/systemd/omavless-runtime-product.service"
+fi
 
 binary_target="$destdir/usr/bin/omavless"
 unit_target="$destdir/usr/lib/systemd/user/omavless-runtime.service"
@@ -129,7 +133,7 @@ done
 
 install -m 0755 -- "$binary" "$binary_target"
 install -m 0644 -- \
-  "$repo_root/packaging/systemd/omavless-runtime.service" \
+  "$unit_source" \
   "$unit_target"
 install -m 0644 -- \
   "$repo_root/packaging/systemd/omavless-login-prepare.service" \

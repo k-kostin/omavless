@@ -1329,6 +1329,7 @@ name = "omavless-tui"
 version = "0.9.9"
 dependencies = [
  "nix",
+ "omavless-control-protocol",
  "omavless-domain",
  "ratatui",
  "serde",

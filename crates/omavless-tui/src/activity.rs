@@ -8,6 +8,29 @@ use std::{collections::VecDeque, time::Instant};
 
 pub const CAPACITY: usize = 32;
 
+/// Closed local categories only: never retain an arbitrary notice or remote text.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum RefusalReason {
+    Changed,
+    Busy,
+    Recovery,
+    Restored,
+    Denied,
+    DnsSetup,
+}
+impl RefusalReason {
+    fn key(self) -> &'static str {
+        match self {
+            Self::Changed => "tui.action_changed",
+            Self::Busy => "tui.action_busy",
+            Self::Recovery => "tui.action_recovery",
+            Self::Restored => "tui.action_restored",
+            Self::Denied => "tui.action_denied",
+            Self::DnsSetup => "error.dns_pair_required",
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Event {
     Observed(Status),
@@ -18,10 +41,31 @@ pub enum Event {
     Retried,
     Applied,
     Rejected,
+    Refused(RefusalReason),
     Unknown,
     Acknowledged,
 }
 impl Event {
+    pub(crate) fn rejected(key: &str) -> Self {
+        let reason = match key {
+            "tui.action_changed" => RefusalReason::Changed,
+            "tui.action_busy" => RefusalReason::Busy,
+            "tui.action_recovery" => RefusalReason::Recovery,
+            "tui.action_restored" => RefusalReason::Restored,
+            "tui.action_denied" => RefusalReason::Denied,
+            "error.dns_pair_required" => RefusalReason::DnsSetup,
+            _ => return Self::Rejected,
+        };
+        Self::Refused(reason)
+    }
+
+    pub(crate) fn detail_key(self) -> Option<&'static str> {
+        match self {
+            Self::Refused(reason) => Some(reason.key()),
+            _ => None,
+        }
+    }
+
     pub fn key(self) -> &'static str {
         match self {
             Self::Observed(Status::Connected) => "tui.event_connected",
@@ -42,7 +86,7 @@ impl Event {
             Self::Submitted(Kind::RefreshSubscription) => "tui.event_refresh_request",
             Self::Retried => "tui.event_retry",
             Self::Applied => "tui.event_applied",
-            Self::Rejected => "tui.event_rejected",
+            Self::Rejected | Self::Refused(_) => "tui.event_rejected",
             Self::Unknown => "tui.event_unknown",
             Self::Acknowledged => "tui.event_acknowledged",
         }

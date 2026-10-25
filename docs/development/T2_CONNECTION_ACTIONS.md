@@ -70,6 +70,14 @@ reviewing invalidates this acknowledgement. This mirrors the existing QML
 facade's semantics; durable receipts across client restarts are still separate
 runtime/client work. Do not blindly resubmit after reopening a client.
 
+The existing 32-event, window-local Activity view keeps a closed category for
+known refusals (changed state, busy, recovery required, restored transition,
+authorization denied and missing DNS setup). It uses only trusted local EN/RU
+copy, not remote messages, targets or operation IDs. Generic/import refusals
+remain generic; a rejected retry of an Unknown request stays Unknown in history.
+These are historical events, readable after runtime loss, not current health
+facts or a durable daemon log. Normal ring eviction and new-window reset apply.
+
 ## Validation boundary
 
 - Deterministic TUI tests: targets, stale/restarted/deleted/renamed confirmation,

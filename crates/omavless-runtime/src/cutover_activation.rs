@@ -15,6 +15,12 @@ pub(crate) mod environment;
 const BINARY: &str = "/usr/bin/omavless";
 const UNIT: &str = "/usr/lib/systemd/user/omavless-runtime.service";
 const UNIT_BYTES: &[u8] = include_bytes!("../../../packaging/systemd/omavless-runtime.service");
+const PRODUCT_UNIT_BYTES: &[u8] =
+    include_bytes!("../../../packaging/systemd/omavless-runtime-product.service");
+
+fn packaged_unit_matches(bytes: &[u8]) -> bool {
+    bytes == UNIT_BYTES || (cfg!(feature = "product-image-witness") && bytes == PRODUCT_UNIT_BYTES)
+}
 
 pub fn is_activation(arguments: &[OsString]) -> bool {
     arguments == ["cutover", "activate"]
@@ -93,8 +99,8 @@ pub(crate) fn packaged_identity() -> Result<(), ()> {
     if !unit.is_file()
         || unit.uid() != 0
         || unit.mode() & 0o022 != 0
-        || unit.len() != UNIT_BYTES.len() as u64
-        || fs::read(UNIT).map_err(|_| ())? != UNIT_BYTES
+        || unit.len() > UNIT_BYTES.len().max(PRODUCT_UNIT_BYTES.len()) as u64
+        || !packaged_unit_matches(&fs::read(UNIT).map_err(|_| ())?)
     {
         return Err(());
     }
@@ -119,6 +125,32 @@ pub fn activate() -> Result<CutoverTransactionOutcome, CutoverTransactionError> 
 mod tests {
     use super::*;
     pub(crate) const ABSENT: &str = "LoadState=not-found\nUnitFileState=\nFragmentPath=\nDropInPaths=\nNeedDaemonReload=no\nActiveState=inactive\nMainPID=0\nExecMainStatus=0\nResult=success\n";
+
+    #[test]
+    fn fixed_packaged_units_are_compile_appropriate_and_byte_exact() {
+        assert!(packaged_unit_matches(UNIT_BYTES));
+        assert_eq!(
+            packaged_unit_matches(PRODUCT_UNIT_BYTES),
+            cfg!(feature = "product-image-witness")
+        );
+        for source in [UNIT_BYTES, PRODUCT_UNIT_BYTES] {
+            let text = std::str::from_utf8(source).unwrap();
+            for changed in [
+                text.replace("daemon", "daem0n"),
+                text.replace("daemon", "daemon --force"),
+                text.replace("Restart=no", "Restart=on-failure"),
+                text.replace("Restart=on-failure", "Restart=always"),
+                text.replace("NoNewPrivileges=no", "NoNewPrivileges=yes"),
+                format!("{text}\n# override\n"),
+            ] {
+                if changed.as_bytes() != source {
+                    assert!(!packaged_unit_matches(changed.as_bytes()));
+                }
+            }
+            assert!(!packaged_unit_matches(&source[..source.len() - 1]));
+        }
+        assert!(!packaged_unit_matches(&[]));
+    }
 
     #[test]
     fn only_complete_inactive_absent_legacy_facts_are_accepted() {

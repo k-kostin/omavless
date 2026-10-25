@@ -1294,6 +1294,36 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         })
     }
 
+    pub(crate) fn connection_details(
+        &mut self,
+        request: &Value,
+    ) -> Result<Value, NativeOwnerError> {
+        crate::connection_rows::validate_details(request)?;
+        self.with_owned_read(|owner| {
+            let desired = crate::desired::read_desired_snapshot(
+                owner.transaction.desired_paths(),
+                owner.transaction.uid(),
+            )
+            .map_err(|_| NativeOwnerError::Invariant)?;
+            let rows = if desired.connected
+                && owner.actual() == crate::lifecycle::ActualState::Connected
+            {
+                owner.host_mut().active_connection_details(&desired).ok()
+            } else {
+                None
+            };
+            let after = crate::desired::read_desired_snapshot(
+                owner.transaction.desired_paths(),
+                owner.transaction.uid(),
+            )
+            .map_err(|_| NativeOwnerError::Invariant)?;
+            if desired != after {
+                return Err(NativeOwnerError::OwnershipUnavailable);
+            }
+            Ok(crate::connection_rows::project_details(rows))
+        })
+    }
+
     pub(crate) fn ping_plan(
         &mut self,
         request: &Value,

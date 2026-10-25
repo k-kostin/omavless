@@ -77,10 +77,17 @@ fn profile_import_outcome(app: &App) -> Option<Vec<Line<'static>>> {
 /// Retain the actual wrapped scroll offset before the next key event, so Up
 /// immediately works after End, resize or replacement by a shorter snapshot.
 pub fn clamp_scroll(app: &mut App, width: u16, height: u16, now: Instant) {
+    app.expire_private_connections(now);
     if app.page == crate::inspection::Page::Profiles || app.help || app.confirmation.is_some() {
         return;
     }
-    let body_height = height.saturating_sub(if app.actions_enabled { 15 } else { 12 });
+    let body_height = height.saturating_sub(if app.page == crate::inspection::Page::Connections {
+        7 + connections_footer_height(app)
+    } else if app.actions_enabled {
+        15
+    } else {
+        12
+    });
     let lines = inspection_lines(app, now);
     if app.page == crate::inspection::Page::Subscriptions && app.subscription_selection_moved {
         if let Some(index) = lines
@@ -100,6 +107,10 @@ pub fn clamp_scroll(app: &mut App, width: u16, height: u16, now: Instant) {
         .saturating_sub(body_height as usize)
         .min(u16::MAX as usize) as u16;
     app.inspection_scroll = app.inspection_scroll.min(limit);
+}
+
+fn connections_footer_height(app: &App) -> u16 {
+    5 + u16::from(app.import_enabled && !app.searching)
 }
 
 pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
@@ -186,6 +197,8 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
             height
         } else if app.confirmation.is_some() {
             4
+        } else if app.page == crate::inspection::Page::Connections {
+            connections_footer_height(app)
         } else if app.actions_enabled {
             if app.import_enabled { 9 } else { 8 }
         } else {
@@ -594,6 +607,9 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
                 "tui.close_hint"
             })),
         ];
+        if app.page == crate::inspection::Page::Connections {
+            footer.insert(1, Line::from(tr("tui.connection_route_filter_keys")));
+        }
         if app.page == crate::inspection::Page::Subscriptions && app.actions_enabled {
             let target = app.snapshot.as_ref().and_then(|s| {
                 s.metadata
@@ -926,6 +942,9 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
                 seconds % 60,
                 tr(entry.event.key())
             )));
+            if let Some(key) = entry.event.detail_key() {
+                lines.push(Line::from(tr(key)));
+            }
         }
         if lines.len() == 1 {
             lines.push(Line::from(tr("tui.activity_empty")));
@@ -944,6 +963,14 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
     match app.page {
         Page::Connections => {
             let mut lines = vec![Line::from(tr("tui.connection_rows_scope"))];
+            lines.push(field(
+                "tui.connection_filter_network",
+                tr(app.connection_network.key()).into(),
+            ));
+            lines.push(field(
+                "tui.connection_filter_route",
+                tr(app.connection_route.key()).into(),
+            ));
             lines.push(field(
                 "tui.connection_order",
                 tr(app.connection_order.key()).into(),
@@ -966,16 +993,24 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
                 "tui.connection_rows_shown",
                 connections.rows.len().to_string(),
             ));
-            let matches = crate::connection_browsing::rows(
+            let mut matches = crate::connection_browsing::rows(
                 connections,
                 &app.operator_query,
                 app.connection_order,
             );
+            matches.retain(|row| app.connection_network.includes(row.network));
+            matches.retain(|row| app.connection_route.includes(row.route));
             if !app.operator_query.is_empty() || app.searching {
                 lines.push(field(
                     "tui.operator_filter",
                     display(&app.operator_query, 80),
                 ));
+            }
+            if !app.operator_query.is_empty()
+                || app.searching
+                || app.connection_network != crate::connection_browsing::NetworkFilter::All
+                || app.connection_route != crate::connection_browsing::RouteFilter::All
+            {
                 lines.push(field("tui.matching_rows", matches.len().to_string()));
             }
             if connections.truncated {
@@ -1015,6 +1050,44 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
                 {
                     lines.push(Line::from(format!("  {}", display(ip, 64))));
                 }
+                if connections.details {
+                    lines.push(field(
+                        "tui.connection_rule_type",
+                        row.rule_type.map(str::to_owned).unwrap_or_else(&unknown),
+                    ));
+                    lines.push(field(
+                        "tui.connection_process",
+                        row.process_name
+                            .as_deref()
+                            .map(|name| display(name, 64))
+                            .unwrap_or_else(&unknown),
+                    ));
+                    lines.push(field(
+                        "tui.connection_chain",
+                        row.chain
+                            .as_ref()
+                            .map(|chain| {
+                                chain
+                                    .iter()
+                                    .map(|label| display(label, 64))
+                                    .collect::<Vec<_>>()
+                                    .join(" | ")
+                            })
+                            .unwrap_or_else(&unknown),
+                    ));
+                    for (key, total) in [
+                        ("tui.connection_download_bytes", row.download_bytes),
+                        ("tui.connection_upload_bytes", row.upload_bytes),
+                    ] {
+                        lines.push(field(
+                            key,
+                            total.map(|n| n.to_string()).unwrap_or_else(&unknown),
+                        ));
+                    }
+                }
+            }
+            if !connections.details {
+                lines.push(Line::from(tr("tui.connection_details_legacy")));
             }
             lines
         }

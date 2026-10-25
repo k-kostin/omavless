@@ -721,7 +721,7 @@ var CATALOG = {
   "error.conflict": {"en":"The request conflicts with current state","ru":"Запрос конфликтует с текущим состоянием"},
   "error.busy": {"en":"Another operation is in progress","ru":"Уже выполняется другая операция"},
   "error.capability_unavailable": {"en":"The requested capability is unavailable","ru":"Запрошенная возможность недоступна"},
-  "error.dns_pair_required": {"en":"Set up the VPN core and DNS helper before connecting. Your current connection was not changed.","ru":"Настройте ядро VPN и DNS-помощник перед подключением. Текущее соединение не изменено."},
+  "error.dns_pair_required": {"en":"Set up the VPN core and DNS helper. Your connection was not changed.","ru":"Настройте ядро VPN и DNS-помощник. Соединение не изменено."},
   "error.permission_denied": {"en":"The request is not permitted","ru":"Запрос не разрешён"},
   "error.core_rejected": {"en":"The proxy core rejected the operation","ru":"Прокси-ядро отклонило операцию"},
   "error.subscription_unavailable": {"en":"The subscription could not be downloaded","ru":"Не удалось скачать подписку"},

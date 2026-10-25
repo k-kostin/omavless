@@ -53,6 +53,163 @@ fn applied(app: &App) -> Value {
 }
 
 #[test]
+fn connect_dns_preflight_refusal_is_known_not_unknown_and_never_replayed() {
+    let (mut app, now) = app();
+    begin(&mut app, Kind::Connect, now);
+    // Same public encoder and arguments as native_dispatch::transaction_response.
+    let reply = omavless_control_protocol::error_response(
+        "synthetic-request",
+        7,
+        omavless_control_protocol::StableErrorCode::DnsPairRequired,
+        false,
+        None,
+    )
+    .unwrap();
+    let outcome = app.pending.as_ref().unwrap().outcome(Ok(reply));
+    assert_eq!(outcome, Outcome::Rejected("error.dns_pair_required"));
+    app.finish(outcome, now);
+    assert!(!app.unknown);
+    assert!(app.pending.is_none() && app.confirmation.is_none());
+    assert_eq!(app.notice, "error.dns_pair_required");
+    assert_eq!(key(&mut app, KeyCode::Enter, now), Action::None);
+    assert!(app.pending.is_none());
+}
+
+#[test]
+fn dns_refusal_is_connect_only_canonical_and_cannot_clear_an_earlier_unknown() {
+    let reply = json!({"ok":false,"revision":7,"error":{"code":"dns_pair_required",
+        "message":"private-sentinel","retryable":false}});
+    for kind in [Kind::Disconnect, Kind::Mode] {
+        let (mut app, now) = app();
+        begin(&mut app, kind, now);
+        assert_eq!(
+            app.pending.as_ref().unwrap().outcome(Ok(reply.clone())),
+            Outcome::Unknown
+        );
+    }
+    let (mut app, now) = app();
+    begin(&mut app, Kind::Connect, now);
+    for (key, value) in [
+        ("code", json!("core_rejected")),
+        ("retryable", json!(true)),
+        ("details", json!({"effect":"unknown"})),
+        ("message", json!(false)),
+    ] {
+        let mut bad = reply.clone();
+        bad["error"][key] = value;
+        assert_eq!(
+            app.pending.as_ref().unwrap().outcome(Ok(bad)),
+            Outcome::Unknown
+        );
+    }
+    let mut stale = reply.clone();
+    stale["revision"] = json!(6);
+    assert_eq!(
+        app.pending.as_ref().unwrap().outcome(Ok(stale)),
+        Outcome::Unknown
+    );
+    app.finish(Outcome::Unknown, now);
+    let original = app.pending.as_ref().unwrap().params();
+    // Model the existing exact retry, not a new operation or a cleared fence.
+    app.running = true;
+    let known = app.pending.as_ref().unwrap().outcome(Ok(reply));
+    app.finish(known, now);
+    assert!(app.unknown);
+    assert_eq!(app.pending.as_ref().unwrap().params(), original);
+}
+
+#[test]
+fn dns_refusal_uses_existing_shared_copy_in_both_locales_without_remote_text() {
+    for locale in [Locale::En, Locale::Ru] {
+        let (mut app, now) = app();
+        app.locale = locale;
+        let old_desired = app.snapshot.as_ref().unwrap().metadata.desired.clone();
+        begin(&mut app, Kind::Connect, now);
+        let reply = json!({"ok":false,"revision":7,"error":{"code":"dns_pair_required",
+            "message":"private-sentinel","retryable":false}});
+        let outcome = app.pending.as_ref().unwrap().outcome(Ok(reply));
+        app.finish(outcome, now);
+        for width in [60, 70] {
+            let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
+            terminal.draw(|f| view::draw(f, &app, now)).unwrap();
+            let lines = terminal
+                .backend()
+                .buffer()
+                .content
+                .chunks(width as usize)
+                .map(|line| line.iter().map(|c| c.symbol()).collect::<String>())
+                .collect::<Vec<_>>();
+            let text = lines.join("\n");
+            assert!(!text.contains("private-sentinel") && !text.contains("Missing translation"));
+            if width == 70 {
+                assert!(text.contains(match locale {
+                    Locale::En => "Set up the VPN core",
+                    Locale::Ru => "Настройте ядро VPN",
+                }));
+            }
+            println!("DNS_REFUSAL_FRAME locale={locale:?} width={width}\n{text}");
+        }
+        let desired = &app.snapshot.as_ref().unwrap().metadata.desired;
+        assert_eq!(desired.connected, old_desired.connected);
+        assert_eq!(desired.profile_id, old_desired.profile_id);
+    }
+}
+
+#[test]
+fn dns_setup_refusal_shows_the_complete_action_and_unchanged_connection_at_minimum_width() {
+    for locale in [Locale::En, Locale::Ru] {
+        let (mut app, now) = app();
+        app.locale = locale;
+        begin(&mut app, Kind::Connect, now);
+        let reply = omavless_control_protocol::error_response(
+            "synthetic-request",
+            7,
+            omavless_control_protocol::StableErrorCode::DnsPairRequired,
+            false,
+            None,
+        )
+        .unwrap();
+        let outcome = app.pending.as_ref().unwrap().outcome(Ok(reply));
+        app.finish(outcome, now);
+        let mut terminal = Terminal::new(TestBackend::new(70, 24)).unwrap();
+        terminal.draw(|f| view::draw(f, &app, now)).unwrap();
+        let text = terminal
+            .backend()
+            .buffer()
+            .content
+            .chunks(70)
+            .map(|line| line.iter().map(|c| c.symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let (action, unchanged) = match locale {
+            Locale::En => (
+                "Set up the VPN core and DNS helper",
+                "connection was not changed.",
+            ),
+            Locale::Ru => (
+                "Настройте ядро VPN и DNS-помощник",
+                "Соединение не изменено.",
+            ),
+        };
+        assert!(
+            text.contains(action),
+            "complete setup action must remain visible"
+        );
+        assert!(
+            text.contains(unchanged),
+            "complete unchanged-connection outcome must remain visible"
+        );
+        assert!(text.contains(match locale {
+            Locale::En => "q: close UI",
+            Locale::Ru => "q: выйти",
+        }));
+        assert!(!app.unknown && app.pending.is_none() && app.confirmation.is_none());
+        assert_eq!(key(&mut app, KeyCode::Enter, now), Action::None);
+        println!("DNS_COMPLETE_NOTICE_FRAME locale={locale:?} width=70\n{text}");
+    }
+}
+
+#[test]
 fn selected_and_active_are_different_explicit_targets() {
     for (kind, target) in [
         (Kind::Connect, "fixture-b"),

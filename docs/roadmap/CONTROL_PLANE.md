@@ -1663,6 +1663,38 @@ the page is left. It has no filtering or close-connection mutation and does not
 prove that the rest of the system uses the same route. Installed and live T3
 acceptance is still pending.
 
+### `runtime.connection_details` (explicit private C1 development)
+
+This separately advertised, exact-empty-params read leaves the preceding v1
+methods and payloads unchanged. It uses the same owned-core controller read,
+750-ms deadline, pre/post fresh observation and desired/revision/instance fences.
+The result has schemaVersion1, scope `owned_core_private_connection_details`
+and the same availability/total/shown/truncated/rows envelope. No paging, target,
+filter, controller path or arbitrary request is accepted.
+
+Each of at most128 received rows adds nullable `processName` and `chain`.
+`processName` is the core-reported basename, at most64 UTF-8 bytes: never
+processPath, UID, PID, source address, command arguments or a new host scan.
+Missing, empty, unsafe or path-shaped names are unavailable; no path fallback or
+process attribution is invented when Mihomo did not collect it. `chain` is a
+nonempty list of at most16 core-reported labels, each at most64 UTF-8 bytes and
+at most256 label bytes in total. Unsafe, oversized or absent optional labels
+are unavailable, not silently shortened. Controls and the terminal-safe label
+boundary's explicit bidi/isolate/zero-width-format characters and
+leading/trailing whitespace are rejected. Existing conservative route categories
+remain independent: arbitrary chain names do not prove VPN protection, system
+routing or process ownership. The bounded projection must fit the unchanged
+256-KiB response frame, including worst-case JSON escaping.
+
+Both fields are private display data: Rust Debug stays redacted; no ordinary
+status, support export, diagnostic log, persistence or close authority gains
+them. Only the explicitly open Connections page negotiates this read, preferring
+it over legacy rows. Its failure is unavailable, not a hidden legacy retry.
+Older runtimes retain their v1 rows with an explicit details-unavailable hint.
+The client validates bounds and owner/revision before retaining these fields,
+then drops the whole projection on stale/error/page leave like legacy rows.
+SOURCE tests and synthetic rendering are not installed C1 acceptance.
+
 ### Existing details read in the TUI
 
 `profiles.details` remains the explicit same-user private method documented
