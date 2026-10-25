@@ -1428,6 +1428,32 @@ impl NativeEngine {
     }
 }
 
+impl NativeEngine {
+    /// Fixed original-process loss. Neither data nor a living return grants Start.
+    pub(crate) fn lose_native_new_complete_at_history_synced(
+        &mut self,
+        origin: &mut NativeRecoveryOrigin<'_>,
+        quiescence: &mut NativeOldRecoveryQuiescence,
+    ) -> Result<(), FirstError> {
+        if !crate::product_scope::restore_enabled() {
+            return Err(FirstError::Admission);
+        }
+        let uid = origin.uid();
+        let generation = origin.generation();
+        let desired = zeroize::Zeroizing::new(origin.desired_bytes().to_vec());
+        self.lose_new_complete_at_history_synced_inner(
+            &mut NativeRecoveryGate {
+                origin,
+                quiescence: Some(quiescence),
+            },
+            uid,
+            generation,
+            &desired,
+            Instant::now() + std::time::Duration::from_secs(15),
+        )
+    }
+}
+
 struct NativeRecoveryGate<'a, 'b> {
     origin: &'a mut NativeRecoveryOrigin<'b>,
     quiescence: Option<&'a mut NativeOldRecoveryQuiescence>,

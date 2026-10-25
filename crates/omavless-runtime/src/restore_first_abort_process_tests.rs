@@ -17,9 +17,7 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
 
-#[path = "restore_abort_process_support_tests.rs"]
-mod support;
-use support::{OwnedProcess, Quarantine};
+use crate::restore_abort_process_support_tests::{OwnedProcess, Quarantine};
 
 const PASS: &[u8] = b"synthetic first Abort process fixture";
 const WORKER: &str = "production_owner::first_abort::process_reentry::process_worker";

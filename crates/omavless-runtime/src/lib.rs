@@ -14,6 +14,8 @@ mod pending_private_transaction;
 #[allow(dead_code)]
 mod private_recovery_request_candidate;
 pub mod product_scope;
+#[cfg(test)]
+mod restore_abort_process_support_tests;
 #[allow(dead_code)]
 mod restore_cleanup_candidate;
 #[allow(dead_code)]
