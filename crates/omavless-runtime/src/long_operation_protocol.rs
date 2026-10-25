@@ -552,6 +552,80 @@ impl LongOperationProjection<'_> {
     }
 }
 
+/// Validate a selected-start success against its original private request.
+/// Reconstruct through the canonical projection encoder rather than accepting
+/// an envelope-only acknowledgement or publishing unvalidated peer fields.
+#[must_use]
+pub fn selected_refresh_start_response_matches(params: &Value, response: &Value) -> bool {
+    let checked = || -> Option<bool> {
+        if response["ok"] != true {
+            return None;
+        }
+        let op = &response["result"]["operation"];
+        let state = match op["state"].as_str()? {
+            "queued" => LongOperationState::Queued,
+            "running" => LongOperationState::Running,
+            "succeeded" => LongOperationState::Succeeded,
+            "failed" => LongOperationState::Failed,
+            "cancelled" => LongOperationState::Cancelled,
+            _ => return None,
+        };
+        let outcome_revision = if op["outcomeRevision"].is_null() {
+            None
+        } else {
+            Some(op["outcomeRevision"].as_u64()?)
+        };
+        let base_revision = params["expectedRevision"].as_u64()?;
+        let envelope_revision = response["revision"].as_u64()?;
+        if envelope_revision < base_revision
+            || outcome_revision.is_some_and(|revision| revision > envelope_revision)
+        {
+            return None;
+        }
+        let error = if op["error"].is_null() {
+            None
+        } else {
+            Some(StableErrorCode::parse(op["error"]["code"].as_str()?)?)
+        };
+        let import_reasons = if let Some(details) = op["error"].get("details") {
+            Some(
+                omavless_domain::subscription_feed::ImportReasons::from_value(
+                    &details["importReasons"],
+                    65536,
+                )?,
+            )
+        } else {
+            None
+        };
+        let import_summary = if let Some(summary) = op.get("importSummary") {
+            Some(omavless_domain::subscription_feed::ImportSummary::from_value(summary)?)
+        } else {
+            None
+        };
+        let projection = LongOperationProjection {
+            method: LongOperationMethod::SubscriptionRefreshSelected,
+            instance_id: params["instanceId"].as_str()?,
+            operation_id: params["operationId"].as_str()?,
+            state,
+            base_revision,
+            outcome_revision,
+            progress: LongOperationProgress {
+                completed: usize::try_from(op["progress"]["completed"].as_u64()?).ok()?,
+                total: usize::try_from(op["progress"]["total"].as_u64()?).ok()?,
+            },
+            cancel_requested: op["cancelRequested"].as_bool()?,
+            cancellable: op["cancellable"].as_bool()?,
+            error,
+            import_reasons,
+            import_summary,
+        };
+        Some(
+            projection.progress.total == 1 && projection.result_value().ok()? == response["result"],
+        )
+    };
+    checked() == Some(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -610,6 +684,54 @@ mod tests {
             ))
             .is_ok()
         );
+    }
+
+    #[test]
+    fn selected_refresh_receipt_validation_accepts_canonical_live_and_terminal_replays() {
+        let params = json!({"instanceId":INSTANCE,"operationId":"selected","expectedRevision":7});
+        for state in [
+            LongOperationState::Queued,
+            LongOperationState::Running,
+            LongOperationState::Succeeded,
+            LongOperationState::Failed,
+            LongOperationState::Cancelled,
+        ] {
+            let revision = if state == LongOperationState::Succeeded {
+                8
+            } else {
+                7
+            };
+            let projection = LongOperationProjection {
+                method: LongOperationMethod::SubscriptionRefreshSelected,
+                instance_id: INSTANCE,
+                operation_id: "selected",
+                state,
+                base_revision: 7,
+                outcome_revision: state.terminal().then_some(revision),
+                progress: LongOperationProgress {
+                    completed: usize::from(state == LongOperationState::Succeeded),
+                    total: 1,
+                },
+                cancel_requested: state == LongOperationState::Cancelled,
+                cancellable: !state.terminal(),
+                error: (state == LongOperationState::Failed)
+                    .then_some(StableErrorCode::SubscriptionUnavailable),
+                import_reasons: None,
+                import_summary: (state == LongOperationState::Succeeded).then_some(
+                    omavless_domain::subscription_feed::ImportSummary {
+                        accepted: 1,
+                        ..Default::default()
+                    },
+                ),
+            };
+            let response = omavless_control_protocol::success_response(
+                "selected",
+                revision,
+                projection.result_value().unwrap(),
+            )
+            .unwrap();
+            assert!(selected_refresh_start_response_matches(&params, &response));
+        }
     }
 
     #[test]

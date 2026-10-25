@@ -968,10 +968,18 @@ fn run() -> Result<(), CliError> {
     } else if is_semantic_lifecycle_method(method) {
         call_semantic_lifecycle(&paths, method, params).map_err(semantic_lifecycle_error)?
     } else if method == "subscriptions.refresh_selected" {
-        call(&paths, method, params).map_err(|error| match error {
+        let response = call(&paths, method, params.clone()).map_err(|error| match error {
             RuntimeError::Io | RuntimeError::Protocol => CliError::ActionOutcomeUnknown,
             _ => CliError::Message(error.to_string()),
-        })?
+        })?;
+        if response["ok"] == true
+            && !omavless_runtime::long_operation_protocol::selected_refresh_start_response_matches(
+                &params, &response,
+            )
+        {
+            return Err(CliError::ActionOutcomeUnknown);
+        }
+        response
     } else {
         call(&paths, method, params).map_err(|error| error.to_string())?
     };

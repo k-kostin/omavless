@@ -236,6 +236,123 @@ fn selected_refresh_cli_uses_original_handles_and_never_resends_after_lost_reply
 }
 
 #[test]
+fn selected_refresh_cli_refuses_malformed_or_unbound_success_without_resend() {
+    use omavless_control_protocol::{
+        FrameKind, decode_request, encode_response, read_unary_frame, success_response,
+    };
+    use omavless_runtime::long_operation_protocol::{
+        LongOperationMethod, LongOperationProgress, LongOperationProjection, LongOperationState,
+    };
+    use std::os::unix::net::UnixListener;
+    for fault in [
+        "empty",
+        "method",
+        "instance",
+        "operation",
+        "base",
+        "total",
+        "bool",
+        "extra",
+        "missing",
+        "state",
+        "outcome",
+        "error",
+        "summary",
+        "envelope-revision",
+    ] {
+        let base = runtime_base();
+        prepare_isolated_daemon_environment(&base);
+        let paths = omavless_runtime::RuntimePaths::below(&base);
+        fs::create_dir(&paths.directory).unwrap();
+        fs::set_permissions(&paths.directory, fs::Permissions::from_mode(0o700)).unwrap();
+        let listener = UnixListener::bind(&paths.socket).unwrap();
+        fs::set_permissions(&paths.socket, fs::Permissions::from_mode(0o600)).unwrap();
+        let worker = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let request =
+                decode_request(&read_unary_frame(&mut stream, FrameKind::Request).unwrap())
+                    .unwrap();
+            let mut result = LongOperationProjection {
+                method: LongOperationMethod::SubscriptionRefreshSelected,
+                instance_id: "instance-1",
+                operation_id: "original",
+                state: LongOperationState::Running,
+                base_revision: 7,
+                outcome_revision: None,
+                progress: LongOperationProgress {
+                    completed: 0,
+                    total: 1,
+                },
+                cancel_requested: false,
+                cancellable: true,
+                error: None,
+                import_summary: None,
+                import_reasons: None,
+            }
+            .result_value()
+            .unwrap();
+            match fault {
+                "empty" => result = serde_json::json!({}),
+                "method" => {
+                    result["operation"]["method"] = serde_json::json!("subscriptions.refresh_all")
+                }
+                "instance" => result["operation"]["instanceId"] = serde_json::json!("other"),
+                "operation" => result["operation"]["operationId"] = serde_json::json!("other"),
+                "base" => result["operation"]["baseRevision"] = serde_json::json!(6),
+                "total" => result["operation"]["progress"]["total"] = serde_json::json!(2),
+                "bool" => result["operation"]["progress"]["total"] = serde_json::json!(true),
+                "extra" => result["private"] = serde_json::json!("private.invalid/password"),
+                "missing" => {
+                    result["operation"].as_object_mut().unwrap().remove("error");
+                }
+                "state" => result["operation"]["state"] = serde_json::json!("succeeded"),
+                "outcome" => result["operation"]["outcomeRevision"] = serde_json::json!(8),
+                "error" => {
+                    result["operation"]["error"] =
+                        serde_json::json!({"code":"private.invalid/password"})
+                }
+                "summary" => result["operation"]["importSummary"] = serde_json::json!({}),
+                _ => {}
+            }
+            let response = success_response(
+                request["id"].as_str().unwrap(),
+                if fault == "envelope-revision" { 6 } else { 7 },
+                result,
+            )
+            .unwrap();
+            stream
+                .write_all(&encode_response(&response).unwrap())
+                .unwrap();
+            listener
+        });
+        let output = isolated_command(&base)
+            .args([
+                "subscription",
+                "refresh-selected",
+                "instance-1",
+                "original",
+                "10000000-0000-4000-8000-000000000001",
+                "7",
+            ])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(73), "fault {fault}");
+        assert!(output.stdout.is_empty());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("private.invalid"));
+        let listener = worker.join().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+        fs::remove_dir_all(base).unwrap();
+    }
+}
+
+#[test]
 fn first_abort_cli_refuses_unconfirmed_private_input_and_missing_runtime_without_effects() {
     let base = file_base();
     for args in [
