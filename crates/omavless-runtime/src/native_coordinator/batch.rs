@@ -227,7 +227,20 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         if !self.mutation_operation_known(request) {
             self.invalidate_connection_close();
         }
-        let request = parse_refresh_all_start(request)?;
+        let (request, method, selected) = if request["method"] == "subscriptions.refresh_selected" {
+            let selected = crate::long_operation_protocol::parse_selected_refresh_start(request)?;
+            (
+                selected.metadata,
+                crate::long_operation_protocol::LongOperationMethod::SubscriptionRefreshSelected,
+                Some(selected.subscription_id),
+            )
+        } else {
+            (
+                parse_refresh_all_start(request)?,
+                crate::long_operation_protocol::LongOperationMethod::SubscriptionRefreshAll,
+                None,
+            )
+        };
         let _lock = admission.lock(self)?;
         let revision = self.revision();
         let ordinary_id = self
@@ -244,7 +257,8 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         if state.registry.has_operation_id(request.operation_id()) {
             state
                 .registry
-                .start(
+                .start_method(
+                    method,
                     request.instance_id(),
                     request.operation_id(),
                     request.digest(),
@@ -277,14 +291,23 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         if state.active.is_some() {
             return Err(NativeOwnerError::LongOperation(LongOperationError::Busy));
         }
-        let snapshot = snapshot_subscription_refresh_batch(
-            self.transaction.store_path(),
-            self.transaction.uid(),
-        )
+        let snapshot = if let Some(selected) = selected {
+            crate::subscription_mutation::snapshot_selected_subscription_refresh_batch(
+                self.transaction.store_path(),
+                self.transaction.uid(),
+                &selected,
+            )
+        } else {
+            snapshot_subscription_refresh_batch(
+                self.transaction.store_path(),
+                self.transaction.uid(),
+            )
+        }
         .map_err(|error| NativeOwnerError::Subscription(subscription_store_error(error)))?;
         let started = state
             .registry
-            .start(
+            .start_method(
+                method,
                 request.instance_id(),
                 request.operation_id(),
                 request.digest(),

@@ -151,6 +151,22 @@ pub fn snapshot_subscription_refresh_batch(
     prepare_subscription_refresh_batch(&input).map_err(SubscriptionMutationCommitError::Mutation)
 }
 
+/// Selected-feed variant of the supervised refresh snapshot. Caller holds the
+/// same owner/migration lease; no caller-provided provider URL is accepted.
+pub fn snapshot_selected_subscription_refresh_batch(
+    store_path: &Path,
+    uid: u32,
+    subscription_id: &str,
+) -> Result<SubscriptionRefreshBatchSnapshot, SubscriptionMutationCommitError> {
+    validate_existing_store(store_path, uid)?;
+    let input = read_private_utf8(store_path, uid).map_err(map_io)?;
+    omavless_domain::private_store::prepare_selected_subscription_refresh_batch(
+        &input,
+        subscription_id,
+    )
+    .map_err(SubscriptionMutationCommitError::Mutation)
+}
+
 /// Read one intentional editor payload from a validated private store. The
 /// caller must hold the migration lock and keep the returned URL out of
 /// ordinary status, logs, diagnostics and argv.

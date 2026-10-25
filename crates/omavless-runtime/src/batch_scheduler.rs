@@ -13,6 +13,7 @@ use crate::subscription_batch_work::BatchWorkStep;
 
 pub(super) const METHODS: &[&str] = &[
     "subscriptions.refresh_all",
+    "subscriptions.refresh_selected",
     "subscriptions.probe",
     "subscriptions.probe_results",
     "profiles.probe",

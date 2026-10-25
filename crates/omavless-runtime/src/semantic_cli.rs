@@ -372,6 +372,30 @@ pub fn parse_semantic_mutation(
         }
         [
             "subscription",
+            "refresh-selected",
+            instance,
+            operation,
+            subscription,
+            revision,
+        ] => {
+            let params = json!({"instanceId":instance,"operationId":operation,
+                "subscriptionId":record_id(subscription)?,
+                "expectedRevision":revision.parse::<u64>().map_err(|_|SemanticCliError::InvalidArgument)?});
+            let request = omavless_control_protocol::make_request(
+                "semantic-cli",
+                "subscriptions.refresh_selected",
+                params.clone(),
+            )
+            .map_err(|_| SemanticCliError::InvalidArgument)?;
+            crate::long_operation_protocol::parse_selected_refresh_start(&request)
+                .map_err(|_| SemanticCliError::InvalidArgument)?;
+            Ok(SemanticRequest {
+                method: "subscriptions.refresh_selected",
+                params,
+            })
+        }
+        [
+            "subscription",
             "probe",
             instance,
             operation,
@@ -1081,6 +1105,76 @@ mod long_operation_tests {
             parse_semantic_read(&args(&["subscription", "probe-results", "", "operation"]))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn selected_refresh_cli_is_exact_and_never_accepts_provider_input() {
+        let id = "10000000-0000-4000-8000-000000000001";
+        let parsed = parse_semantic_mutation(
+            &args(&[
+                "subscription",
+                "refresh-selected",
+                "instance",
+                "operation",
+                id,
+                "7",
+            ]),
+            None,
+        )
+        .unwrap()
+        .into_parts();
+        assert_eq!(parsed.0, "subscriptions.refresh_selected");
+        assert_eq!(
+            parsed.1,
+            json!({"instanceId":"instance","operationId":"operation",
+            "subscriptionId":id,"expectedRevision":7})
+        );
+        for values in [
+            vec![
+                "subscription",
+                "refresh-selected",
+                "instance",
+                "operation",
+                id,
+            ],
+            vec![
+                "subscription",
+                "refresh-selected",
+                "instance",
+                "operation",
+                id,
+                "-1",
+            ],
+            vec![
+                "subscription",
+                "refresh-selected",
+                "instance",
+                "operation",
+                id,
+                "9223372036854775808",
+            ],
+            vec![
+                "subscription",
+                "refresh-selected",
+                "instance",
+                "operation",
+                "https://private.invalid/password",
+                "7",
+            ],
+            vec![
+                "subscription",
+                "refresh-selected",
+                "instance",
+                "operation",
+                id,
+                "7",
+                "extra",
+            ],
+            vec!["subscriptions.refresh_selected", "{}"],
+        ] {
+            let error = parse_semantic_mutation(&args(&values), None).err().unwrap();
+            assert!(!format!("{error}").contains("private.invalid"));
+        }
     }
 
     #[test]
