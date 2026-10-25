@@ -279,11 +279,27 @@ build-local-package.sh BUILD_DIR RUNTIME_ELF SOURCE_SHA --product-image-witness 
 
 It reuses normal payload/PKGBUILD/makepkg topology, checks both native ELF shapes
 and records both byte hashes under schema4 opt-in identity. It includes the fixed
-helper/system unit, requires the managed DNS package, and preserves the ordinary
-runtime/login user-unit bytes. No supplied ELF is executed and no compile,
+helper/system unit and requires the managed DNS package. The explicit opt-in
+payload now selects a fixed Product runtime user unit at the canonical unit
+path: `ExecStart=/usr/bin/omavless daemon --product-image-witness`, `Restart=no`.
+The login/helper unit bytes and all ordinary three-argument/RC/stable package
+modes are unchanged. No supplied ELF is executed and no compile,
 install, enroll, enable or start occurs. Three-argument and RC/stable modes remain
 unchanged. Prebuilt provenance is caller-supplied, not toolchain attestation or
 released distribution acceptance.
+
+This source successor closes only the explicit Product package's ordinary Start
+entry, not public/default activation. The shared login/cutover/full-Quit identity
+guard accepts the exact ordinary unit and, only when compiled with the Product
+feature, the exact Product variant. Modified unit bytes and systemd overrides
+remain refused. Start retains ordinary login/startup and managed-path admission;
+it does not itself prove Product Close readiness. Close acquisition/confirmation
+still require their independently captured original root enrollment,
+close-qualified pair and epoch evidence. No enrollment, record rotation, foreign
+repair, automatic restart or installer schema1/2/3 promotion is added. Historical
+opt-in receipts below prove their then-unchanged ordinary unit only, not this
+new entry or an installed Start result. New actual installed acceptance remains
+ordered separately after Restore; inert package tests are not that evidence.
 
 Required real gate after full primary/peer review: ROOT seals product runtime/
 helper/package, explicitly installs/enrolls/starts in the disposable VM, uses
@@ -658,6 +674,45 @@ context across reboot, image upgrade/re-enrollment, every possible TUN name,
 whole T3/C1 or public default activation. Explicit no-route close RPC remains
 UNRUN: the existing semantic CLI has no such fixed command, and no raw-method
 probe was added. Earlier617 ordinary evidence and GUI5 remain separate.
+
+## Current-development stale-Confirm retained refusal
+
+This narrow port of retained `1f7485ca2c38c87af1ae5417b6132aed5e40e75c`
+changes only explicitly selected Product close admission. Default/developer
+registration, helper/enrollment, image qualification, wire schema, deadlines
+and normal read-only Connections remain unchanged.
+
+A normal mutation after Prepare can advance revision before Confirm. Existing
+admission correctly refuses the effect but retains no terminal close receipt;
+a lost response therefore cannot resolve that particular refusal by receipt.
+The Product-only wrapper first delegates to ordinary admission, preserving
+operation namespaces, exact replay and semantic digest collisions. Only a fresh
+older-revision conflict can publish terminal `RefusedBeforeWrite` DATA in the
+same bounded non-evicting history. It returns no effect reservation, does not
+advance revision and starts no fresh discovery/controller/lifecycle operation.
+Future revisions remain conflicts. Active/queued work, unfinished closes,
+capacity/exhaustion and current Backup/Restore unresolved/abandoned operations
+continue to refuse. Known pair IDs remain a separate conflicting namespace.
+A cached Unknown remains Unknown; replay is never reclassified as a fresh refusal.
+
+Controls cover the actual Product coordinator caller after scheduler
+revision change, unchanged Developer refusal, combined-feature pair fences,
+Unknown replay and EN/RU original/lost-response receipt-only client resolution.
+The October23 immutable proposal's tests were unrun. October24's independent
+source port earned behavioral RED (older Confirm returned RevisionConflict)
+then GREEN through the actual Product coordinator caller. Removing only the
+unresolved-pair fence made its combined-feature control fail; restoring the
+fence passed. Mutation/replay controls, Product preview controls and the
+unchanged Developer refusal were exercised with Rust1.98. The TUI source controls
+cover EN/RU lost-response receipt lookup without resubmitting Confirm.
+These are owned synthetic-source fixtures, not installed competing clients,
+normal public activation, a new qualified pair or whole T3 completion.
+Existing default no-advertise/no-route and combined-feature nonpromotion
+controls remain required. The original proposal
+base was `0856a012fe3d41d694502fdc5e7dfa3bc3fdb69b`; this port uses development
+`55362747ebb8eda6b10866f3502469adeb8be7f2`. Historical source/VM
+successes are not this port's results. No package, enrollment, ordinary
+feature activation or installed competing-mutation acceptance is implied.
 
 ### Remaining T3/C1 completion gates
 

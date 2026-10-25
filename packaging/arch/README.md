@@ -79,15 +79,25 @@ Both separately prebuilt native ELF inputs are inspected, not executed. Schema4
 identity records runtime/helper hashes and explicit opt-in selection; this is
 caller-supplied source provenance, not toolchain attestation. The payload adds
 `/usr/lib/omavless-image/omavless-image-witness` and its inactive root system unit,
-with no Install target or automatic restart. Existing runtime/login user units
-are byte-identical and normal daemon does not expose close in a product-feature
-build without explicit mode. The development dependency is the managed DNS
-package; native admission still requires its distinct close-qualified evidence.
+with no Install target or automatic restart. Only this explicit mode selects a
+fixed runtime user unit with `ExecStart=/usr/bin/omavless daemon --product-image-witness`
+and `Restart=no`; it is installed at the same canonical runtime-unit path.
+The login unit, helper unit and ordinary three-argument/candidate/stable runtime
+units remain unchanged. A product-feature binary running plain `daemon` still
+does not expose close. The development dependency is the managed DNS
+package; Close admission still requires its distinct close-qualified evidence.
 
 Installation does not enroll, enable/start the helper, change profiles/ownership,
-or select product mode. After review, ROOT separately selects fixed root
-`--enroll-product UID`, helper service startup and foreground
-`omavless daemon --product-image-witness`. See the
+or start the runtime. After review, ROOT separately selects fixed root
+`--enroll-product UID` and helper service startup. An explicit ordinary Start
+then uses the packaged Product daemon entry with ordinary login/startup and
+managed-path admission. Successful startup is not proof of Close readiness:
+Close acquisition/confirmation independently require their original root
+enrollment, close-qualified pair and epoch evidence, refusing missing or drifted
+evidence there. Neither startup nor Close repairs those records, and the unit
+does not restart automatically. A binary without the product feature cannot use this entry and
+is not made feature-qualified by packaging. The installed-package admission
+gate for schemas1/2/3 is not widened to schema4 by this source-only kit. See the
 [epoch/enrollment contract](../../docs/development/T3_PRODUCT_WITNESS_EPOCHS.md).
 No host or release acceptance follows from inert staging.
 

@@ -2,7 +2,81 @@
 //! Pure, window-local ordering of an already validated private projection.
 //! No cloned row cache, controller request, mutation handle or persisted target.
 use crate::inspection::{ConnectionRow, ConnectionRows};
-use std::cmp::Ordering;
+use std::cmp::{Ordering, Reverse};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum NetworkFilter {
+    #[default]
+    All,
+    Tcp,
+    Udp,
+    Other,
+}
+impl NetworkFilter {
+    pub(crate) fn next(self) -> Self {
+        match self {
+            Self::All => Self::Tcp,
+            Self::Tcp => Self::Udp,
+            Self::Udp => Self::Other,
+            Self::Other => Self::All,
+        }
+    }
+    pub(crate) fn key(self) -> &'static str {
+        match self {
+            Self::All => "tui.connection_filter_all",
+            Self::Tcp => "tui.connection_filter_tcp",
+            Self::Udp => "tui.connection_filter_udp",
+            Self::Other => "tui.connection_filter_other",
+        }
+    }
+    pub(crate) fn includes(self, network: &str) -> bool {
+        match self {
+            Self::All => true,
+            Self::Tcp => network == "tcp",
+            Self::Udp => network == "udp",
+            Self::Other => network == "other",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RouteFilter {
+    #[default]
+    All,
+    Direct,
+    Blocked,
+    Proxy,
+    Unclassified,
+}
+impl RouteFilter {
+    pub(crate) fn next(self) -> Self {
+        match self {
+            Self::All => Self::Direct,
+            Self::Direct => Self::Blocked,
+            Self::Blocked => Self::Proxy,
+            Self::Proxy => Self::Unclassified,
+            Self::Unclassified => Self::All,
+        }
+    }
+    pub(crate) fn key(self) -> &'static str {
+        match self {
+            Self::All => "tui.connection_filter_all",
+            Self::Direct => "tui.connection_route_direct",
+            Self::Blocked => "tui.connection_route_blocked",
+            Self::Proxy => "tui.connection_route_vpn",
+            Self::Unclassified => "tui.connection_unclassified",
+        }
+    }
+    pub(crate) fn includes(self, route: &str) -> bool {
+        match self {
+            Self::All => true,
+            Self::Direct => route == "direct",
+            Self::Blocked => route == "blocked",
+            Self::Proxy => route == "vpn",
+            Self::Unclassified => route == "unclassified",
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Order {
@@ -11,6 +85,8 @@ pub enum Order {
     Destination,
     Network,
     Route,
+    Download,
+    Upload,
 }
 impl Order {
     pub fn next(self) -> Self {
@@ -18,7 +94,9 @@ impl Order {
             Self::Original => Self::Destination,
             Self::Destination => Self::Network,
             Self::Network => Self::Route,
-            Self::Route => Self::Original,
+            Self::Route => Self::Download,
+            Self::Download => Self::Upload,
+            Self::Upload => Self::Original,
         }
     }
     pub fn key(self) -> &'static str {
@@ -27,6 +105,8 @@ impl Order {
             Self::Destination => "tui.connection_order_destination",
             Self::Network => "tui.connection_order_network",
             Self::Route => "tui.connection_order_route",
+            Self::Download => "tui.connection_order_download",
+            Self::Upload => "tui.connection_order_upload",
         }
     }
 }
@@ -70,7 +150,7 @@ pub fn rows<'a>(
     query: &str,
     order: Order,
 ) -> Vec<&'a ConnectionRow> {
-    let query = query.to_ascii_lowercase();
+    let query = query.to_lowercase();
     let mut rows: Vec<_> = projection
         .rows
         .iter()
@@ -83,6 +163,16 @@ pub fn rows<'a>(
                 || r.port.is_some_and(|p| p.to_string().contains(&query))
                 || r.network.contains(&query)
                 || r.route.contains(&query)
+                || r.process_name
+                    .as_deref()
+                    .is_some_and(|name| name.to_lowercase().contains(&query))
+                || r.rule_type
+                    .is_some_and(|kind| kind.to_ascii_lowercase().contains(&query))
+                || r.chain.as_ref().is_some_and(|chain| {
+                    chain
+                        .iter()
+                        .any(|label| label.to_lowercase().contains(&query))
+                })
         })
         .collect();
     // Stable sorts keep indistinguishable rows in their received order.
@@ -95,6 +185,10 @@ pub fn rows<'a>(
         Order::Route => {
             rows.sort_by(|a, b| route(a).cmp(&route(b)).then_with(|| destination(a, b)))
         }
+        // Optional validated integer counters: descending puts known zero
+        // before unknown. Equal values (including None) retain received order.
+        Order::Download => rows.sort_by_key(|r| Reverse(r.download_bytes)),
+        Order::Upload => rows.sort_by_key(|r| Reverse(r.upload_bytes)),
     }
     rows
 }

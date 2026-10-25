@@ -33,6 +33,30 @@ has exact inputs, operator, earned gates, remaining dependency and next action.
 Use explicit states: actionable, external-wait, owner-choice, complete. A
 terminal failure is actionable diagnosis, not unchanged waiting.
 
+Name the current activity separately: product implementation, harness work,
+acceptance or waiting; scheduler ACTIVE is not feature development ACTIVE.
+Unimplemented tooling is agent-owned work, not an external blocker. For each
+blocked action name the missing input or proof and the exact release condition;
+list independently actionable work within the approved order. A held actor
+blocks only actions with a demonstrated dependency. Preserve an explicit owner
+fence even without a technical dependency, but keep it separate from tooling
+gaps and unavailable input. Claim exhaustion only against named alternatives,
+not because prepared proposals are complete.
+
+A no-defect assessment closes only that assessment, not the feature backlog.
+Do not require a pre-existing bug to implement an approved missing capability.
+After a source slice or negative assessment, select the next complete user
+outcome from the authorized feature contract, not another renamed bug search.
+Before entering quiet wait, classify the remaining user outcomes in the authorized source scope:
+implemented but awaiting acceptance, independently implementable, or blocked by
+a named unavailable input/decision. A blocked installed step does not block
+independent source work merely because integration remains ordered. Do not
+broaden source authority to later tracks, bypass a held actor, or manufacture
+an unnecessary feature to keep busy. If no complete supported outcome is
+selected, report that planning gap once and replan; scheduler wakeups must not
+silently replace the next engineering decision. Prove this correction by
+actually starting the chosen user outcome, not only a rule/navigation test.
+
 Replace superseded current text. Keep original receipts and historical limits
 behind links under the [retention policy](README.md#compact-operational-checkpoints).
 Archive the complete prior index before compaction; historical ACTIVE/PENDING
@@ -40,6 +64,16 @@ is not present custody or an instruction to restart it. Read the applicable
 history when a dependency or diagnosis needs it, not on every heartbeat.
 
 ## 3. Measure the baseline before effects
+
+Check critical input availability before harness implementation or delegation:
+use existing evidence or one permitted cheap observation to establish the
+required environment, ordinary entry/return, access, legitimate input and
+original-process custody. Record unavailable or unmeasured dependencies first.
+Authority is not input availability; checking availability never permits secret
+lookup, a new prompt after an unanswered request, or probing an owner-held actor.
+If blocked, select only work independent of that dependency and useful to the
+same approved outcome; do not build speculative support for an unusable route.
+Refresh volatile facts immediately before effects, not on unchanged wakeups.
 
 Use the existing owned observer/driver and one minimal read-only preflight.
 For an installed scenario bind the actual guest/process identity, executable
@@ -59,6 +93,36 @@ Prefer the maintained procedure and the smallest real end-to-end scenario.
 An affected-boundary review is enough for a narrow correction; full independent
 review remains required where the execution policy changes authority or safety.
 Do not manufacture a new wrapper/observer merely to rename each refusal.
+
+Freeze one user-visible journey and its complete kit in the existing checkpoint:
+initial state, ordinary entry/exit, success and refusal criteria, every interface,
+path, permission, dependency, original process owner and restoration reserve.
+Keep one cumulative preparation clock for the same user outcome, from its first
+start through rework and reviews. Timebox the finite missing work against the
+measured delivery cycle. Do not automatically commission another preparatory
+component when it expires: the primary chooses a smaller supported complete
+route, a finite implementation batch, or an honest blocked disposition. A new
+budget requires new feasibility evidence, remaining work and a completion test;
+renaming the task or starting another heartbeat does not reset spent time.
+This planning budget cannot extend product deadlines or terminate retained actors.
+
+Assign the complete missing link, not another prerequisite proposal: fixed
+interfaces, ordinary terminal result, refusal/unknown settlement and one
+composition check must fit the same deliverable. Delegate only when authorized.
+Trace each proposed harness guarantee to an existing contract or measured failure;
+use the maintained procedure where it already supplies that guarantee. A new
+helper is justified by the missing link it closes, not by another component's
+GREEN. Keep component evidence distinct from whole-kit qualification and stop
+construction when the declared deliverable is complete. Required safety,
+negative controls, crypto, custody and runtime deadlines remain unchanged.
+
+Before a new expensive producer, check the assembled kit against the actual
+environment, including transport, original-child settlement, loaded package
+selection and the entire journey's time budget. A collection of component passes
+is not whole-kit qualification. A known missing link refuses admission before
+build or guest dispatch; stale environment evidence remains UNKNOWN. Where an
+owner holds an actor, preserve it and forbid a replacement actor/namespace as a
+bypass. Map its actual dependencies separately from unimplemented tooling.
 
 Derive sanitized positive fixtures from the actual selected interface/schema.
 Validate envelope fields and types exactly. For preservation comparisons,
@@ -104,6 +168,15 @@ their existing positive/negative tests on both declared architectures. Run the
 actual focused selectors and confirm the hosted runner discovers new tests.
 Keep assertions, provenance and the reviewed native-input projection intact.
 
+Batch compatible scenarios on one unchanged package pair; select compatible
+runtime corrections before producer freeze. Keep incompatible initial states
+separate rather than clearing data to force a batch. Reuse earned gates only
+within their exact input/projection and environment applicability; do not
+rebuild native archives solely for harness/prose changes with unchanged native
+inputs. This does not waive final exact-source CI, affected installed checks or
+independent merged distribution admission. Prepared proposals are not delivered
+features and extra agents cannot parallelize a serial acceptance dependency.
+
 Discover each exact-head CI dependency once; retain run/event/attempt/job IDs.
 Follow only that running dependency to all required terminal jobs/steps. Stop
 polling a completed gate. Reopen only gates affected by new inputs or a declared
@@ -115,6 +188,13 @@ Record original queue/compile/test/step durations when available; UNKNOWN is
 better than inventing a breakdown. Optimize only a measured bottleneck, keeping
 assertions, fault/configuration coverage, crypto, trust and deadlines. No
 automatic full local duplicate matrix or speculative cache/CI redesign.
+
+Track implementation, harness, build/CI, VM, rework and waiting separately using
+original start/end records. Mark missing active durations UNKNOWN; identify
+overlap instead of adding observation lag to work time. Record new launches as
+zero when none occurred, not the historic cost of those stages as zero. Verify a
+process change in the live queue/next applicable execution as well as its source;
+navigation tests alone prove neither compliance nor time saved.
 
 ### Early feedback and timings
 

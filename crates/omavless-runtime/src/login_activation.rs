@@ -17,12 +17,10 @@ use std::time::Duration;
 
 const LOGIN_UNIT: &str = "omavless-login-prepare.service";
 const RUNTIME_UNIT: &str = "omavless-runtime.service";
-const BINARY: &str = "/usr/bin/omavless";
 const MANAGER_PROPERTIES: &str = "Id,LoadState,ActiveState,MainPID,InvocationID,User,FragmentPath";
 const MANAGER_UNIT_PATH: &str = "/usr/lib/systemd/system/user@.service";
 const LOGIN_BYTES: &[u8] =
     include_bytes!("../../../packaging/systemd/omavless-login-prepare.service");
-const RUNTIME_BYTES: &[u8] = include_bytes!("../../../packaging/systemd/omavless-runtime.service");
 
 #[path = "login_epoch_candidate.rs"]
 pub(crate) mod epoch_candidate;
@@ -199,18 +197,12 @@ fn installed_file(path: &Path, contents: Option<&[u8]>) -> Result<()> {
     Ok(())
 }
 pub(crate) fn package() -> Result<()> {
-    if std::env::var_os("OMAVLESS_HOME").is_some() {
-        return Err(Error::Package);
-    }
-    installed_file(Path::new(BINARY), None)?;
-    let expected = fs::metadata(BINARY).map_err(|_| Error::Package)?;
-    let running = fs::metadata("/proc/self/exe").map_err(|_| Error::Package)?;
-    if expected.dev() != running.dev() || expected.ino() != running.ino() {
-        return Err(Error::Package);
-    }
-    for (name, bytes) in [(LOGIN_UNIT, LOGIN_BYTES), (RUNTIME_UNIT, RUNTIME_BYTES)] {
+    // The same fixed, compile-appropriate runtime unit must be accepted by
+    // login preparation, cutover and full Quit. This does not enroll Product.
+    crate::cutover_activation::packaged_identity().map_err(|_| Error::Package)?;
+    for (name, bytes) in [(LOGIN_UNIT, Some(LOGIN_BYTES)), (RUNTIME_UNIT, None)] {
         let path = format!("/usr/lib/systemd/user/{name}");
-        installed_file(Path::new(&path), Some(bytes))?;
+        installed_file(Path::new(&path), bytes)?;
         let text = query(false, name, "Id,FragmentPath,DropInPaths,NeedDaemonReload")?;
         let f = fields(&text)?;
         if f.len() != 4

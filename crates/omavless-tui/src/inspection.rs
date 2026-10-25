@@ -56,7 +56,7 @@ impl Capabilities {
                 && has("operations.cancel"),
             connection_count: has("runtime.connections"),
             connection_overview: has("runtime.connection_overview"),
-            connection_rows: has("runtime.connection_rows"),
+            connection_rows: has("runtime.connection_rows") || has("runtime.connection_details"),
         }
     }
 }
@@ -95,6 +95,11 @@ pub struct ConnectionRow {
     pub port: Option<u16>,
     pub network: &'static str,
     pub route: &'static str,
+    pub process_name: Option<String>,
+    pub chain: Option<Vec<String>>,
+    pub rule_type: Option<&'static str>,
+    pub download_bytes: Option<u64>,
+    pub upload_bytes: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -102,14 +107,45 @@ pub struct ConnectionRows {
     pub total: u32,
     pub truncated: bool,
     pub rows: Vec<ConnectionRow>,
+    pub details: bool,
+}
+
+fn connection_detail_label(value: &Value) -> Option<&str> {
+    let text = value.as_str()?;
+    if text.is_empty()
+        || text.len() > 64
+        || text.trim() != text
+        || text.chars().any(|c| {
+            c.is_control()
+                || matches!(c,
+            '\u{00ad}' | '\u{034f}' | '\u{061c}' | '\u{180e}' |
+            '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' |
+            '\u{2060}'..='\u{206f}' | '\u{feff}')
+        })
+    {
+        None
+    } else {
+        Some(text)
+    }
 }
 
 impl ConnectionRows {
     pub fn parse(value: &Value) -> Option<Self> {
+        Self::parse_projection(value, false)
+    }
+    pub fn parse_details(value: &Value) -> Option<Self> {
+        Self::parse_projection(value, true)
+    }
+    fn parse_projection(value: &Value, details: bool) -> Option<Self> {
         let result = &value["result"];
         if value["ok"] != true
             || result["schemaVersion"] != 1
-            || result["scope"] != "owned_core_private_connection_rows"
+            || result["scope"]
+                != if details {
+                    "owned_core_private_connection_details"
+                } else {
+                    "owned_core_private_connection_rows"
+                }
             || result["availability"] != "observed"
         {
             return None;
@@ -152,14 +188,105 @@ impl ConnectionRows {
                 port,
                 network: token(&row["network"], &["tcp", "udp", "other"])?,
                 route: token(&row["route"], &["direct", "blocked", "vpn", "unclassified"])?,
+                process_name: details
+                    .then(|| {
+                        connection_detail_label(&row["processName"])
+                            .filter(|name| {
+                                *name != "." && *name != ".." && !name.contains(['/', '\\'])
+                            })
+                            .map(str::to_owned)
+                    })
+                    .flatten(),
+                chain: details
+                    .then(|| {
+                        row["chain"].as_array().and_then(|chain| {
+                            if chain.is_empty() || chain.len() > 16 {
+                                return None;
+                            }
+                            let labels = chain
+                                .iter()
+                                .map(connection_detail_label)
+                                .collect::<Option<Vec<_>>>()?;
+                            (labels.iter().map(|s| s.len()).sum::<usize>() <= 256)
+                                .then(|| labels.into_iter().map(str::to_owned).collect())
+                        })
+                    })
+                    .flatten(),
+                download_bytes: details
+                    .then(|| connection_byte_total(&row["downloadBytes"]))
+                    .flatten(),
+                rule_type: details
+                    .then(|| connection_rule_type(&row["ruleType"]))
+                    .flatten(),
+                upload_bytes: details
+                    .then(|| connection_byte_total(&row["uploadBytes"]))
+                    .flatten(),
             });
         }
         Some(Self {
             total,
             truncated: result["truncated"].as_bool()?,
             rows: parsed,
+            details,
         })
     }
+}
+
+fn connection_rule_type(value: &Value) -> Option<&'static str> {
+    // Independently admit only fixed core type identifiers, not arbitrary rule text.
+    const TYPES: &[&str] = &[
+        "Domain",
+        "DomainSuffix",
+        "DomainKeyword",
+        "DomainRegex",
+        "DomainWildcard",
+        "GeoSite",
+        "GeoIP",
+        "SrcGeoIP",
+        "IPASN",
+        "SrcIPASN",
+        "IPCIDR",
+        "SrcIPCIDR",
+        "IPSuffix",
+        "SrcIPSuffix",
+        "SrcPort",
+        "DstPort",
+        "InPort",
+        "DSCP",
+        "InUser",
+        "InName",
+        "InType",
+        "ProcessName",
+        "ProcessPath",
+        "ProcessNameRegex",
+        "ProcessPathRegex",
+        "ProcessNameWildcard",
+        "ProcessPathWildcard",
+        "RematchName",
+        "RuleSet",
+        "Network",
+        "Uid",
+        "SubRules",
+        "Match",
+        "AND",
+        "OR",
+        "NOT",
+        "Unknown",
+    ];
+    let text = value.as_str()?;
+    TYPES.iter().copied().find(|kind| *kind == text)
+}
+
+fn connection_byte_total(value: &Value) -> Option<u64> {
+    let text = value.as_str()?;
+    if text.is_empty()
+        || text.len() > 19
+        || !text.bytes().all(|b| b.is_ascii_digit())
+        || (text.len() > 1 && text.starts_with('0'))
+    {
+        return None;
+    }
+    text.parse::<i64>().ok().and_then(|n| u64::try_from(n).ok())
 }
 
 impl ConnectionOverview {

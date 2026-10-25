@@ -342,6 +342,7 @@ const NATIVE_READ_METHODS: &[&str] = &[
     "runtime.connections",
     "runtime.connection_overview",
     "runtime.connection_rows",
+    "runtime.connection_details",
     "runtime.ping",
     "runtime.observation",
     "ui.snapshot",
@@ -577,6 +578,10 @@ trait NativeRuntimeOwner: Send {
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
     fn connection_rows(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
+    fn connection_details(
         &mut self,
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError>;
@@ -1082,6 +1087,12 @@ where
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         self.owner.connection_rows(request)
+    }
+    fn connection_details(
+        &mut self,
+        request: &Value,
+    ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
+        self.owner.connection_details(request)
     }
     fn runtime_observation(
         &mut self,
@@ -3138,6 +3149,7 @@ fn dispatch_native(
         | "runtime.connections"
         | "runtime.connection_overview"
         | "runtime.connection_rows"
+        | "runtime.connection_details"
         | "diagnostics.setup"
             if runtime_ownership =>
         {
@@ -3151,6 +3163,8 @@ fn dispatch_native(
                 owner.connection_overview(request)?
             } else if method == "runtime.connection_rows" {
                 owner.connection_rows(request)?
+            } else if method == "runtime.connection_details" {
+                owner.connection_details(request)?
             } else {
                 owner.runtime_observation(request)?
             };
@@ -3389,6 +3403,7 @@ mod tests {
         fresh_calls: Arc<AtomicUsize>,
         fresh_result: std::result::Result<lifecycle::NativeLocalObservation, HostStepError>,
         on_fresh: Option<Box<dyn FnMut() + Send>>,
+        connection_details_payload: Option<Value>,
     }
 
     struct BlockingTransport {
@@ -3500,6 +3515,15 @@ mod tests {
             connection_rows::extract(&json!({"connections":[
                 {"id":"private-id","metadata":{"host":"example.invalid","destinationIP":"203.0.113.8","destinationPort":443,"network":"tcp","process":"/private/app"},"chains":["private-node","PROXY"]}
             ]})).ok_or(HostStepError::Observation)
+        }
+        fn active_connection_details(
+            &mut self,
+            desired: &DesiredState,
+        ) -> std::result::Result<connection_rows::ConnectionDetails, HostStepError> {
+            self.fresh_observation(desired)?;
+            connection_rows::extract_details(self.connection_details_payload.as_ref().unwrap_or(&json!({"connections":[
+                {"id":"private-id","metadata":{"host":"example.invalid","destinationIP":"203.0.113.8","destinationPort":443,"network":"tcp","process":"fixture-browser","processPath":"/private/app","sourceIP":"192.0.2.1"},"chains":["private-node","PROXY"]}
+            ]}))).ok_or(HostStepError::Observation)
         }
         fn fresh_observation(
             &mut self,
@@ -3845,6 +3869,7 @@ mod tests {
             lifecycle_effects: Arc::new(AtomicUsize::new(0)),
             fresh_calls: Arc::new(AtomicUsize::new(0)),
             fresh_result: Err(HostStepError::Observation),
+            connection_details_payload: None,
             on_fresh: None,
             route_config: if route {
                 let path = config.join("route.yaml");
@@ -6257,6 +6282,527 @@ mod tests {
         assert_eq!(stale["error"]["code"], "capability_unavailable");
         worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn connection_rule_type_socket_reaches_the_production_tui_loader() {
+        let base = temporary_base("rule-type-tui-socket");
+        let (mut owner, _, _) = native_owner_fixture(&base);
+        let host = owner.batch_coordinator().host_mut();
+        host.fresh_result = Ok(fresh_empty_facts());
+        host.connection_details_payload = Some(json!({"connections":[{
+            "metadata":{"host":"example.invalid","network":"tcp"},
+            "chains":["PROXY"],"rule":"DomainSuffix","rulePayload":"never-display.invalid"
+        }]}));
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(7)).unwrap());
+        let connect = call(&paths, "connection.connect", json!({"profileId":PROFILE_ID,"mode":"global","operationId":"rule-type-connect","expectedRevision":0})).unwrap();
+        let mut wire = None;
+        let snapshot = omavless_tui::client::load_page(
+            &mut |request| {
+                let response = call(&paths, request.method(), request.params())
+                    .map_err(|_| omavless_tui::model::ReadError::Unavailable)?;
+                if request == omavless_tui::client::Read::ConnectionDetails {
+                    wire = Some(response.clone());
+                }
+                Ok(response)
+            },
+            omavless_tui::inspection::Page::Connections,
+        );
+        let down = call(
+            &paths,
+            "connection.disconnect",
+            json!({"operationId":"rule-type-down","expectedRevision":connect["revision"]}),
+        )
+        .unwrap();
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+        assert_eq!(down["ok"], true);
+        let wire = wire.expect("same private details read");
+        assert_eq!(wire["result"]["rows"][0]["ruleType"], "DomainSuffix");
+        assert!(!wire.to_string().contains("never-display.invalid"));
+        let snapshot = snapshot.unwrap();
+        let rows = snapshot.connection_rows.as_ref().unwrap();
+        assert!(rows.details);
+        assert_eq!(rows.rows[0].rule_type, Some("DomainSuffix"));
+        let mut app = omavless_tui::app::App::new(omavless_tui::i18n::Locale::En);
+        app.page = omavless_tui::inspection::Page::Connections;
+        app.accept(Ok(snapshot), std::time::Instant::now());
+        assert!(app.pending.is_none() && app.confirmation.is_none());
+    }
+
+    #[test]
+    fn connection_rule_type_socket_is_allowlisted_and_legacy_stays_unchanged() {
+        let types = [
+            "Domain",
+            "DomainSuffix",
+            "DomainKeyword",
+            "DomainRegex",
+            "DomainWildcard",
+            "GeoSite",
+            "GeoIP",
+            "SrcGeoIP",
+            "IPASN",
+            "SrcIPASN",
+            "IPCIDR",
+            "SrcIPCIDR",
+            "IPSuffix",
+            "SrcIPSuffix",
+            "SrcPort",
+            "DstPort",
+            "InPort",
+            "DSCP",
+            "InUser",
+            "InName",
+            "InType",
+            "ProcessName",
+            "ProcessPath",
+            "ProcessNameRegex",
+            "ProcessPathRegex",
+            "ProcessNameWildcard",
+            "ProcessPathWildcard",
+            "RematchName",
+            "RuleSet",
+            "Network",
+            "Uid",
+            "SubRules",
+            "Match",
+            "AND",
+            "OR",
+            "NOT",
+            "Unknown",
+        ];
+        let invalid = [
+            json!(null),
+            json!(false),
+            json!(1),
+            json!(""),
+            json!("DOMAIN"),
+            json!("DomainSuffix,private.invalid"),
+            json!("/private/path"),
+            json!("Domain\n"),
+            json!("Domain\u{202e}"),
+            json!({"type":"Domain"}),
+            json!("x".repeat(4096)),
+        ];
+        let raw = types
+            .iter()
+            .map(|kind| json!(*kind))
+            .chain(invalid)
+            .map(|rule| {
+                json!({"id":"never-row-id","metadata":{"network":"tcp"},
+                "rule":rule,"rulePayload":"never-rule-payload"})
+            })
+            .collect::<Vec<_>>();
+        let base = temporary_base("rule-type-bounds-socket");
+        let (mut owner, _, _) = native_owner_fixture(&base);
+        let host = owner.batch_coordinator().host_mut();
+        host.fresh_result = Ok(fresh_empty_facts());
+        host.connection_details_payload = Some(json!({"connections":raw}));
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(4)).unwrap());
+        let connect = call(&paths,"connection.connect",json!({"profileId":PROFILE_ID,"mode":"global","operationId":"rule-types-connect","expectedRevision":0})).unwrap();
+        let details = call(&paths, "runtime.connection_details", json!({})).unwrap();
+        let legacy = call(&paths, "runtime.connection_rows", json!({})).unwrap();
+        let down = call(
+            &paths,
+            "connection.disconnect",
+            json!({"operationId":"rule-types-down","expectedRevision":connect["revision"]}),
+        )
+        .unwrap();
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+        assert_eq!(down["ok"], true);
+        let rows = details["result"]["rows"].as_array().unwrap();
+        assert_eq!(rows.len(), 48);
+        for (row, kind) in rows.iter().zip(types) {
+            assert_eq!(row["ruleType"], kind);
+        }
+        assert!(rows[37..].iter().all(|row| row["ruleType"].is_null()));
+        assert!(
+            legacy["result"]["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|row| row.get("ruleType").is_none())
+        );
+        for secret in ["never-row-id", "never-rule-payload", "/private/path"] {
+            assert!(!details.to_string().contains(secret));
+        }
+    }
+
+    #[test]
+    fn connection_volume_socket_preserves_exact_zero_and_max_through_the_tui_loader() {
+        let base = temporary_base("volume-tui-socket");
+        let (mut owner, _, _) = native_owner_fixture(&base);
+        let host = owner.batch_coordinator().host_mut();
+        host.fresh_result = Ok(fresh_empty_facts());
+        host.connection_details_payload = Some(json!({"connections":[{
+            "metadata":{"host":"example.invalid","network":"tcp","process":"fixture-browser"},
+            "chains":["PROXY"],"upload":0,"download":9223372036854775807_i64
+        }]}));
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(7)).unwrap());
+        let connect = call(&paths, "connection.connect", json!({"profileId":PROFILE_ID,"mode":"global","operationId":"volume-connect","expectedRevision":0})).unwrap();
+        let mut wire = None;
+        let mut methods = Vec::new();
+        let snapshot = omavless_tui::client::load_page(
+            &mut |request| {
+                methods.push(request.method());
+                let response = call(&paths, request.method(), request.params())
+                    .map_err(|_| omavless_tui::model::ReadError::Unavailable)?;
+                if request == omavless_tui::client::Read::ConnectionDetails {
+                    wire = Some(response.clone());
+                }
+                Ok(response)
+            },
+            omavless_tui::inspection::Page::Connections,
+        );
+        let down = call(
+            &paths,
+            "connection.disconnect",
+            json!({"operationId":"volume-down","expectedRevision":connect["revision"]}),
+        )
+        .unwrap();
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+        assert_eq!(down["ok"], true);
+        let wire = wire.expect("same single details read must carry byte totals");
+        assert_eq!(
+            wire["result"]["rows"][0]["uploadBytes"], "0",
+            "observed zero is not unavailable"
+        );
+        assert_eq!(
+            wire["result"]["rows"][0]["downloadBytes"], "9223372036854775807",
+            "core signed64 total must not round through float"
+        );
+        let rows = snapshot.unwrap().connection_rows.unwrap();
+        assert!(rows.details);
+        assert_eq!(rows.rows[0].upload_bytes, Some(0));
+        assert_eq!(rows.rows[0].download_bytes, Some(9_223_372_036_854_775_807));
+        assert_eq!(
+            methods
+                .iter()
+                .filter(|m| **m == "runtime.connection_details")
+                .count(),
+            1
+        );
+        assert!(!methods.contains(&"runtime.connection_rows"));
+    }
+
+    #[test]
+    fn connection_volume_socket_rejects_unsafe_optional_counters_without_changing_legacy() {
+        for (input, expected) in [
+            (json!(null), Value::Null),
+            (json!(false), Value::Null),
+            (json!(-1), Value::Null),
+            (json!(1.5), Value::Null),
+            (json!("12"), Value::Null),
+            (json!(9_223_372_036_854_775_808_u64), Value::Null),
+            (json!(9_007_199_254_740_993_i64), json!("9007199254740993")),
+        ] {
+            let base = temporary_base("volume-bounds-socket");
+            let (mut owner, _, _) = native_owner_fixture(&base);
+            let host = owner.batch_coordinator().host_mut();
+            host.fresh_result = Ok(fresh_empty_facts());
+            host.connection_details_payload = Some(json!({"connections":[{
+                "metadata":{"host":"example.invalid","network":"tcp"},
+                "upload":input,"download":0
+            }]}));
+            let paths = RuntimePaths::below(&base.join("runtime"));
+            let server =
+                RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+            let worker = thread::spawn(move || server.serve(Some(4)).unwrap());
+            let connect = call(&paths,"connection.connect",json!({"profileId":PROFILE_ID,"mode":"global","operationId":"volume-bounds-connect","expectedRevision":0})).unwrap();
+            let details = call(&paths, "runtime.connection_details", json!({})).unwrap();
+            let legacy = call(&paths, "runtime.connection_rows", json!({})).unwrap();
+            let down = call(
+                &paths,
+                "connection.disconnect",
+                json!({"operationId":"volume-bounds-down","expectedRevision":connect["revision"]}),
+            )
+            .unwrap();
+            worker.join().unwrap();
+            fs::remove_dir_all(base).unwrap();
+            assert_eq!(down["ok"], true);
+            assert_eq!(details["result"]["rows"][0]["uploadBytes"], expected);
+            assert_eq!(details["result"]["rows"][0]["downloadBytes"], "0");
+            assert!(legacy["result"]["rows"][0].get("uploadBytes").is_none());
+            assert!(legacy["result"]["rows"][0].get("downloadBytes").is_none());
+        }
+    }
+
+    #[test]
+    fn connection_details_socket_reaches_the_production_tui_loader() {
+        let base = temporary_base("details-tui-socket");
+        let (mut owner, _, _) = native_owner_fixture(&base);
+        owner.batch_coordinator().host_mut().fresh_result = Ok(fresh_empty_facts());
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(7)).unwrap());
+        let connect = call(&paths, "connection.connect", json!({"profileId":PROFILE_ID,"mode":"global","operationId":"details-tui-connect","expectedRevision":0})).unwrap();
+        let mut methods = Vec::new();
+        let snapshot = omavless_tui::client::load_page(
+            &mut |request| {
+                methods.push(request.method());
+                call(&paths, request.method(), request.params())
+                    .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+            },
+            omavless_tui::inspection::Page::Connections,
+        );
+        let down = call(
+            &paths,
+            "connection.disconnect",
+            json!({"operationId":"details-tui-down","expectedRevision":connect["revision"]}),
+        )
+        .unwrap();
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+        assert_eq!(down["ok"], true);
+        let snapshot =
+            snapshot.expect("production TUI loader must consume actual framed runtime replies");
+        let rows = snapshot.connection_rows.unwrap();
+        assert!(rows.details);
+        assert_eq!(
+            rows.rows[0].process_name.as_deref(),
+            Some("fixture-browser")
+        );
+        assert_eq!(
+            rows.rows[0].chain.as_deref(),
+            Some(["private-node".to_owned(), "PROXY".to_owned()].as_slice())
+        );
+        assert!(methods.contains(&"runtime.connection_details"));
+        assert!(!methods.contains(&"runtime.connection_rows"));
+    }
+
+    #[test]
+    fn connection_details_socket_rejects_arguments_and_changed_ownership() {
+        let base = temporary_base("details-refusal-socket");
+        let (mut owner, cutover, _) = native_owner_fixture(&base);
+        owner.batch_coordinator().host_mut().fresh_result = Ok(fresh_empty_facts());
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(5)).unwrap());
+        let invalid = call(
+            &paths,
+            "runtime.connection_details",
+            json!({"path":"never-echo-private","id":"target"}),
+        )
+        .unwrap();
+        let before = call(&paths, "runtime.connection_details", json!({})).unwrap();
+        let connect = call(&paths, "connection.connect", json!({"profileId":PROFILE_ID,"mode":"global","operationId":"details-fence-connect","expectedRevision":0})).unwrap();
+        write_marker(&cutover, OwnershipPhase::RollbackPreparing, 2);
+        let stale = call(&paths, "runtime.connection_details", json!({})).unwrap();
+        let old = call(&paths, "runtime.connection_rows", json!({})).unwrap();
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+        assert_eq!(invalid["error"]["code"], "invalid_argument");
+        assert_eq!(invalid["revision"], 0);
+        assert!(!invalid.to_string().contains("never-echo-private"));
+        assert_eq!(before["result"]["availability"], "unavailable");
+        assert!(before["result"]["total"].is_null());
+        assert_eq!(connect["ok"], true);
+        assert_eq!(stale["error"]["code"], "capability_unavailable");
+        assert_eq!(old["error"]["code"], "capability_unavailable");
+    }
+
+    #[test]
+    fn connection_details_socket_optional_fields_are_bounded_and_never_paths() {
+        let cases = [
+            (
+                json!("browser"),
+                json!(["Домашний узел", "PROXY"]),
+                true,
+                true,
+            ),
+            (json!("/private/app"), json!(["node"]), false, true),
+            (json!("C:\\private\\app.exe"), json!(["node"]), false, true),
+            (json!("."), json!([]), false, false),
+            (json!(".."), Value::Null, false, false),
+            (
+                json!("bad\nlabel"),
+                json!(["node\u{202e}bad"]),
+                false,
+                false,
+            ),
+            (json!("\u{200b}browser"), json!([" node"]), false, false),
+            (json!("x".repeat(65)), json!(["x".repeat(65)]), false, false),
+            (
+                Value::Null,
+                json!([
+                    "x".repeat(64),
+                    "x".repeat(64),
+                    "x".repeat(64),
+                    "x".repeat(64),
+                    "x"
+                ]),
+                false,
+                false,
+            ),
+        ];
+        for (process, chain, has_process, has_chain) in cases {
+            let base = temporary_base("details-fields-socket");
+            let (mut owner, _, _) = native_owner_fixture(&base);
+            let host = owner.batch_coordinator().host_mut();
+            host.fresh_result = Ok(fresh_empty_facts());
+            host.connection_details_payload = Some(json!({"connections":[{
+                "id":"private-id", "metadata":{"network":"tcp","process":process,"processPath":"/never/fallback/path","sourceIP":"192.0.2.9"}, "chains":chain
+            }]}));
+            let paths = RuntimePaths::below(&base.join("runtime"));
+            let server =
+                RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+            let worker = thread::spawn(move || server.serve(Some(3)).unwrap());
+            let connect = call(&paths, "connection.connect", json!({"profileId":PROFILE_ID,"mode":"global","operationId":"details-fields-connect","expectedRevision":0})).unwrap();
+            let details = call(&paths, "runtime.connection_details", json!({})).unwrap();
+            let down = call(
+                &paths,
+                "connection.disconnect",
+                json!({"operationId":"details-fields-down","expectedRevision":connect["revision"]}),
+            )
+            .unwrap();
+            worker.join().unwrap();
+            fs::remove_dir_all(base).unwrap();
+            assert_eq!(details["result"]["availability"], "observed");
+            assert_eq!(
+                details["result"]["rows"][0]["processName"].is_string(),
+                has_process
+            );
+            assert_eq!(details["result"]["rows"][0]["chain"].is_array(), has_chain);
+            assert!(!details.to_string().contains("/never/fallback/path"));
+            assert!(!details.to_string().contains("private-id"));
+            assert!(!details.to_string().contains("192.0.2.9"));
+            assert_eq!(down["ok"], true);
+        }
+    }
+
+    #[test]
+    fn connection_details_socket_maximum_frame_and_later_row_refusal() {
+        for invalid_tail in [false, true] {
+            let base = temporary_base("details-frame-socket");
+            let (mut owner, _, _) = native_owner_fixture(&base);
+            let host = owner.batch_coordinator().host_mut();
+            host.fresh_result = Ok(fresh_empty_facts());
+            let mut rows = vec![
+                json!({"metadata":{"host":"h".repeat(120),"destinationIP":"2001:db8:ffff:ffff:ffff:ffff:ffff:ffff","destinationPort":65535,"network":"tcp","process":"\"".repeat(64)},"chains":vec!["\\".repeat(64);4],"rule":"ProcessNameWildcard","upload":9_223_372_036_854_775_807_i64,"download":9_223_372_036_854_775_807_i64});
+                128
+            ];
+            if invalid_tail {
+                rows.push(json!({"metadata":{"network":false}}));
+            }
+            host.connection_details_payload = Some(json!({"connections":rows}));
+            let paths = RuntimePaths::below(&base.join("runtime"));
+            let server =
+                RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+            let worker = thread::spawn(move || server.serve(Some(3)).unwrap());
+            let connect = call(&paths, "connection.connect", json!({"profileId":PROFILE_ID,"mode":"global","operationId":"details-frame-connect","expectedRevision":0})).unwrap();
+            let details = call(&paths, "runtime.connection_details", json!({})).unwrap();
+            let down = call(
+                &paths,
+                "connection.disconnect",
+                json!({"operationId":"details-frame-down","expectedRevision":connect["revision"]}),
+            )
+            .unwrap();
+            worker.join().unwrap();
+            fs::remove_dir_all(base).unwrap();
+            assert_eq!(
+                details["result"]["availability"],
+                if invalid_tail {
+                    "unavailable"
+                } else {
+                    "observed"
+                }
+            );
+            assert!(encode_response(&details).unwrap().len() <= MAX_RESPONSE_FRAME_BYTES);
+            assert_eq!(
+                details["result"]["shown"],
+                if invalid_tail { 0 } else { 128 }
+            );
+            if !invalid_tail {
+                assert_eq!(
+                    details["result"]["rows"][127]["processName"],
+                    "\"".repeat(64)
+                );
+                assert_eq!(
+                    details["result"]["rows"][127]["chain"]
+                        .as_array()
+                        .unwrap()
+                        .len(),
+                    4
+                );
+            }
+            assert_eq!(down["ok"], true);
+        }
+    }
+
+    #[test]
+    fn connection_details_socket_is_private_versioned_and_owned() {
+        let base = temporary_base("connection-details-socket");
+        let (mut owner, _, _) = native_owner_fixture(&base);
+        owner.batch_coordinator().host_mut().fresh_result = Ok(fresh_empty_facts());
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(8)).unwrap());
+        let hello = call(&paths, "system.hello", json!({"versions":[1]})).unwrap();
+        let capabilities = call(&paths, "capabilities.get", json!({})).unwrap();
+        let before = call(&paths, "runtime.connection_details", json!({})).unwrap();
+        let connect = call(&paths, "connection.connect", json!({"profileId":PROFILE_ID,"mode":"global","operationId":"details-connect","expectedRevision":0})).unwrap();
+        let details = call(&paths, "runtime.connection_details", json!({})).unwrap();
+        let legacy = call(&paths, "runtime.connection_rows", json!({})).unwrap();
+        let down = call(
+            &paths,
+            "connection.disconnect",
+            json!({"operationId":"details-down","expectedRevision":connect["revision"]}),
+        )
+        .unwrap();
+        let after = call(&paths, "runtime.connection_details", json!({})).unwrap();
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+        assert_eq!(connect["ok"], true);
+        assert_eq!(down["ok"], true);
+        assert_eq!(
+            details["ok"], true,
+            "explicit private detail read must be supported"
+        );
+        assert!(
+            capabilities["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m == "runtime.connection_details")
+        );
+        assert_eq!(before["result"]["availability"], "unavailable");
+        assert_eq!(after["result"]["availability"], "unavailable");
+        assert_eq!(details["revision"], connect["revision"]);
+        assert_eq!(
+            details["result"]["instanceId"],
+            hello["result"]["instanceId"]
+        );
+        assert_eq!(
+            details["result"]["scope"],
+            "owned_core_private_connection_details"
+        );
+        assert_eq!(
+            details["result"]["rows"][0]["processName"],
+            "fixture-browser"
+        );
+        assert_eq!(
+            details["result"]["rows"][0]["chain"],
+            json!(["private-node", "PROXY"])
+        );
+        assert!(legacy["result"]["rows"][0].get("processName").is_none());
+        assert!(legacy["result"]["rows"][0].get("chain").is_none());
+        for secret in ["private-id", "/private/app", "sourceIP", "processPath"] {
+            assert!(!details.to_string().contains(secret));
+        }
     }
 
     #[test]

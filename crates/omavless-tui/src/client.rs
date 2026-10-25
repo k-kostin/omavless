@@ -18,6 +18,7 @@ pub enum Read {
     Connections,
     ConnectionOverview,
     ConnectionRows,
+    ConnectionDetails,
     RouteCheck(crate::route_inspection::Target),
     ProfileDetails(ProfileTarget),
     SubscriptionUsage(ProfileTarget),
@@ -68,6 +69,7 @@ impl Read {
             Self::Connections => "runtime.connections",
             Self::ConnectionOverview => "runtime.connection_overview",
             Self::ConnectionRows => "runtime.connection_rows",
+            Self::ConnectionDetails => "runtime.connection_details",
             Self::RouteCheck(_) => "routing.check",
             Self::ProfileDetails(_) => "profiles.details",
             Self::SubscriptionUsage(_) => "subscriptions.usage",
@@ -174,8 +176,10 @@ pub fn load_page_for_route(
     // Failure means unavailable, never zero; unrelated connection facts survive.
     let extra = method.and_then(|m| read(m).ok());
     let connection_method = if page == Page::Connections
-        && methods.iter().any(|m| m == "runtime.connection_rows")
+        && methods.iter().any(|m| m == "runtime.connection_details")
     {
+        Some(Read::ConnectionDetails)
+    } else if page == Page::Connections && methods.iter().any(|m| m == "runtime.connection_rows") {
         Some(Read::ConnectionRows)
     } else if page == Page::Traffic && methods.iter().any(|m| m == "runtime.connection_overview") {
         Some(Read::ConnectionOverview)
@@ -225,6 +229,9 @@ pub fn load_page_for_route(
             }
             Some(Read::ConnectionRows) => {
                 snapshot.connection_rows = crate::inspection::ConnectionRows::parse(&value);
+            }
+            Some(Read::ConnectionDetails) => {
+                snapshot.connection_rows = crate::inspection::ConnectionRows::parse_details(&value);
             }
             _ => {}
         }

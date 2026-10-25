@@ -201,6 +201,13 @@ pub trait LifecycleHost {
     ) -> Result<crate::connection_rows::ConnectionRows, HostStepError> {
         Err(HostStepError::Observation)
     }
+    /// Explicit private process/chain projection; unsupported hosts stay closed.
+    fn active_connection_details(
+        &mut self,
+        _desired: &DesiredState,
+    ) -> Result<crate::connection_rows::ConnectionDetails, HostStepError> {
+        Err(HostStepError::Observation)
+    }
     /// Fresh local observation only: no DNS/routes/internet/VPN-health proof.
     /// Existing hosts remain unsupported until they explicitly implement it.
     fn fresh_observation(

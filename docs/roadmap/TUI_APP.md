@@ -499,7 +499,8 @@ The current-development Connections ordering slice is ported independently from
 the eight-file #721 carrier (`e7821541488898ac92a711ad1ab26d94bfabcf12` over
 `2a49ec0322502465c04aa7d842437d050713b559`), not by merging the old beta stack.
 On ordinary read-only Connections, `o` cycles **As received / Destination /
-Network / Route**. This is a window-local display preference for the already
+Network / Route / Downloaded: largest first / Uploaded: largest first**.
+This is a window-local display preference for the already
 received maximum128 rows, not a request to the core, a persisted endpoint cache,
 a route decision or close authority. As received remains the default and
 returning choice. Search still filters only that received subset;
@@ -514,6 +515,71 @@ Existing owner/revision, freshness and leaving-page disposal remain authoritativ
 The preference resets with a new TUI window and creates no activity/history
 event. Search, modifiers, repeat events and modal input retain their priorities;
 only Connections scroll resets when its order changes.
+
+The two volume orders use the separately advertised private details' exact
+nonnegative integer byte totals, not formatted strings, floating point, rates
+or whole-TUN traffic. Largest known values come first, known zero precedes
+unknown, and equal values (including unknown) retain received order without
+destination tie-breakers. Legacy rows without counters stay in received order.
+Both choices intersect the same local filters/search; `c` keeps the selected
+order, while cycling back to As received restores the canonical order. No
+extra read, row cache, persistent preference or close authority is introduced.
+
+The same ordinary Connections page has a window-local **Connection type**
+filter. `n` cycles **All / TCP / UDP / Other** from the validated received
+network categories. This secondary value selector is shown beside its current
+value, not as a close or connection action. It intersects the existing search
+query and display order; it never sends a query, fetches more rows or mutates
+the canonical snapshot. `c` clears both search and type filter while keeping
+the chosen order. A new window starts at All; reloads/visits keep only this
+non-private preference, never a cached row identity or destination list.
+Received totals/shown counts retain their original meaning, matching counts
+refer only to the current intersection, and partial coverage stays explicit.
+An empty intersection is not an empty core catalogue. Search/modal/help and
+modified/repeated key priority remain unchanged; only Connections scroll resets.
+Stale/error/page-leave disposal remains authoritative. EN/RU source behavior
+and synthetic rendering do not qualify the installed Open app journey.
+
+`v` additionally cycles the received **route category** All / DIRECT / Blocked /
+PROXY chain / Unclassified. It intersects the type selector and text search;
+a matching destination name is never a route-category match. These are the
+existing conservative projection categories, not proof of VPN protection or
+whole-system routing. No raw chain, process, new IPC or row cache is introduced.
+`c` clears all three local filters while retaining the chosen order; new-window,
+refresh and row-disposal rules above apply equally to this non-private value.
+Its current value and explicit key hint stay visible in EN/RU; the unchanged
+action-mode minimum width and confirmation input ownership remain authoritative.
+
+When separately advertised, the explicitly open Connections page prefers the
+bounded private `runtime.connection_details` read. Each received destination may
+show the core-reported process basename and chain labels below it. Missing or
+unsafe optional facts say unavailable, not an invented owner or route; raw paths,
+UID/PID/source addresses/arguments never enter this display. Chain labels are
+private core-reported names, not proof of VPN protection. Legacy runtimes keep
+their existing destination rows with a details-unavailable hint, and a failed
+new read never triggers a legacy retry. Type/route/order/scroll continue to apply
+to these same received rows, and local case-insensitive search also matches the
+received process and chain labels without another core query. Stale/error/page leave destroys all such
+private fields; they never enter activity, logs, support or disk. EN/RU complete
+scrolling content and ordinary Open app require separate installed acceptance.
+
+The same details may show exact cumulative downloaded/uploaded bytes for each
+connection. Missing or invalid counters remain unavailable, distinct from an
+observed zero. These totals do not claim speed, continuous history, or the
+route/protection of other traffic.
+
+Details may additionally show the core-reported matched **rule type**. This is
+only a fixed identifier from the selected core (for example `DomainSuffix` or
+`Match`), independently allowlisted by the native projection and TUI. The
+core's explicit `Unknown` identifier stays distinct from a missing/unsafe fact,
+which remains unavailable; older details replies without the optional field
+remain compatible. Rule payloads, paths, provider contents and row IDs are not
+included. This uses the same page-only private read and freshness/disposal
+rules, with no extra query, persistence, rule edit or routing-health claim.
+The existing local search also matches that received fixed identifier,
+case-insensitively, within the same type/route filters and display order. The
+core's literal `Unknown` can match; an absent or unsafe field is not searchable
+as `Unknown`. Legacy rows never acquire a rule type from an undeclared field.
 
 The focused source controls and synthetic TestBackend rendering are separate
 from installed acceptance. The owning current-base PR must earn EN/RU narrow

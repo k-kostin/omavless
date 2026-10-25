@@ -885,6 +885,44 @@ mod tests {
             "outcome":outcome,"receiptRevision":outcome.map(|_|7)})
     }
     #[test]
+    fn product_stale_refusal_resolves_original_or_lost_response_without_resend() {
+        let now = Instant::now();
+        for locale in [Locale::En, Locale::Ru] {
+            for lost_reply in [false, true] {
+                let mut workspace = Workspace::new(locale);
+                ready_product_preview(&mut workspace, now);
+                prepared(&mut workspace, now);
+                let confirm = send(workspace.input(key(KeyCode::Enter), now, true));
+                assert_eq!(confirm.method(), METHODS[2]);
+                let mut result = receipt(&workspace, Some("refused_before_write"));
+                result["receiptRevision"] = json!(8);
+                let response = json!({"ok":true,"revision":8,"result":result});
+                if lost_reply {
+                    workspace.accept(Err(ReadError::Unavailable), now);
+                    assert!(workspace.submitted && !workspace.terminal);
+                    let lookup = send(workspace.input(key(KeyCode::Char('u')), now, true));
+                    assert_eq!(lookup.method(), METHODS[3]);
+                    assert_eq!(
+                        lookup.params()["operationId"],
+                        confirm.params()["operationId"]
+                    );
+                }
+                workspace.accept(Ok(response), now);
+                assert!(workspace.terminal && !workspace.submitted && !workspace.unknown);
+                assert_eq!(workspace.notice, "tui.dev_close_refused");
+                assert!(workspace.rows.is_empty() && workspace.pending.is_none());
+                for code in [
+                    KeyCode::Enter,
+                    KeyCode::Char('x'),
+                    KeyCode::Char('r'),
+                    KeyCode::Char('u'),
+                ] {
+                    assert!(matches!(workspace.input(key(code), now, true), Input::None));
+                }
+            }
+        }
+    }
+    #[test]
     fn all_four_capabilities_are_required_and_no_startup_refresh_is_implicit() {
         let now = Instant::now();
         for missing in METHODS {

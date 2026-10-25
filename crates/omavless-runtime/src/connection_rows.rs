@@ -13,6 +13,131 @@ pub struct ConnectionRows {
     rows: Vec<Value>,
 }
 
+#[derive(Clone)]
+pub struct ConnectionDetails(ConnectionRows);
+
+impl std::fmt::Debug for ConnectionDetails {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ConnectionDetails([private])")
+    }
+}
+
+pub(crate) fn validate_details(request: &Value) -> Result<(), MutationProtocolError> {
+    omavless_control_protocol::validate_request(request)
+        .map_err(|_| MutationProtocolError::InvalidRequest)?;
+    if request["method"] != "runtime.connection_details" {
+        return Err(MutationProtocolError::UnknownMethod);
+    }
+    if !request["params"].as_object().is_some_and(|p| p.is_empty()) {
+        return Err(MutationProtocolError::InvalidArgument);
+    }
+    Ok(())
+}
+
+fn detail_label(value: &Value) -> Option<&str> {
+    let text = value.as_str()?;
+    if text.is_empty()
+        || text.len() > 64
+        || text.trim() != text
+        || text.chars().any(|c| {
+            c.is_control()
+                || matches!(c,
+            '\u{00ad}' | '\u{034f}' | '\u{061c}' | '\u{180e}' |
+            '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' |
+            '\u{2060}'..='\u{206f}' | '\u{feff}')
+        })
+    {
+        None
+    } else {
+        Some(text)
+    }
+}
+
+pub(crate) fn extract_details(payload: &Value) -> Option<ConnectionDetails> {
+    // The unchanged projection validates ALL rows, including those beyond128.
+    let mut rows = extract(payload)?;
+    if let Some(raw) = payload["connections"].as_array() {
+        for (row, raw) in rows.rows.iter_mut().zip(raw) {
+            let process = detail_label(&raw["metadata"]["process"])
+                .filter(|name| *name != "." && *name != ".." && !name.contains(['/', '\\']));
+            let chain = raw["chains"].as_array().and_then(|chain| {
+                if chain.is_empty() || chain.len() > 16 {
+                    return None;
+                }
+                let labels = chain.iter().map(detail_label).collect::<Option<Vec<_>>>()?;
+                (labels.iter().map(|s| s.len()).sum::<usize>() <= 256).then_some(labels)
+            });
+            row["processName"] = json!(process);
+            row["chain"] = json!(chain);
+            row["ruleType"] = json!(detail_rule_type(&raw["rule"]));
+            // The selected core marshals atomic.Int64 as a JSON integer.
+            // Decimal strings preserve every byte across JSON clients; missing
+            // or malformed counters remain unknown rather than becoming zero.
+            for (source, target) in [("download", "downloadBytes"), ("upload", "uploadBytes")] {
+                row[target] = json!(
+                    raw[source]
+                        .as_i64()
+                        .filter(|n| *n >= 0)
+                        .map(|n| n.to_string())
+                );
+            }
+        }
+    }
+    Some(ConnectionDetails(rows))
+}
+
+fn detail_rule_type(value: &Value) -> Option<&str> {
+    let text = value.as_str()?;
+    // Exact RuleType.String tokens from the selected core, never Rule.Payload.
+    matches!(
+        text,
+        "Domain"
+            | "DomainSuffix"
+            | "DomainKeyword"
+            | "DomainRegex"
+            | "DomainWildcard"
+            | "GeoSite"
+            | "GeoIP"
+            | "SrcGeoIP"
+            | "IPASN"
+            | "SrcIPASN"
+            | "IPCIDR"
+            | "SrcIPCIDR"
+            | "IPSuffix"
+            | "SrcIPSuffix"
+            | "SrcPort"
+            | "DstPort"
+            | "InPort"
+            | "DSCP"
+            | "InUser"
+            | "InName"
+            | "InType"
+            | "ProcessName"
+            | "ProcessPath"
+            | "ProcessNameRegex"
+            | "ProcessPathRegex"
+            | "ProcessNameWildcard"
+            | "ProcessPathWildcard"
+            | "RematchName"
+            | "RuleSet"
+            | "Network"
+            | "Uid"
+            | "SubRules"
+            | "Match"
+            | "AND"
+            | "OR"
+            | "NOT"
+            | "Unknown"
+    )
+    .then_some(text)
+}
+
+pub(crate) fn project_details(rows: Option<ConnectionDetails>) -> Value {
+    let mut value = project(rows.map(|rows| rows.0));
+    value["scope"] = json!("owned_core_private_connection_details");
+    value
+}
+
 impl std::fmt::Debug for ConnectionRows {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("ConnectionRows([private])")

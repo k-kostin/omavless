@@ -69,6 +69,10 @@ pub struct App {
     pub operator_query: String,
     /// Display preference only; never stores row identities or close handles.
     pub connection_order: crate::connection_browsing::Order,
+    /// Window-local type filter, independent of search and runtime state.
+    pub connection_network: crate::connection_browsing::NetworkFilter,
+    /// Categorical projection only; never proof of whole-system routing.
+    pub connection_route: crate::connection_browsing::RouteFilter,
     /// UI-private and discarded when leaving the route-check page.
     pub route_query: String,
     pub route_editing: bool,
@@ -240,6 +244,8 @@ impl App {
             query: String::new(),
             operator_query: String::new(),
             connection_order: crate::connection_browsing::Order::default(),
+            connection_network: crate::connection_browsing::NetworkFilter::default(),
+            connection_route: crate::connection_browsing::RouteFilter::default(),
             route_query: String::new(),
             route_editing: false,
             route_request: None,
@@ -382,6 +388,13 @@ impl App {
         }
         #[cfg(feature = "private-backup")]
         self.refresh_restore_advice(started);
+    }
+    pub(crate) fn expire_private_connections(&mut self, now: Instant) {
+        if !self.fresh(now)
+            && let Some(snapshot) = &mut self.snapshot
+        {
+            snapshot.connection_rows = None;
+        }
     }
     pub fn fresh(&self, now: Instant) -> bool {
         self.sampled_at
@@ -825,6 +838,16 @@ impl App {
                     .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
             {
                 match key.code {
+                    KeyCode::Char('v') if self.page == crate::inspection::Page::Connections => {
+                        self.connection_route = self.connection_route.next();
+                        self.inspection_scroll = 0;
+                        return Action::None;
+                    }
+                    KeyCode::Char('n') if self.page == crate::inspection::Page::Connections => {
+                        self.connection_network = self.connection_network.next();
+                        self.inspection_scroll = 0;
+                        return Action::None;
+                    }
                     KeyCode::Char('o') if self.page == crate::inspection::Page::Connections => {
                         self.connection_order = self.connection_order.next();
                         self.inspection_scroll = 0;
@@ -836,6 +859,12 @@ impl App {
                     }
                     KeyCode::Char('c') => {
                         self.operator_query.clear();
+                        if self.page == crate::inspection::Page::Connections {
+                            self.connection_network =
+                                crate::connection_browsing::NetworkFilter::default();
+                            self.connection_route =
+                                crate::connection_browsing::RouteFilter::default();
+                        }
                         self.inspection_scroll = 0;
                         return Action::None;
                     }
@@ -1619,7 +1648,8 @@ impl App {
         self.activity.record(
             match outcome {
                 Outcome::Applied | Outcome::ImportApplied(_) => Event::Applied,
-                Outcome::Rejected(_) | Outcome::ImportRejected(_) => Event::Rejected,
+                Outcome::Rejected(key) => Event::rejected(key),
+                Outcome::ImportRejected(_) => Event::Rejected,
                 Outcome::Unknown => Event::Unknown,
             },
             now,

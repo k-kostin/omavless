@@ -67,6 +67,7 @@ class LocalArchPackageTests(unittest.TestCase):
                      "packaging/arch/USER_README.md",
                      "Cargo.toml",
                      "packaging/systemd/omavless-runtime.service",
+                     "packaging/systemd/omavless-runtime-product.service",
                      "packaging/systemd/omavless-login-prepare.service", "LICENSE", "THIRD_PARTY_NOTICES.md"):
             target = self.repo / name
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -101,8 +102,15 @@ class LocalArchPackageTests(unittest.TestCase):
         self.assertEqual((product / "usr/share/doc/omavless/README.md").read_bytes(),
                          (ROOT / "packaging/arch/USER_README.md").read_bytes())
         self.assertEqual((product / "usr/lib/omavless-image/omavless-image-witness").read_bytes(), self.binary.read_bytes())
-        for node in ("omavless-runtime.service", "omavless-login-prepare.service"):
-            self.assertEqual((plain / "usr/lib/systemd/user" / node).read_bytes(), (product / "usr/lib/systemd/user" / node).read_bytes())
+        plain_unit = (plain / "usr/lib/systemd/user/omavless-runtime.service").read_text()
+        product_unit = (product / "usr/lib/systemd/user/omavless-runtime.service").read_text()
+        self.assertIn("ExecStart=/usr/bin/omavless daemon --product-image-witness\n", product_unit)
+        self.assertIn("Restart=no\n", product_unit)
+        self.assertEqual(plain_unit, (ROOT / "packaging/systemd/omavless-runtime.service").read_text())
+        self.assertEqual(product_unit.replace(" daemon --product-image-witness\n", " daemon\n")
+                         .replace("Restart=no\n", "Restart=on-failure\n"), plain_unit)
+        self.assertEqual((plain / "usr/lib/systemd/user/omavless-login-prepare.service").read_bytes(),
+                         (product / "usr/lib/systemd/user/omavless-login-prepare.service").read_bytes())
         self.assertFalse((product / "var").exists())
         self.assertFalse((product / "etc").exists())
         helper_unit = (product / "usr/lib/systemd/system/omavless-image-witness.service").read_text()
@@ -174,6 +182,14 @@ class LocalArchPackageTests(unittest.TestCase):
             "usr/lib/systemd/system/omavless-image-witness.service"])
         self.assertEqual(packaged_unit, (ROOT / "packaging/systemd/omavless-image-witness.service").read_bytes())
         self.assertEqual(packaged_unit.count(b"TasksMax=2\n"), 1)
+        runtime_unit = subprocess.check_output(["bsdtar", "-xOf", str(archive),
+            "usr/lib/systemd/user/omavless-runtime.service"])
+        self.assertIn(b"ExecStart=/usr/bin/omavless daemon --product-image-witness\n", runtime_unit)
+        self.assertIn(b"Restart=no\n", runtime_unit)
+        self.assertEqual(runtime_unit, (ROOT / "packaging/systemd/omavless-runtime-product.service").read_bytes())
+        self.assertEqual(subprocess.check_output(["bsdtar", "-xOf", str(archive),
+            "usr/lib/systemd/user/omavless-login-prepare.service"]),
+            (ROOT / "packaging/systemd/omavless-login-prepare.service").read_bytes())
 
     def test_refuses_wrong_identity_dirty_checkout_unsafe_paths_without_payload(self):
         self.assertNotEqual(self.invoke(sha="0" * 40).returncode, 0)
