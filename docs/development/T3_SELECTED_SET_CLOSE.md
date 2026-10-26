@@ -62,3 +62,65 @@ guard, cancel, expiry, private plain text and no hidden activation follow the
 distinct from installed Product acceptance. A new image cannot reuse or repair
 an existing create-only root enrollment; legitimate image upgrade is a separate
 admission dependency.
+
+## Explicit client Confirm-response loss
+
+The Product feature additionally admits exactly
+`omavless tui --developer-conditional-close --selected-set --discard-first-confirm-reply`.
+This is an opt-in development client cut, absent from default builds. It does
+not exist as a CLI mode in a Backup-only build, even when the Product feature
+is also compiled; that combination refuses the selector and omits it from help.
+It does
+not change the daemon, wire schema, helper, permits, native deadlines or normal
+Single/Set clients. No environment variable activates it. Extra, reordered or
+non-selected-set uses of the flag refuse before opening the terminal or socket.
+
+The normal workspace still obtains and reviews the preview, prepares the exact
+members and submits its original Confirm. The cut is consumed before the first
+Confirm's fallible directory, socket, peer, framing or write checks. It uses the
+same authenticated transport and bounded frame writer. Only after the complete
+request write and successful write-half shutdown, within the existing transport
+deadline, does it close that original connection without reading a response.
+It returns Unavailable to the normal workspace. It never reconnects, resends,
+rearms or substitutes an operation. A second Confirm through that cut refuses
+before any I/O; unrelated methods, including the original receipt read, keep
+their normal transport. A partial write or shutdown failure remains uncertain.
+
+The normal UI keeps the submitted operation and blocks refresh, new preparation,
+Enter and Esc. Only an explicit `u` for the original receipt or client exit is
+available. Transport ambiguity does not manufacture a verified Unknown receipt:
+a valid known receipt may resolve it, while an actually verified Unknown remains
+sticky under the existing contract. Backend response loss and transport-only
+unresolved UI are distinct evidence from native worker uncertainty.
+
+After terminal teardown, the CLI writes one fixed public line to stderr:
+`omavless.reply-loss.v1 stage=reply_discarded full_request_written=true`.
+The other closed stages are `not_attempted`, `attempted` (both with
+`full_request_written=false`) and `request_written` (true). No target, ticket,
+operation ID, endpoint or exception is included. False is a lack of full-write
+proof, **not** proof of no effect. Only `reply_discarded` proves this cut reached
+its intended boundary; neither this line nor CLI exit proves worker completion
+or a Close result. Early client exit may report an earlier stage. The diagnostic
+is at most 70 ASCII columns and is never printed into the active alternate screen.
+
+Source controls cover the shared owned AF_UNIX path, one complete Confirm and
+same-operation receipt, no response read, no second Confirm, default/unrelated
+calls, path/peer/framing refusal, short/incomplete writes, half-close failure,
+timeout and strict CLI selection. EN/RU workspace controls preserve the original
+operation across lost response, expiry and constrained width, then validate the
+indexed receipt. These controls do not establish installed acceptance.
+
+The complete installed journey requires the new runtime package/image admission
+through the [normal explicit upgrade](T3_PRODUCT_IMAGE_UPGRADE.md), actual held
+selected originals, one timely Confirm, unresolved UI with mutation keys blocked,
+one original receipt-only resolution, original selected EOF/unselected fresh
+traffic, next-epoch readmission, ordinary Disconnect/Off and protected-state
+preservation. The exact post-teardown diagnostic and original CLI status must be
+captured through a qualified normal terminal completion route: inner CLI stderr
+belongs to the terminal PTY and is not implicitly the outer Foot launch's SSH
+stdout. A fixed public terminal wrapper may retain only the restored terminal
+long enough to inspect the closed line and original status, then exit normally;
+no private UI/payload log, raw RPC harness or diagnostic file is required.
+New source, package, installed, own-PR/merged-PUSH and final distribution gates
+remain separate. No actual lost-reply, sticky-Unknown or whole-T3 PASS is claimed
+by adding this capability.

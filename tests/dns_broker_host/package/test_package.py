@@ -76,6 +76,214 @@ class SocketFixtureTests(unittest.TestCase):
                 repair.assert_not_called()
 
 
+class RustToolchainTests(unittest.TestCase):
+    """Real producer selection/receipt logic; compiler subprocesses are inert."""
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="pair-toolchain-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.cargo = self.root / "selected-cargo"
+        self.rustc = self.root / "selected-rustc"
+        for path in (self.cargo, self.rustc):
+            path.write_bytes(b"public inert executable fixture\n")
+            path.chmod(0o700)
+        self.versions = {
+            str(self.cargo): b"cargo 1.98.0 (fixture-cargo 2026-01-01)\n",
+            str(self.rustc): b"rustc 1.98.0 (fixture-rustc 2026-01-01)\n",
+        }
+
+    def version(self, arguments, **_kwargs):
+        self.assertEqual(arguments[1:], ["--version"])
+        return types.SimpleNamespace(returncode=0, stdout=self.versions[arguments[0]], stderr=b"")
+
+    def test_explicit_paths_execute_and_query_the_same_pinned_tools(self):
+        with mock.patch.object(build_pair.subprocess, "run", side_effect=self.version) as run, \
+             mock.patch.dict(os.environ, {"RUSTC":"/wrong/rustc", "RUSTUP_TOOLCHAIN":"nightly",
+                                          "RUSTUP_AUTO_INSTALL":"1"}):
+            tools = build_pair.reviewed_rust(str(self.cargo), str(self.rustc))
+        self.assertEqual(tools["cargo"], str(self.cargo))
+        self.assertEqual(tools["rustc"], str(self.rustc))
+        self.assertEqual(tools["pin"], "1.98.0")
+        for call in run.call_args_list:
+            self.assertEqual(call.kwargs["env"]["RUSTC"], str(self.rustc))
+            self.assertEqual(call.kwargs["env"]["RUSTUP_TOOLCHAIN"], "1.98.0")
+            self.assertEqual(call.kwargs["env"]["RUSTUP_AUTO_INSTALL"], "0")
+            self.assertEqual(call.kwargs["env"]["CARGO_NET_OFFLINE"], "true")
+            self.assertEqual(call.kwargs["timeout"], 10)
+            self.assertEqual(call.kwargs["cwd"], build_pair.REPO)
+        self.assertEqual([call.args[0][0] for call in run.call_args_list],
+                         [str(self.cargo), str(self.rustc)])
+
+    def test_default_path_supports_pinned_rustup_proxies_without_system_fallback(self):
+        for name in ("cargo", "rustc"):
+            proxy = self.root / name
+            proxy.symlink_to(self.cargo)
+            self.versions[str(proxy)] = f"{name} 1.98.0 (fixture 2026-01-01)\n".encode()
+        with mock.patch.object(build_pair.shutil, "which", side_effect=lambda name: str(self.root / name)) as which, \
+             mock.patch.object(build_pair.subprocess, "run", side_effect=self.version) as run:
+            tools = build_pair.reviewed_rust()
+        self.assertEqual(which.call_args_list, [mock.call("cargo"), mock.call("rustc")])
+        self.assertEqual(tools["cargo"], str(self.root / "cargo"))
+        self.assertEqual([call.args[0][0] for call in run.call_args_list],
+                         [str(self.root / "cargo"), str(self.root / "rustc")])
+        with mock.patch.object(build_pair.shutil, "which", return_value=None), \
+             mock.patch.object(build_pair.subprocess, "run") as run:
+            with self.assertRaises(stage.Refused):
+                build_pair.reviewed_rust()
+            run.assert_not_called()
+
+    def test_relative_missing_or_nonexecutable_selector_refuses_before_query(self):
+        plain = self.root / "not-executable"
+        plain.write_text("public fixture")
+        for bad in ("cargo", str(self.root / "absent"), str(plain), str(self.root)):
+            with self.subTest(path=bad), mock.patch.object(build_pair.subprocess, "run") as run:
+                with self.assertRaises(stage.Refused):
+                    build_pair.reviewed_rust(bad, str(self.rustc))
+                run.assert_not_called()
+
+    def test_wrong_mixed_malformed_and_failed_versions_refuse(self):
+        for tool in (self.cargo, self.rustc):
+            name = "cargo" if tool == self.cargo else "rustc"
+            original = self.versions[str(tool)]
+            for raw in (f"{name} 1.99.1 (different 2026-01-01)\n".encode(),
+                        f"{name} 1.98.0-nightly\n".encode(), b"", b"x" * 257,
+                        f"{name} 1.98.0\nextra\n".encode(), b"\xff"):
+                self.versions[str(tool)] = raw
+                with mock.patch.object(build_pair.subprocess, "run", side_effect=self.version):
+                    with self.assertRaises(stage.Refused):
+                        build_pair.reviewed_rust(str(self.cargo), str(self.rustc))
+            self.versions[str(tool)] = original
+        for code, stderr in ((1, b""), (0, b"unexpected diagnostic")):
+            result = types.SimpleNamespace(returncode=code, stdout=self.versions[str(self.cargo)], stderr=stderr)
+            with mock.patch.object(build_pair.subprocess, "run", return_value=result):
+                with self.assertRaises(stage.Refused):
+                    build_pair.reviewed_rust(str(self.cargo), str(self.rustc))
+
+    def test_missing_or_nonexact_committed_pin_refuses_before_query(self):
+        for source in ('', '[toolchain]\nchannel="stable"\n', '[toolchain]\nchannel=198\n'):
+            with mock.patch.object(Path, "read_text", return_value=source), \
+                 mock.patch.object(build_pair.subprocess, "run") as run:
+                with self.assertRaises(stage.Refused):
+                    build_pair.reviewed_rust(str(self.cargo), str(self.rustc))
+                run.assert_not_called()
+
+    def build_fixture(self, changed_query=None):
+        calls, queries = [], []
+        output = self.root / "candidate"
+        go = self.root / "go"
+        go.write_bytes(b"public inert Go fixture")
+        header = bytearray(64)
+        header[:6] = b"\x7fELF\x02\x01"
+        header[18:20] = (62).to_bytes(2, "little")
+
+        def export(_repository, _revision, destination, _diagnostics=False):
+            destination.mkdir()
+            (destination / "LICENSE").write_text("public fixture license")
+            if destination.name == "mihomo":
+                (destination / "vendor").mkdir()
+                (destination / "vendor/modules.txt").write_text("public fixture vendor")
+            if destination.name == "omavless":
+                (destination / "Cargo.lock").write_text("public fixture lock")
+
+        def run(arguments, **kwargs):
+            calls.append((arguments, kwargs))
+            if arguments[:2] == [str(go), "build"]:
+                Path(arguments[arguments.index("-o") + 1]).write_bytes(header)
+            elif arguments[:2] == [str(self.cargo), "build"]:
+                target = Path(kwargs["env"]["CARGO_TARGET_DIR"]) / "release"
+                target.mkdir(parents=True)
+                (target / "omavless-dns-broker").write_bytes(header)
+
+        def subprocess_run(arguments, **kwargs):
+            if arguments[:3] == [str(go), "version", "-m"]:
+                return types.SimpleNamespace(returncode=0,
+                    stdout=b"path\tgithub.com/metacubex/mihomo\n-tags=with_gvisor\nCGO_ENABLED=0\n", stderr=b"")
+            queries.append(arguments[0])
+            result = self.version(arguments, **kwargs)
+            if len(queries) == changed_query:
+                result.stdout = result.stdout.replace(b"fixture", b"changed")
+            return result
+
+        with contextlib.ExitStack() as stack:
+            for name, value in (("export_git", export), ("command", run),
+                ("git_value", lambda _repo, *args: "a" * 40 if args == ("rev-parse", "HEAD") else ""),
+                ("reviewed_go", lambda *_args: "go version go1.26.8 linux/amd64")):
+                stack.enter_context(mock.patch.object(build_pair, name, side_effect=value))
+            stack.enter_context(mock.patch.object(stage, "outside_git_destination", return_value=output))
+            stack.enter_context(mock.patch.object(build_pair.os, "uname",
+                return_value=types.SimpleNamespace(sysname="Linux", machine="x86_64")))
+            stack.enter_context(mock.patch.object(build_pair.subprocess, "run", side_effect=subprocess_run))
+            if changed_query is not None:
+                with self.assertRaises(stage.Refused):
+                    build_pair.build(self.root, self.root, str(go), "x86_64", output,
+                                     cargo=str(self.cargo), rustc=str(self.rustc))
+                self.assertFalse(output.exists())
+            else:
+                receipt = build_pair.build(self.root, self.root, str(go), "x86_64", output,
+                                           cargo=str(self.cargo), rustc=str(self.rustc))
+                self.assertEqual(receipt["cargo_version"], self.versions[str(self.cargo)].decode().strip())
+                self.assertEqual(receipt["rustc_version"], self.versions[str(self.rustc)].decode().strip())
+                self.assertEqual(receipt, json.loads((output / "source-receipt.json").read_text()))
+                self.assertEqual(set(receipt), stage.pair_policy("experimental")[0])
+        return calls, queries
+
+    def test_actual_builder_uses_selected_rustc_and_receipts_the_same_tools(self):
+        calls, queries = self.build_fixture()
+        cargo = [(args, options) for args, options in calls if "build" in args and args[0] == str(self.cargo)]
+        self.assertEqual(len(cargo), 1)
+        args, options = cargo[0]
+        self.assertEqual(args[1:], ["build", "--release", "--locked", "--offline",
+                                   "-p", "omavless-dns-broker", "--bin", "omavless-dns-broker"])
+        self.assertEqual(options["env"]["RUSTC"], str(self.rustc))
+        self.assertEqual(options["env"]["RUSTUP_TOOLCHAIN"], "1.98.0")
+        self.assertEqual(options["env"]["RUSTUP_AUTO_INSTALL"], "0")
+        self.assertEqual(queries, [str(self.cargo), str(self.rustc)] * 3)
+        self.assertEqual(build_pair.source_phase(args), "broker-build")
+
+    def test_tool_drift_before_or_after_cargo_refuses_receipt_publication(self):
+        for query in (3, 5):
+            with self.subTest(query=query):
+                calls, _queries = self.build_fixture(changed_query=query)
+                cargo_builds = [args for args, _ in calls if args[:2] == [str(self.cargo), "build"]]
+                self.assertEqual(len(cargo_builds), 0 if query == 3 else 1)
+
+    def test_wrong_compiler_refuses_before_build_prefix_or_source_export(self):
+        self.versions[str(self.rustc)] = b"rustc 1.99.1 (different 2026-01-01)\n"
+        with mock.patch.object(stage, "outside_git_destination", return_value=self.root / "candidate"), \
+             mock.patch.object(build_pair, "git_value", side_effect=lambda _repo, *args: "a" * 40 if args == ("rev-parse", "HEAD") else ""), \
+             mock.patch.object(build_pair, "reviewed_go", return_value="go version go1.26.8 linux/amd64"), \
+             mock.patch.object(build_pair.os, "uname", return_value=types.SimpleNamespace(sysname="Linux", machine="x86_64")), \
+             mock.patch.object(build_pair.subprocess, "run", side_effect=self.version), \
+             mock.patch.object(build_pair.tempfile, "TemporaryDirectory") as scratch, \
+             mock.patch.object(build_pair.tempfile, "mkdtemp") as retained, \
+             mock.patch.object(build_pair, "export_git") as export:
+            with self.assertRaises(stage.Refused):
+                build_pair.build(self.root, self.root, "/fixture/go", "x86_64", self.root / "candidate",
+                                 cargo=str(self.cargo), rustc=str(self.rustc))
+            scratch.assert_not_called()
+            retained.assert_not_called()
+            export.assert_not_called()
+
+    def test_phase_classification_accepts_selected_tool_without_relabeling_core(self):
+        for path in ("/usr/bin/cargo", "/home/fixture/toolchain/bin/cargo", str(self.cargo)):
+            args = [path, "build", "--release", "-p", "omavless-dns-broker", "--bin", "omavless-dns-broker", "--features", "release-package"]
+            self.assertEqual(build_pair.source_phase(args), "broker-build")
+        self.assertEqual(build_pair.source_phase(["/fixture/go", "build", "-o", "core", "."]), "core-build")
+        self.assertEqual(build_pair.source_phase([str(self.cargo), "build", "-p"]), "core-build")
+
+    def test_cli_passes_only_explicit_tool_selectors_to_the_producer(self):
+        arguments = ["build_pair.py", "--mihomo-git", "/fixture/mihomo",
+                     "--sing-tun-git", "/fixture/sing-tun", "--go", "/fixture/go",
+                     "--arch", "x86_64", "--output", "/fixture/output",
+                     "--cargo", str(self.cargo), "--rustc", str(self.rustc)]
+        with mock.patch.object(build_pair.sys, "argv", arguments), \
+             mock.patch.object(build_pair.sys, "stdout", io.StringIO()), \
+             mock.patch.object(build_pair, "build", return_value={"architecture":"x86_64", "omavless_commit":"a" * 40}) as build:
+            build_pair.main()
+        build.assert_called_once_with("/fixture/mihomo", "/fixture/sing-tun", "/fixture/go",
+            "x86_64", "/fixture/output", "experimental", cargo=str(self.cargo), rustc=str(self.rustc))
+
+
 class PackageTests(unittest.TestCase):
     def core_build_invocation(self, flavor):
         """Reach the real producer's build call; never invoke a compiler."""
@@ -102,6 +310,7 @@ class PackageTests(unittest.TestCase):
                 ("export_git", export), ("command", run),
                 ("git_value", lambda _repo, *args: "a" * 40 if args == ("rev-parse", "HEAD") else ""),
                 ("reviewed_go", lambda *_args: "go version go1.26.8 linux/amd64"),
+                ("reviewed_rust", lambda *_args: {}),
                 ("qualified_tmpdir", lambda: str(self.root)),
                 ("conditional_tests_completed", lambda _raw: None),
                 ("tests_completed", lambda *_args: None),

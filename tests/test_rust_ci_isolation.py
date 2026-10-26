@@ -69,7 +69,8 @@ class RustCiIsolationTests(unittest.TestCase):
         self.assertFalse(any(AUXILIARY_TEARDOWN_TEST in c for c in restored))
 
     def runner_trace(self, fail_test=False, fail_canonical_stage=False, fail_clippy=False,
-                     fail_auxiliary_inventory=False, fail_image_upgrade=False):
+                     fail_auxiliary_inventory=False, fail_image_upgrade=False,
+                     fail_reply_loss=False):
         """Execute only the shell recipe; every external leaf is an inert stub."""
         with tempfile.TemporaryDirectory(prefix="rust-recipe-") as directory:
             scratch = Path(directory)
@@ -97,6 +98,9 @@ class RustCiIsolationTests(unittest.TestCase):
                 "if os.environ.get('RECIPE_FAIL_IMAGE_UPGRADE') == '1' and "
                 "row[:2] == ['cargo', 'test'] and 'omavless-image-witness' in row:\n"
                 "    sys.exit(29)\n"
+                "if os.environ.get('RECIPE_FAIL_REPLY_LOSS') == '1' and "
+                "row[:2] == ['cargo', 'test'] and 'reply_loss_' in row:\n"
+                "    sys.exit(31)\n"
             )
             stub.chmod(0o755)
             for name in ("cargo", "rustfmt", "python3", "cc", "bash"):
@@ -109,10 +113,58 @@ class RustCiIsolationTests(unittest.TestCase):
                      "RECIPE_FAIL_CLIPPY": "1" if fail_clippy else "0",
                      "RECIPE_FAIL_AUXILIARY_INVENTORY": "1" if fail_auxiliary_inventory else "0",
                      "RECIPE_FAIL_CANONICAL_STAGE": "1" if fail_canonical_stage else "0",
-                     "RECIPE_FAIL_IMAGE_UPGRADE": "1" if fail_image_upgrade else "0"},
+                     "RECIPE_FAIL_IMAGE_UPGRADE": "1" if fail_image_upgrade else "0",
+                     "RECIPE_FAIL_REPLY_LOSS": "1" if fail_reply_loss else "0"},
                 capture_output=True, text=True, timeout=10,
             )
             return result, [json.loads(line) for line in trace.read_text().splitlines()]
+
+    def without_reply_loss_cli(self, commands):
+        selected = [row for row in commands if "reply_loss_selector" in row or "reply_loss_" in row]
+        self.assertEqual(len(selected), 6)
+        expected = []
+        for features in (
+            "developer-conditional-close",
+            "product-image-witness,t4-manager-actor-service,setup-upgrade082",
+            "product-private-backup,product-image-witness,setup-upgrade082",
+        ):
+            for target in (["--bin", "omavless", "reply_loss_selector"],
+                           ["--test", "cli", "reply_loss_"]):
+                profile = (["--config", "profile.test.package.sha2.opt-level=3",
+                            "--config", "profile.test.package.sha2.debug-assertions=true",
+                            "--config", "profile.test.package.sha2.overflow-checks=true"]
+                           + ARGON2_TEST_PROFILE) if selected[0][2:3] == ["--config"] else []
+                expected.append(["cargo", "test", *profile, "--locked", "-p",
+                                 "omavless-runtime", "--features", features, *target])
+        self.assertEqual(selected, expected)
+        return [row for row in commands if row not in selected]
+
+    def test_reply_loss_cli_discovery_covers_product_backup_and_developer(self):
+        result, commands = self.runner_trace()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        original = self.without_reply_loss_cli(commands)
+        self.assertEqual(len(commands) - len(original), 6)
+        # Bind both filters to actual maintained Rust test declarations.
+        for file, selector in (("src/main.rs", "reply_loss_selector"),
+                               ("tests/cli.rs", "reply_loss_")):
+            source = (ROOT / "crates/omavless-runtime" / file).read_text()
+            names = re.findall(r"#\[test\]\s+fn ([a-z0-9_]+)\(", source)
+            self.assertTrue(any(selector in name for name in names))
+        for index, row in enumerate(commands):
+            if "reply_loss_selector" not in row and "reply_loss_" not in row:
+                continue
+            with self.assertRaises(AssertionError):
+                self.without_reply_loss_cli(commands[:index] + commands[index + 1:])
+            changed = [command[:] for command in commands]
+            changed[index][changed[index].index("--features") + 1] = "tui"
+            with self.assertRaises(AssertionError):
+                self.without_reply_loss_cli(changed)
+
+    def test_reply_loss_cli_original_failure_stops_the_recipe(self):
+        result, commands = self.runner_trace(fail_reply_loss=True)
+        self.assertEqual(result.returncode, 31, result.stderr)
+        self.assertEqual(commands[-1][-3:], ["--test", "cli", "reply_loss_"])
+        self.assertFalse(any(row[:2] == ["cargo", "run"] for row in commands))
 
     def without_selected_set_formatting(self, commands):
         # Assert ONLY the newly maintained include! source/test operands, then
@@ -176,7 +228,7 @@ class RustCiIsolationTests(unittest.TestCase):
         # Remove ONLY the exact new Argon2 argv before comparing the original
         # recipe. Do not regenerate the baseline digest to conceal other changes.
         legacy_execution = []
-        for command in self.without_auxiliary_scheduling(self.without_product_image_upgrade(execution)):
+        for command in self.without_reply_loss_cli(self.without_auxiliary_scheduling(self.without_product_image_upgrade(execution))):
             if command[:2] == ["cargo", "test"]:
                 self.assertEqual(command[8:14], ARGON2_TEST_PROFILE)
                 command = command[:8] + command[14:]
@@ -214,6 +266,7 @@ class RustCiIsolationTests(unittest.TestCase):
             self.assertFalse(any("profile." in arg for arg in command))
             normalized.append(command)
         normalized = self.without_auxiliary_scheduling(self.without_product_image_upgrade(normalized))
+        normalized = self.without_reply_loss_cli(normalized)
         normalized = self.without_selected_set_formatting(normalized)
         # Assert each bounded import addition explicitly, then retain the exact
         # pre-import command multiset: no prior feature/filter/deadline/parity gate

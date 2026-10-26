@@ -17,6 +17,111 @@ mod test_temp;
 struct ChildGuard(Child);
 
 #[test]
+fn reply_loss_cli_refuses_every_non_selected_entry_without_socket_or_diagnostic() {
+    let base = file_base();
+    for args in [
+        vec!["--discard-first-confirm-reply"],
+        vec![
+            "tui",
+            "--developer-conditional-close",
+            "--discard-first-confirm-reply",
+        ],
+        vec!["daemon", "--discard-first-confirm-reply"],
+        vec![
+            "tui",
+            "--developer-conditional-close",
+            "--selected-set",
+            "--discard-first-confirm-reply",
+            "private-extra",
+        ],
+    ] {
+        let output = isolated_command(&base)
+            .args(args)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert_eq!(
+            output.stderr,
+            b"Reply-loss cut requires the explicit Product selected-set workspace\n"
+        );
+        assert_eq!(fs::read_dir(&base).unwrap().count(), 0);
+    }
+    fs::remove_dir(base).unwrap();
+}
+
+#[test]
+fn reply_loss_exact_cli_is_product_only_and_does_not_attempt_without_terminal() {
+    let base = file_base();
+    let output = isolated_command(&base)
+        .args([
+            "tui",
+            "--developer-conditional-close",
+            "--selected-set",
+            "--discard-first-confirm-reply",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    if cfg!(all(feature = "tui", feature = "product-image-witness"))
+        && !omavless_runtime::product_scope::backup_only()
+    {
+        assert_eq!(output.stderr,
+            b"omavless.reply-loss.v1 stage=not_attempted full_request_written=false\nOmaVLESS TUI requires an interactive terminal\n");
+    } else {
+        assert_eq!(
+            output.stderr,
+            b"Reply-loss cut requires the explicit Product selected-set workspace\n"
+        );
+    }
+    assert_eq!(fs::read_dir(&base).unwrap().count(), 0);
+    fs::remove_dir(base).unwrap();
+}
+
+#[test]
+fn reply_loss_help_is_product_only_and_backup_only_dominates_combined_features() {
+    let base = file_base();
+    let output = isolated_command(&base)
+        .arg("--help")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    let help = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(
+        help.contains("--discard-first-confirm-reply"),
+        cfg!(all(feature = "tui", feature = "product-image-witness"))
+            && !omavless_runtime::product_scope::backup_only()
+    );
+    assert_eq!(fs::read_dir(&base).unwrap().count(), 0);
+    fs::remove_dir(base).unwrap();
+}
+
+#[cfg(all(feature = "tui", feature = "product-image-witness"))]
+#[test]
+fn normal_selected_set_cli_does_not_arm_reply_loss_from_environment() {
+    let base = file_base();
+    let output = isolated_command(&base)
+        .args(["tui", "--developer-conditional-close", "--selected-set"])
+        .env("OMAVLESS_DISCARD_FIRST_CONFIRM_REPLY", "1")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        output.stderr,
+        b"OmaVLESS TUI requires an interactive terminal\n"
+    );
+    assert_eq!(fs::read_dir(&base).unwrap().count(), 0);
+    fs::remove_dir(base).unwrap();
+}
+
+#[test]
 fn first_abort_cli_refuses_unconfirmed_private_input_and_missing_runtime_without_effects() {
     let base = file_base();
     for args in [

@@ -112,6 +112,14 @@ run_check test-tui-commands cargo test "${crypto_test_profile[@]}" --locked -p o
 run_check test-private-import cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features tui tui_private_import_uses_existing_canonical
 run_check test-import-entry cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --bin omavless --features tui tui_import_entry::tests
 run_check test-close-tui cargo test "${crypto_test_profile[@]}" --locked -p omavless-tui --features developer-conditional-close
+# The Product library suite does not discover binary or integration CLI tests.
+# Exercise the exact opt-in and its developer/Backup-only refusals separately.
+run_check test-reply-loss-developer-selector cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features developer-conditional-close --bin omavless reply_loss_selector
+run_check test-reply-loss-developer-cli cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features developer-conditional-close --test cli reply_loss_
+run_check test-reply-loss-product-selector cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-image-witness,t4-manager-actor-service,setup-upgrade082 --bin omavless reply_loss_selector
+run_check test-reply-loss-product-cli cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-image-witness,t4-manager-actor-service,setup-upgrade082 --test cli reply_loss_
+run_check test-reply-loss-backup-selector cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-backup,product-image-witness,setup-upgrade082 --bin omavless reply_loss_selector
+run_check test-reply-loss-backup-cli cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-backup,product-image-witness,setup-upgrade082 --test cli reply_loss_
 run_check test-close-runtime cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features developer-conditional-close --lib developer_connection_close::tests
 run_check test-close-terminal cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features developer-conditional-close --lib \
   native_coordinator::connection_close::tests::terminal_demo_is_closed_and_original_operation_cannot_be_replaced_or_resent -- --exact
