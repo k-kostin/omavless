@@ -112,6 +112,12 @@ run_check test-tui-commands cargo test "${crypto_test_profile[@]}" --locked -p o
 run_check test-private-import cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features tui tui_private_import_uses_existing_canonical
 run_check test-import-entry cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --bin omavless --features tui tui_import_entry::tests
 run_check test-close-tui cargo test "${crypto_test_profile[@]}" --locked -p omavless-tui --features developer-conditional-close
+# Real production CLI PTYs: preserved modes, handled exits and non-terminal refusals.
+# These do not send Snapshot/Prepare or start a runtime, core, helper or network.
+run_check test-terminal-return-default cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --test cli developer_terminal_pty_ -- --test-threads=1
+run_check test-terminal-return-developer cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features developer-conditional-close --test cli developer_terminal_pty_ -- --test-threads=1
+run_check test-terminal-return-product cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-image-witness,t4-manager-actor-service,setup-upgrade082 --test cli developer_terminal_pty_ -- --test-threads=1
+run_check test-terminal-return-backup cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-backup,product-image-witness,setup-upgrade082 --test cli developer_terminal_pty_ -- --test-threads=1
 # The Product library suite does not discover binary or integration CLI tests.
 # Exercise the exact opt-in and its developer/Backup-only refusals separately.
 run_check test-reply-loss-developer-selector cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features developer-conditional-close --bin omavless reply_loss_selector
