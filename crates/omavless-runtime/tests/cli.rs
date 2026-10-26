@@ -1610,3 +1610,48 @@ fn daemon_refuses_pending_login_without_consuming_intent_or_leaving_socket() {
     drop(child);
     fs::remove_dir_all(base).unwrap();
 }
+
+#[test]
+fn developer_terminal_pty_restores_original_mode_and_screen() {
+    // Exercise the actual compiled CLI entry, not a synthetic terminal wrapper.
+    // No Snapshot key is sent; the isolated runtime paths remain untouched.
+    let mode = if cfg!(all(feature = "tui", feature = "product-image-witness")) {
+        "product"
+    } else if cfg!(all(
+        feature = "tui",
+        feature = "developer-conditional-close"
+    )) {
+        "single"
+    } else {
+        "none"
+    };
+    let script =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/test-tui-developer-terminal.py");
+    let mut child = ChildGuard(
+        Command::new("python3")
+            .arg("-B")
+            .arg(script)
+            .arg(env!("CARGO_BIN_EXE_omavless"))
+            .arg(mode)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .expect("start owned public PTY controls"),
+    );
+    let deadline = std::time::Instant::now() + Duration::from_secs(150);
+    loop {
+        if let Some(status) = child.0.try_wait().expect("observe PTY controls") {
+            assert!(
+                status.success(),
+                "production CLI terminal-return controls failed"
+            );
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "PTY controls deadline"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+}

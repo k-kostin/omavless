@@ -701,9 +701,11 @@ fn run_workspace(
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         return Err("OmaVLESS TUI requires an interactive terminal");
     }
-    let mut terminal = super::TerminalGuard(Some(
-        ratatui::try_init().map_err(|_| "Could not initialize OmaVLESS terminal")?,
-    ));
+    let mut terminal = super::TerminalGuard(Some(ratatui::try_init().map_err(|_| {
+        // Initialization can enable raw mode before a terminal write fails.
+        let _ = ratatui::try_restore();
+        "Could not initialize OmaVLESS terminal"
+    })?));
     std::panic::set_hook(Box::new(|_| {
         let _ = ratatui::try_restore();
     }));
@@ -711,6 +713,8 @@ fn run_workspace(
     struct Signals(Vec<signal_hook::SigId>);
     impl Drop for Signals {
         fn drop(&mut self) {
+            // Match ordinary TUI teardown without printing on a revoked PTY.
+            let _ = ratatui::try_restore();
             for id in self.0.drain(..) {
                 signal_hook::low_level::unregister(id);
             }

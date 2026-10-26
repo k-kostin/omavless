@@ -70,7 +70,7 @@ class RustCiIsolationTests(unittest.TestCase):
 
     def runner_trace(self, fail_test=False, fail_canonical_stage=False, fail_clippy=False,
                      fail_auxiliary_inventory=False, fail_image_upgrade=False,
-                     fail_reply_loss=False):
+                     fail_reply_loss=False, fail_terminal_return=False):
         """Execute only the shell recipe; every external leaf is an inert stub."""
         with tempfile.TemporaryDirectory(prefix="rust-recipe-") as directory:
             scratch = Path(directory)
@@ -98,6 +98,9 @@ class RustCiIsolationTests(unittest.TestCase):
                 "if os.environ.get('RECIPE_FAIL_IMAGE_UPGRADE') == '1' and "
                 "row[:2] == ['cargo', 'test'] and 'omavless-image-witness' in row:\n"
                 "    sys.exit(29)\n"
+                "if os.environ.get('RECIPE_FAIL_TERMINAL_RETURN') == '1' and "
+                "row[:2] == ['cargo', 'test'] and 'developer_terminal_pty_' in row:\n"
+                "    sys.exit(37)\n"
                 "if os.environ.get('RECIPE_FAIL_REPLY_LOSS') == '1' and "
                 "row[:2] == ['cargo', 'test'] and 'reply_loss_' in row:\n"
                 "    sys.exit(31)\n"
@@ -114,10 +117,67 @@ class RustCiIsolationTests(unittest.TestCase):
                      "RECIPE_FAIL_AUXILIARY_INVENTORY": "1" if fail_auxiliary_inventory else "0",
                      "RECIPE_FAIL_CANONICAL_STAGE": "1" if fail_canonical_stage else "0",
                      "RECIPE_FAIL_IMAGE_UPGRADE": "1" if fail_image_upgrade else "0",
-                     "RECIPE_FAIL_REPLY_LOSS": "1" if fail_reply_loss else "0"},
+                     "RECIPE_FAIL_REPLY_LOSS": "1" if fail_reply_loss else "0",
+                     "RECIPE_FAIL_TERMINAL_RETURN": "1" if fail_terminal_return else "0"},
                 capture_output=True, text=True, timeout=10,
             )
             return result, [json.loads(line) for line in trace.read_text().splitlines()]
+
+    def without_terminal_return_cli(self, commands):
+        selected = [row for row in commands if "developer_terminal_pty_" in row]
+        self.assertEqual(len(selected), 4)
+        expected = []
+        for features in (None, "developer-conditional-close",
+                         "product-image-witness,t4-manager-actor-service,setup-upgrade082",
+                         "product-private-backup,product-image-witness,setup-upgrade082"):
+            profile = (["--config", "profile.test.package.sha2.opt-level=3",
+                        "--config", "profile.test.package.sha2.debug-assertions=true",
+                        "--config", "profile.test.package.sha2.overflow-checks=true"]
+                       + ARGON2_TEST_PROFILE) if selected[0][2:3] == ["--config"] else []
+            command = ["cargo", "test", *profile, "--locked", "-p", "omavless-runtime"]
+            if features is not None:
+                command += ["--features", features]
+            expected.append(command + ["--test", "cli", "developer_terminal_pty_",
+                                       "--", "--test-threads=1"])
+        self.assertEqual(selected, expected)
+        return [row for row in commands if row not in selected]
+
+    def assert_terminal_return_crypto_profile(self, commands):
+        selected = [row for row in commands if "developer_terminal_pty_" in row]
+        self.assertEqual(len(selected), 4)
+        expected = ["--config", "profile.test.package.sha2.opt-level=3",
+                    "--config", "profile.test.package.sha2.debug-assertions=true",
+                    "--config", "profile.test.package.sha2.overflow-checks=true"] + ARGON2_TEST_PROFILE
+        for row in selected:
+            self.assertEqual(row[2:14], expected)
+
+    def test_terminal_return_cli_is_discovered_in_all_four_configurations(self):
+        result, commands = self.runner_trace()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.without_terminal_return_cli(commands)
+        self.assert_terminal_return_crypto_profile(commands)
+        source = (ROOT / "crates/omavless-runtime/tests/cli.rs").read_text()
+        self.assertRegex(source, r"#\[test\]\s+fn developer_terminal_pty_[a-z0-9_]+\(")
+        self.assertIn("test-tui-developer-terminal.py", source)
+        for index, row in enumerate(commands):
+            if "developer_terminal_pty_" not in row:
+                continue
+            with self.assertRaises(AssertionError):
+                self.without_terminal_return_cli(commands[:index] + commands[index + 1:])
+            changed = [command[:] for command in commands]
+            changed[index][-1] = "--test-threads=2"
+            with self.assertRaises(AssertionError):
+                self.without_terminal_return_cli(changed)
+            missing_crypto = [command[:] for command in commands]
+            missing_crypto[index] = row[:2] + row[14:]
+            with self.assertRaises(AssertionError):
+                self.assert_terminal_return_crypto_profile(missing_crypto)
+
+    def test_terminal_return_failure_stops_the_recipe(self):
+        result, commands = self.runner_trace(fail_terminal_return=True)
+        self.assertEqual(result.returncode, 37, result.stderr)
+        self.assertEqual(commands[-1][-5:],
+                         ["--test", "cli", "developer_terminal_pty_", "--", "--test-threads=1"])
 
     def without_reply_loss_cli(self, commands):
         selected = [row for row in commands if "reply_loss_selector" in row or "reply_loss_" in row]
@@ -228,7 +288,7 @@ class RustCiIsolationTests(unittest.TestCase):
         # Remove ONLY the exact new Argon2 argv before comparing the original
         # recipe. Do not regenerate the baseline digest to conceal other changes.
         legacy_execution = []
-        for command in self.without_reply_loss_cli(self.without_auxiliary_scheduling(self.without_product_image_upgrade(execution))):
+        for command in self.without_terminal_return_cli(self.without_reply_loss_cli(self.without_auxiliary_scheduling(self.without_product_image_upgrade(execution)))):
             if command[:2] == ["cargo", "test"]:
                 self.assertEqual(command[8:14], ARGON2_TEST_PROFILE)
                 command = command[:8] + command[14:]
@@ -267,6 +327,7 @@ class RustCiIsolationTests(unittest.TestCase):
             normalized.append(command)
         normalized = self.without_auxiliary_scheduling(self.without_product_image_upgrade(normalized))
         normalized = self.without_reply_loss_cli(normalized)
+        normalized = self.without_terminal_return_cli(normalized)
         normalized = self.without_selected_set_formatting(normalized)
         # Assert each bounded import addition explicitly, then retain the exact
         # pre-import command multiset: no prior feature/filter/deadline/parity gate
