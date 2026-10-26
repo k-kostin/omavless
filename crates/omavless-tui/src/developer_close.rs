@@ -1457,6 +1457,62 @@ mod tests {
             "members":outcomes.iter().enumerate().map(|(i,outcome)|json!({"index":i,"outcome":outcome})).collect::<Vec<_>>()}})
     }
     #[test]
+    fn selected_set_lost_confirm_reply_retains_original_receipt_without_sticky_unknown() {
+        let now = Instant::now();
+        for locale in [Locale::En, Locale::Ru] {
+            let mut workspace = Workspace::new_selected_set(locale);
+            let confirm = prepared_set(&mut workspace, now);
+            let original = confirm.params()["operationId"].clone();
+            let instance = confirm.params()["instanceId"].clone();
+            workspace.accept(Err(ReadError::Unavailable), now);
+            assert!(workspace.submitted);
+            assert!(!workspace.unknown);
+            assert!(!workspace.terminal);
+            assert_eq!(workspace.notice, "tui.dev_close_unknown");
+            // Neither width nor expiry permits reticketing an ambiguous write.
+            for wide in [true, false] {
+                for code in [
+                    KeyCode::Char('r'),
+                    KeyCode::Char('x'),
+                    KeyCode::Enter,
+                    KeyCode::Esc,
+                    KeyCode::Char('a'),
+                    KeyCode::Char(' '),
+                ] {
+                    assert!(matches!(
+                        workspace.input(key(code), now + Duration::from_secs(6), wide),
+                        Input::None
+                    ));
+                    assert_eq!(
+                        workspace.pending.as_ref().unwrap().operation,
+                        original.as_str().unwrap()
+                    );
+                }
+            }
+            let receipt =
+                send(workspace.input(key(KeyCode::Char('u')), now + Duration::from_secs(6), true));
+            assert_eq!(receipt.method(), SET_METHODS_TEST[3]);
+            assert_eq!(
+                receipt.params(),
+                json!({"instanceId":instance,"operationId":original})
+            );
+            workspace.accept(
+                Ok(set_receipt(&workspace, &["closed", "closed"], "all_closed")),
+                now + Duration::from_secs(6),
+            );
+            assert_eq!(workspace.set_results, ["closed", "closed"]);
+            assert!(workspace.terminal);
+            assert!(!workspace.submitted);
+            assert!(!workspace.unknown);
+            assert!(workspace.pending.is_none());
+            assert!(matches!(
+                workspace.input(key(KeyCode::Enter), now, true),
+                Input::None
+            ));
+        }
+    }
+
+    #[test]
     fn selected_set_partial_and_verified_unknown_are_spent_without_hidden_confirm() {
         let now = Instant::now();
         for (outcomes, aggregate) in [

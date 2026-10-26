@@ -41,6 +41,8 @@ mod restore_successor_coexistence_candidate;
 #[allow(dead_code)]
 mod restore_successor_handoff_model;
 mod restore_successor_publication_candidate;
+#[cfg(feature = "product-image-witness")]
+pub mod selected_set_reply_loss;
 #[cfg(test)]
 #[path = "../../../tests/support/temp.rs"]
 mod test_temp;
@@ -3318,11 +3320,27 @@ pub fn call_plugin_action(paths: &RuntimePaths, params: Value) -> Result<Value> 
     call_with_timeout(paths, "plugin.action", params, Duration::from_secs(120))
 }
 
+enum ResponseDelivery {
+    Read,
+    #[cfg(feature = "product-image-witness")]
+    Discard(Arc<selected_set_reply_loss::CutProgress>),
+}
+
 fn call_with_timeout(
     paths: &RuntimePaths,
     method: &str,
     params: Value,
     timeout: Duration,
+) -> Result<Value> {
+    call_with_delivery(paths, method, params, timeout, ResponseDelivery::Read)
+}
+
+fn call_with_delivery(
+    paths: &RuntimePaths,
+    method: &str,
+    params: Value,
+    timeout: Duration,
+    delivery: ResponseDelivery,
 ) -> Result<Value> {
     let uid = Uid::current().as_raw();
     validate_client_directory(&paths.directory, uid)?;
@@ -3332,7 +3350,7 @@ fn call_with_timeout(
         return Err(RuntimeError::PermissionDenied);
     }
     let stream = UnixStream::connect(&paths.socket).map_err(|_| RuntimeError::SocketUnavailable)?;
-    call_stream_with_timeout(stream, uid, method, params, timeout)
+    call_stream_with_delivery(stream, uid, method, params, timeout, delivery)
 }
 
 fn validate_client_directory(path: &Path, uid: u32) -> Result<()> {
@@ -3358,11 +3376,22 @@ fn call_stream(stream: UnixStream, uid: u32, method: &str, params: Value) -> Res
 }
 
 fn call_stream_with_timeout(
+    stream: UnixStream,
+    uid: u32,
+    method: &str,
+    params: Value,
+    timeout: Duration,
+) -> Result<Value> {
+    call_stream_with_delivery(stream, uid, method, params, timeout, ResponseDelivery::Read)
+}
+
+fn call_stream_with_delivery(
     mut stream: UnixStream,
     uid: u32,
     method: &str,
     params: Value,
     timeout: Duration,
+    delivery: ResponseDelivery,
 ) -> Result<Value> {
     let response_end = std::time::Instant::now() + timeout;
     // Authenticate the connected peer, not just the path checked before
@@ -3389,10 +3418,18 @@ fn call_stream_with_timeout(
         let mut request = request;
         developer_current_restore::wipe_request(&mut request);
     }
-    write_unary_frame(&mut stream, &frame, FrameKind::Request).map_err(|_| RuntimeError::Io)?;
-    stream
-        .shutdown(std::net::Shutdown::Write)
-        .map_err(|_| RuntimeError::Io)?;
+    if write_client_request(&mut stream, &frame, &delivery, response_end, |stream| {
+        stream.shutdown(std::net::Shutdown::Write)
+    })? {
+        // The exact opt-in client cut deliberately observes no response bytes.
+        // Dropping this original stream is not a cancellation or resend.
+        drop(stream);
+        #[cfg(feature = "product-image-witness")]
+        if let ResponseDelivery::Discard(progress) = &delivery {
+            progress.discarded();
+        }
+        return Err(RuntimeError::Io);
+    }
     // A total response deadline, not a fresh timeout for each incoming byte.
     struct DeadlineReader<'a> {
         stream: &'a mut UnixStream,
@@ -3421,10 +3458,49 @@ fn call_stream_with_timeout(
     }
     Ok(response)
 }
+/// Shared complete-frame/write-half boundary. Tests inject only the I/O leaf;
+/// production always supplies its original authenticated UnixStream.
+fn write_client_request<W: io::Write>(
+    stream: &mut W,
+    frame: &[u8],
+    delivery: &ResponseDelivery,
+    response_end: std::time::Instant,
+    shutdown_write: impl FnOnce(&mut W) -> io::Result<()>,
+) -> Result<bool> {
+    #[cfg(not(feature = "product-image-witness"))]
+    let _ = response_end;
+    write_unary_frame(stream, frame, FrameKind::Request).map_err(|_| RuntimeError::Io)?;
+    #[cfg(feature = "product-image-witness")]
+    if let ResponseDelivery::Discard(progress) = delivery {
+        progress.written();
+    }
+    shutdown_write(stream).map_err(|_| RuntimeError::Io)?;
+    match delivery {
+        ResponseDelivery::Read => Ok(false),
+        #[cfg(feature = "product-image-witness")]
+        ResponseDelivery::Discard(_) => {
+            if std::time::Instant::now() >= response_end {
+                return Err(RuntimeError::Io);
+            }
+            Ok(true)
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "product-image-witness")]
+    #[test]
+    fn selected_set_reply_loss_starts_without_an_attempt_or_private_diagnostics() {
+        let (_cut, report) = selected_set_reply_loss::FirstConfirmReplyLoss::arm();
+        assert_eq!(
+            report.diagnostic(),
+            "omavless.reply-loss.v1 stage=not_attempted full_request_written=false"
+        );
+    }
+
     use crate::cutover::{CutoverPaths, OwnershipPhase};
     use crate::desired::{
         DesiredPaths, DesiredState, OwnedObservation, RoutingMode, write_desired,

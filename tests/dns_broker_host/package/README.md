@@ -36,6 +36,8 @@ python3 tests/dns_broker_host/package/build_pair.py \
   --mihomo-git /absolute/local/mihomo-git \
   --sing-tun-git /absolute/local/sing-tun-git \
   --go /absolute/local/go \
+  --cargo /absolute/pinned/toolchain/bin/cargo \
+  --rustc /absolute/pinned/toolchain/bin/rustc \
   --arch x86_64 \
   --output /absolute/private/new-candidate
 ```
@@ -43,6 +45,25 @@ python3 tests/dns_broker_host/package/build_pair.py \
 Use `--arch aarch64` on a native Linux aarch64 builder. The requested
 architecture must match both the host and the absolute local Go toolchain;
 the builder does not silently cross-compile or accept a mismatched receipt.
+
+Rust must match the exact numeric channel in the committed
+`rust-toolchain.toml` (currently `1.98.0`). Optional `--cargo` and `--rustc`
+select absolute local executable paths. Without them, each executable is
+resolved once from the caller's PATH; a mismatched system compiler is refused,
+not silently substituted or installed. Normal installed rustup proxy paths
+are supported without resolving their dispatch name to `rustup`: the child
+environment fixes `RUSTUP_TOOLCHAIN` to the committed pin and disables automatic
+toolchain installation with `RUSTUP_AUTO_INSTALL=0`. Cargo uses the selected
+compiler through explicit `RUSTC`, with Cargo offline mode retained.
+
+Both selected executables' actual `--version` results must match the pin before
+any source/build scratch is created. The builder rechecks those same paths and
+complete version strings immediately before and after the broker build. The
+existing `cargo_version` and `rustc_version` receipt fields contain those
+validated values; no receipt-schema, provenance, patch or installed-admission
+exception is introduced. This does not make self-reported compiler versions a
+signature or substitute for reviewing the selected local tools. Failure leaves
+the existing flavor-specific diagnostic/scratch retention behavior unchanged.
 
 The OmaVLESS checkout must be committed and clean. The build uses the full
 `mihomo-dns-broker.patch` plus `sing-tun-descriptor.patch`, not the older

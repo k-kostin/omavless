@@ -117,8 +117,27 @@ fn tui_import_adapter() -> Result<omavless_tui::ImportAdapter, CliError> {
 #[cfg(feature = "tui")]
 mod tui_import_entry;
 
+fn selected_set_reply_loss_entry(arguments: &[std::ffi::OsString]) -> bool {
+    cfg!(all(feature = "tui", feature = "product-image-witness"))
+        && !omavless_runtime::product_scope::backup_only()
+        && arguments
+            == [
+                "tui",
+                "--developer-conditional-close",
+                "--selected-set",
+                "--discard-first-confirm-reply",
+            ]
+}
+
 fn run() -> Result<(), CliError> {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
+    if arguments
+        .iter()
+        .any(|argument| argument == "--discard-first-confirm-reply")
+        && !selected_set_reply_loss_entry(&arguments)
+    {
+        return Err("Reply-loss cut requires the explicit Product selected-set workspace".into());
+    }
     if omavless_runtime::product_scope::cli_disabled(&arguments) {
         return Err(
             "Restore/development selectors are unavailable in this Backup-only build".into(),
@@ -216,6 +235,20 @@ fn run() -> Result<(), CliError> {
     if arguments == ["tui", "--available"] {
         println!("omavless.tui.v1");
         return Ok(());
+    }
+    #[cfg(all(feature = "tui", feature = "product-image-witness"))]
+    if selected_set_reply_loss_entry(&arguments) {
+        let paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+        let (mut cut, report) =
+            omavless_runtime::selected_set_reply_loss::FirstConfirmReplyLoss::arm();
+        let result = omavless_tui::developer_close::run_selected_set(move |request| {
+            cut.call(&paths, request.method(), request.params())
+                .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+        });
+        // run_selected_set has returned and its terminal guard has dropped.
+        // Only this closed diagnostic is emitted; no operation or target data.
+        let _ = writeln!(io::stderr(), "{}", report.diagnostic());
+        return result.map_err(CliError::Terminal);
     }
     #[cfg(all(feature = "tui", feature = "product-image-witness"))]
     if arguments == ["tui", "--developer-conditional-close", "--selected-set"] {
@@ -349,6 +382,12 @@ fn run() -> Result<(), CliError> {
         println!(
             "  tui --developer-conditional-close --selected-set  explicit Product set workspace"
         );
+        #[cfg(all(feature = "tui", feature = "product-image-witness"))]
+        if !omavless_runtime::product_scope::backup_only() {
+            println!(
+                "      --discard-first-confirm-reply  opt-in one-shot development response-loss cut"
+            );
+        }
         println!(
             "{USAGE}\n  import preview                  read private input from stdin; private UI output"
         );
@@ -922,6 +961,60 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reply_loss_selector_requires_exact_product_selected_set_entry() {
+        let args = |parts: &[&str]| {
+            parts
+                .iter()
+                .map(std::ffi::OsString::from)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            selected_set_reply_loss_entry(&args(&[
+                "tui",
+                "--developer-conditional-close",
+                "--selected-set",
+                "--discard-first-confirm-reply",
+            ])),
+            cfg!(all(feature = "tui", feature = "product-image-witness"))
+                && !omavless_runtime::product_scope::backup_only()
+        );
+        for parts in [
+            &["tui"][..],
+            &["tui", "--developer-conditional-close", "--selected-set"],
+            &[
+                "tui",
+                "--developer-conditional-close",
+                "--discard-first-confirm-reply",
+            ],
+            &["tui", "--selected-set", "--discard-first-confirm-reply"],
+            &["daemon", "--discard-first-confirm-reply"],
+            &["--discard-first-confirm-reply"],
+            &[
+                "tui",
+                "--discard-first-confirm-reply",
+                "--developer-conditional-close",
+                "--selected-set",
+            ],
+            &[
+                "tui",
+                "--developer-conditional-close",
+                "--selected-set",
+                "--discard-first-confirm-reply",
+                "extra",
+            ],
+            &[
+                "tui",
+                "--developer-conditional-close",
+                "--selected-set",
+                "--discard-first-confirm-reply",
+                "--discard-first-confirm-reply",
+            ],
+        ] {
+            assert!(!selected_set_reply_loss_entry(&args(parts)));
+        }
+    }
 
     #[cfg(feature = "tui")]
     #[test]

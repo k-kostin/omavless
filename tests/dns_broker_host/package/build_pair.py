@@ -11,12 +11,14 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import stat
 import sys
 import subprocess
 import tarfile
 import tempfile
+import tomllib
 
 import stage
 
@@ -127,7 +129,11 @@ def source_phase(arguments):
     if "mod" in arguments:
         return "module-verify" if "verify" in arguments else "module-vendor" if "vendor" in arguments else "module-edit"
     if "test" in arguments: return "conditional-tests" if "^TestConditionalClose" in arguments else "dns-tests"
-    if "build" in arguments: return "broker-build" if arguments[0] == "/usr/bin/cargo" else "core-build"
+    if "build" in arguments:
+        pairs = set(zip(arguments, arguments[1:]))
+        broker = (Path(arguments[0]).name == "cargo"
+                  or {("-p", "omavless-dns-broker"), ("--bin", "omavless-dns-broker")} <= pairs)
+        return "broker-build" if broker else "core-build"
     return "source-step"
 
 
@@ -217,7 +223,56 @@ def reviewed_go(go, architecture):
     return version
 
 
-def build(mihomo_git, sing_tun_git, go, architecture, output, flavor="experimental"):
+def rust_version(path, name, pin, env):
+    result = subprocess.run([path, "--version"], cwd=REPO, env=env,
+                            stdin=subprocess.DEVNULL, capture_output=True,
+                            timeout=10, check=False)
+    if (result.returncode != 0 or result.stderr or not result.stdout
+            or len(result.stdout) > 256):
+        raise stage.Refused("Selected Rust toolchain identity is unavailable.")
+    try:
+        version = result.stdout.decode("ascii")
+    except UnicodeError as error:
+        raise stage.Refused("Selected Rust toolchain identity is invalid.") from error
+    if not re.fullmatch(re.escape(name + " " + pin) + r"(?: \([ -~]+\))?\n?", version):
+        raise stage.Refused("Selected Rust toolchain differs from the committed pin.")
+    return version.removesuffix("\n")
+
+
+def reviewed_rust(cargo=None, rustc=None):
+    document = tomllib.loads((REPO / "rust-toolchain.toml").read_text(encoding="utf-8"))
+    section = document.get("toolchain")
+    pin = section.get("channel") if isinstance(section, dict) else None
+    if not isinstance(pin, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", pin):
+        raise stage.Refused("An exact committed Rust toolchain pin is required.")
+    selected = {}
+    for name, explicit in (("cargo", cargo), ("rustc", rustc)):
+        value = explicit if explicit is not None else shutil.which(name)
+        if value is None:
+            raise stage.Refused("Selected Rust toolchain executable is unavailable.")
+        path = Path(value)
+        if not path.is_absolute() or not path.is_file() or not os.access(path, os.X_OK):
+            raise stage.Refused("An absolute executable Rust toolchain path is required.")
+        # Retain the selected invocation path: a normal rustup proxy dispatches
+        # by argv[0]. Resolving that symlink to 'rustup' would select another CLI.
+        selected[name] = str(path)
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.environ["HOME"],
+           "CARGO_NET_OFFLINE": "true", "RUSTUP_TOOLCHAIN": pin,
+           "RUSTUP_AUTO_INSTALL": "0", "RUSTC": selected["rustc"]}
+    selected.update(pin=pin, env=env)
+    for name in ("cargo", "rustc"):
+        selected[name + "_version"] = rust_version(selected[name], name, pin, env)
+    return selected
+
+
+def recheck_rust(selected, env):
+    for name in ("cargo", "rustc"):
+        if rust_version(selected[name], name, selected["pin"], env) != selected[name + "_version"]:
+            raise stage.Refused("Selected Rust toolchain changed during the build.")
+
+
+def build(mihomo_git, sing_tun_git, go, architecture, output, flavor="experimental",
+          *, cargo=None, rustc=None):
     _, schema, patches = stage.pair_policy(flavor)
     close = flavor in ("release-close", "release-close-k1")
     k1 = flavor == "release-close-k1"
@@ -236,6 +291,9 @@ def build(mihomo_git, sing_tun_git, go, architecture, output, flavor="experiment
         if digest(PATCHES / filename) != expected:
             raise stage.Refused("Reviewed patch identity changed.")
     go_version = reviewed_go(go, architecture)
+    # Refuse a mismatched compiler before creating source/build scratch or
+    # running Go. The receipt must name the compiler Cargo actually selects.
+    rust = reviewed_rust(cargo, rustc)
     # New qualified SOURCE producer retains scratch on every outcome. Its
     # compiler-only files are diagnostic evidence, never uncertain VM state.
     scratch_context = (contextlib.nullcontext(tempfile.mkdtemp(prefix=".omavless-dns-close-build-",dir=output.parent))
@@ -330,19 +388,20 @@ def build(mihomo_git, sing_tun_git, go, architecture, output, flavor="experiment
                 or ("-tags="+tags).encode() not in info.stdout
                 or b"CGO_ENABLED=0" not in info.stdout):
             raise stage.Refused("Reviewed core build identity is incomplete.")
-        cargo_env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"],
-                     "CARGO_NET_OFFLINE": "true", "CARGO_TARGET_DIR": str(work / "cargo-target")}
+        cargo_env = {**rust["env"], "CARGO_TARGET_DIR": str(work / "cargo-target")}
         if close:
             cargo_env["CARGO_BUILD_JOBS"] = "4"
             cargo_env["TMPDIR"] = compiler_tmp
         elif compiler_tmp:
             cargo_env["TMPDIR"] = compiler_tmp
-        cargo_command = ["/usr/bin/cargo", "build", "--release", "--locked", "--offline",
+        recheck_rust(rust, cargo_env)
+        cargo_command = [rust["cargo"], "build", "--release", "--locked", "--offline",
                          "-p", "omavless-dns-broker", "--bin", "omavless-dns-broker"]
         if flavor in ("release", "release-close", "release-close-k1"):
             cargo_command.extend(("--features", "k1-managed-device" if k1 else "release-package"))
         run(cargo_command,
                 cwd=sources / "omavless", env=cargo_env)
+        recheck_rust(rust, cargo_env)
         shutil.copy2(work / "cargo-target/release/omavless-dns-broker",
                      package / "omavless-dns-broker")
         stage.reviewed_binary(core, digest(core), architecture)
@@ -361,12 +420,8 @@ def build(mihomo_git, sing_tun_git, go, architecture, output, flavor="experiment
             "patch_sha256": patches, "go_version": go_version,
             "go_build_tags": tags, "go_dependency_mode": "vendor",
             "go_binary_sha256": digest(Path(go)),
-            "rustc_version": subprocess.run(
-                ["/usr/bin/rustc", "--version"], stdin=subprocess.DEVNULL,
-                capture_output=True, check=True, timeout=10).stdout.decode("ascii").strip(),
-            "cargo_version": subprocess.run(
-                ["/usr/bin/cargo", "--version"], stdin=subprocess.DEVNULL,
-                capture_output=True, check=True, timeout=10).stdout.decode("ascii").strip(),
+            "rustc_version": rust["rustc_version"],
+            "cargo_version": rust["cargo_version"],
             "cargo_lock_sha256": digest(sources / "omavless/Cargo.lock"),
             "sha256": {name: digest(package / name) for name in
                        ("mihomo", "omavless-dns-broker", "corresponding-source.tar.xz",
@@ -395,11 +450,13 @@ def main():
     for name in ("mihomo-git", "sing-tun-git", "go", "output"):
         parser.add_argument("--" + name, required=True)
     parser.add_argument("--arch", choices=tuple(GO_ARCH), required=True)
+    parser.add_argument("--cargo", help="absolute local cargo executable (default: current PATH)")
+    parser.add_argument("--rustc", help="absolute local rustc executable (default: current PATH)")
     parser.add_argument("--flavor", choices=("experimental", "release", "release-close", "release-close-k1"), default="experimental")
     args = parser.parse_args()
     try:
         receipt = build(args.mihomo_git, args.sing_tun_git, args.go,
-                        args.arch, args.output, args.flavor)
+                        args.arch, args.output, args.flavor, cargo=args.cargo, rustc=args.rustc)
     except (OSError, ValueError, subprocess.CalledProcessError,
             subprocess.TimeoutExpired, stage.Refused):
         parser.exit(1, "Offline DNS pair build refused; no package installed or activated.\n")
