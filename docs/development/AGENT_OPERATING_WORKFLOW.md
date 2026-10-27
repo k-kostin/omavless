@@ -2,8 +2,9 @@
 
 Owner-directed process correction, October21, 2026. Use for NEW work and
 continuation; frozen attempts retain their original contracts and outcomes.
-This sequences the [execution policy](EXECUTION_POLICY.md), not a new gate,
-privilege, retry allowance or publication permission. Full-source guidance is
+This sequences the [execution policy](EXECUTION_POLICY.md) and the owner-required
+pre-feature research stage (October27). It grants no new privilege, retry
+allowance or publication permission. Full-source guidance is
 distributed only after integration; a local checked candidate is not integrated.
 
 ## 1. Resolve authority once per scope
@@ -27,6 +28,24 @@ Unavailable input remains a real dependency. Agent-entered authorization is not
 physical-human acceptance. Guest authority does not include the physical host.
 
 ## 2. Keep one current plan
+
+### Research before feature implementation
+
+Before implementing each new feature, follow [Feature research](FEATURE_RESEARCH.md).
+The primary reads the closest existing implementations and posts a self-contained,
+ready-to-copy ChatGPT Pro Deep Research request in this chat for the owner to run.
+Keep the feature `research_pending` until the report is returned, its material
+claims are checked against primary sources, and the applicable design/test choices
+are recorded in the existing checkpoint. The external report informs the primary's
+decision; it is not implementation authority or acceptance evidence.
+
+For an active feature, apply this stage before a substantial new approach or
+bespoke harness. Reuse an accepted report within its unchanged scope; routine
+fixes do not restart research. Refresh only new questions or changed applicability.
+While awaiting the report, prepare read-only context and perform independently
+authorized work; keep dependent implementation/new experiments pending. Settle
+already-owned operations safely under their original contracts. A missing report
+is a requested research dependency, not a request to renew existing permission.
 
 ### Outcome and cost budget
 
@@ -123,15 +142,6 @@ interface sample before constructing a large harness. Bind the selected version,
 numeric/text grammar and original completion. Derive sanitized fixtures from
 that sample; a version/help probe or a synthetic GREEN alone does not qualify
 the actual output grammar. Keep raw private input outside the diagnostic surface.
-
-Before designing unfamiliar feature semantics or bespoke test machinery, timebox
-reading the closest maintained open-source implementations, relevant tests and
-known failure reports within the same whole-outcome budget. Answer a named design
-question; record the pinned source, applicable pattern, differing guarantees and
-resulting implementation or validation decision in the existing checkpoint.
-Reuse an already checked reference for routine changes. Stop when the question
-is answered: a catalogue of projects is not feature progress, and another
-project's weaker guarantees do not waive this project's acceptance contract.
 
 Use the existing owned observer/driver and one minimal read-only preflight.
 For an installed scenario bind the actual guest/process identity, executable
