@@ -28,6 +28,29 @@ physical-human acceptance. Guest authority does not include the physical host.
 
 ## 2. Keep one current plan
 
+### Outcome and cost budget
+
+Use one primary by default. Delegate only an authorized independent deliverable
+whose benefit exceeds coordination and repeated context/review cost. Keep the
+required independent reviews on one frozen affected candidate; refresh only the
+changed boundary and its dependencies after a correction.
+
+Before work, name the plan item, complete supported outcome, completion evidence
+and a finite cumulative budget covering discovery, harness, implementation,
+review, build/CI, installed checks, rework and closure. Carry previous spending
+on the same outcome across successors. When the budget becomes infeasible,
+record the reached boundary and changed feasibility before choosing the finite
+remaining work. A smaller diagnostic can finish as a diagnostic; it cannot
+close the original product outcome. Stop after the owner's selected item; a
+one-item instruction does not resume a paused recurring automation.
+
+At a cost retrospective, distinguish account-wide usage from attributable task
+cost. Use available account measurements at the productive batch boundaries;
+missing per-task accounting stays UNKNOWN. Neither an overnight grant nor an
+ACTIVE scheduler supplies an unlimited allowance. A new quota concern requires
+an explicit operating choice, without buying credits, consuming reset grants or
+changing models automatically.
+
 Keep the operational checkpoint normally within 80 lines. Each requested outcome
 has exact inputs, operator, earned gates, remaining dependency and next action.
 Use explicit states: actionable, external-wait, owner-choice, complete. A
@@ -63,6 +86,13 @@ Archive the complete prior index before compaction; historical ACTIVE/PENDING
 is not present custody or an instruction to restart it. Read the applicable
 history when a dependency or diagnosis needs it, not on every heartbeat.
 
+Read each required page in full once per unchanged phase, retaining its revision,
+body hash and read time. Select one canonical body from a tool response rather
+than printing both content and compiled truth. Full readback comparison can run
+against the complete returned body without printing it again. Preserve the full
+prior index when compacting or replacing it; small material edits need their
+original import and full readback, not a new historical archive each time.
+
 ## 3. Measure the baseline before effects
 
 Check critical input availability before harness implementation or delegation:
@@ -74,6 +104,12 @@ lookup, a new prompt after an unanswered request, or probing an owner-held actor
 If blocked, select only work independent of that dependency and useful to the
 same approved outcome; do not build speculative support for an unusable route.
 Refresh volatile facts immediately before effects, not on unchanged wakeups.
+
+For an unfamiliar tool or parser boundary, earn the smallest permitted actual
+interface sample before constructing a large harness. Bind the selected version,
+numeric/text grammar and original completion. Derive sanitized fixtures from
+that sample; a version/help probe or a synthetic GREEN alone does not qualify
+the actual output grammar. Keep raw private input outside the diagnostic surface.
 
 Use the existing owned observer/driver and one minimal read-only preflight.
 For an installed scenario bind the actual guest/process identity, executable
