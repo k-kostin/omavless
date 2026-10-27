@@ -11,6 +11,9 @@ not replaced by this short entry point.
    Also read the owner-approved [execution policy](docs/development/EXECUTION_POLICY.md)
    for failure classification, risk-based review and agent/VM coordination.
    Execute new work through the [operating workflow](docs/development/AGENT_OPERATING_WORKFLOW.md).
+   For resumed work and cost retrospectives, apply its
+   [outcome and cost budget](docs/development/AGENT_OPERATING_WORKFLOW.md#outcome-and-cost-budget)
+   before selecting the next complete item.
 3. Read [delivery roadmap](DEVELOPMENT_ROADMAP.md),
    [current status](docs/roadmap/CURRENT_STATUS.md),
    [development workflow](docs/roadmap/DEVELOPMENT_WORKFLOW.md) and
