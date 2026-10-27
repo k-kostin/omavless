@@ -3177,7 +3177,10 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 .capture_connection_close()
                 .map(CloseSnapshotAdmission::Discover);
         }
-        if self.connection_close.active.is_some() || self.connection_close.discovery.is_some() {
+        if self.connection_close.active.is_some()
+            || self.connection_close.active_set.is_some()
+            || self.connection_close.discovery.is_some()
+        {
             return Err(NativeOwnerError::Coordinator(CoordinatorError::Busy));
         }
         let _lease = self.batch_lock()?;

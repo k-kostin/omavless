@@ -4,11 +4,16 @@
 set -euo pipefail
 export LC_ALL=C
 fail() { echo 'OmaVLESS local package build refused or failed.' >&2; exit 2; }
-[[ ( $# -eq 3 || ( $# -eq 4 && ( $4 == --candidate || $4 == --stable ) ) || ( $# -eq 5 && $4 == --product-image-witness && -n $5 ) ) && $EUID -ne 0 ]] || fail
+[[ ( $# -eq 3 || ( $# -eq 4 && ( $4 == --candidate || $4 == --stable ) ) || ( ( $# -eq 5 || $# -eq 6 ) && $4 == --product-image-witness && -n $5 ) ) && $EUID -ne 0 ]] || fail
 builddir=$1
 binary=$2
 expected_sha=$3
 product_helper=${5-}
+acceptance_cut=${6-}
+case "$acceptance_cut" in
+  ""|--acceptance-close-before-attempt|--acceptance-close-final-proof|--acceptance-close-between-members) ;;
+  *) fail ;;
+esac
 [[ $expected_sha =~ ^[0-9a-f]{40}$ ]] || fail
 [[ $builddir == /* && $builddir != / && $binary == /* ]] || fail
 [[ -d $builddir && ! -L $builddir && -f $binary && ! -L $binary && -x $binary ]] || fail
@@ -89,7 +94,9 @@ fi
 chmod 0700 -- "$builddir"
 mkdir -- "$builddir/payload" "$builddir/home" "$builddir/config"
 if [[ -n $product_helper ]]; then
-  bash "$script_dir/stage-payload.sh" "$builddir/payload" "$binary" --product-image-witness "$product_helper" || fail
+  product_flags=(--product-image-witness "$product_helper")
+  [[ -z $acceptance_cut ]] || product_flags+=("$acceptance_cut")
+  bash "$script_dir/stage-payload.sh" "$builddir/payload" "$binary" "${product_flags[@]}" || fail
   [[ $(sha256sum -- "$builddir/payload/usr/lib/omavless-image/omavless-image-witness") == "$helper_hash "* ]] || fail
 else
   bash "$script_dir/stage-payload.sh" "$builddir/payload" "$binary" || fail
@@ -109,8 +116,13 @@ if [[ $# -eq 4 ]]; then
     >> "$builddir/payload/usr/share/doc/omavless/build-identity.txt"
 fi
 if [[ -n $product_helper ]]; then
-  printf 'featureSelection=product-image-witness-opt-in\nhelperSha256=%s\n' "$helper_hash" \
+  feature_selection=product-image-witness-opt-in
+  [[ -z $acceptance_cut ]] || feature_selection=product-image-witness-acceptance
+  printf 'featureSelection=%s\nhelperSha256=%s\n' "$feature_selection" "$helper_hash" \
     >> "$builddir/payload/usr/share/doc/omavless/build-identity.txt"
+fi
+if [[ -n $acceptance_cut ]]; then
+  printf 'acceptanceCut=%s\n' "${acceptance_cut#--acceptance-close-}" >> "$builddir/payload/usr/share/doc/omavless/build-identity.txt"
 fi
 chmod 0644 -- "$builddir/payload/usr/share/doc/omavless/build-identity.txt"
 tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \

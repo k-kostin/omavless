@@ -11,6 +11,8 @@ repository.workspace = true
 default = []
 developer-helper = []
 product-epochs = ["developer-helper"]
+# Client-side failure injection only; no helper selector or new wire messages.
+acceptance-channel-cut = []
 
 [dependencies]
 rustix = { version = "=1.1.5", features = ["event", "fs", "net", "process"] }

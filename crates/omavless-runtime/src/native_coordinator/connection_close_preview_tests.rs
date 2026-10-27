@@ -823,3 +823,184 @@ fn product_selected_set_actual_socket_production_tui_retains_one_original_operat
         }
     }
 }
+
+// Existing real owned controller/socket with memory image callbacks: source
+// propagation evidence only. The actual channel cut has separate SEQPACKET tests.
+#[cfg(feature = "acceptance-connection-close")]
+#[test]
+fn acceptance_cut_claims_only_set_and_preserves_original_attempt_and_receipt_semantics() {
+    use crate::close_acceptance::{Arm, Scenario};
+    let _fixtures = FIXTURES.lock().unwrap();
+    for cut in [Scenario::BeforeAttempt, Scenario::FinalProof] {
+        let mut fixture = product_preview_fixture();
+        let arm = std::sync::Arc::new(Arm::new(cut).unwrap());
+        fixture
+            .owner
+            .host_mut()
+            .install_close_acceptance_for_test(arm.clone());
+        let _preview = retain_inert_preview(&mut fixture);
+        assert!(
+            !arm.is_claimed(),
+            "inert preview must never consume effect cut"
+        );
+        let (handles, ticket, revision) =
+            start_product_set(&mut fixture, "acceptance-original", false);
+        let result = set_result(&mut fixture, "acceptance-original");
+        assert!(arm.is_claimed());
+        let expected = match cut {
+            Scenario::BeforeAttempt => vec![ExternalSetMember::NotAttempted; 2],
+            Scenario::FinalProof => vec![ExternalSetMember::Unknown; 2],
+            Scenario::BetweenMembers => unreachable!("separate signal barrier control"),
+        };
+        assert_eq!(result.members, expected);
+        let effects = fs::read(fixture.root.join("r/effects")).unwrap_or_default();
+        assert_eq!(
+            effects,
+            if cut == Scenario::FinalProof {
+                b"1\n2\n".to_vec()
+            } else {
+                vec![]
+            }
+        );
+        match fixture
+            .owner
+            .admit_connection_set("acceptance-original", revision, handles, ticket)
+            .unwrap()
+        {
+            SetAdmission::Replay(replay) => assert_eq!(replay, result),
+            _ => panic!("original receipt must replay without any new effect"),
+        }
+        assert_eq!(
+            fixture
+                .owner
+                .connection_set_receipt("acceptance-original")
+                .unwrap()
+                .unwrap()
+                .unwrap(),
+            result
+        );
+        assert_eq!(
+            fs::read(fixture.root.join("r/effects")).unwrap_or_default(),
+            effects
+        );
+        assert!(fixture.owner.admit_connection_close_snapshot().is_err());
+    }
+}
+
+#[cfg(feature = "acceptance-connection-close")]
+#[test]
+fn acceptance_between_members_retains_shared_worker_busy_and_real_partial_receipt() {
+    use crate::close_acceptance::{Arm, SIGNAL_TESTS, Scenario};
+    let _signals = SIGNAL_TESTS.lock().unwrap();
+    let _fixtures = FIXTURES.lock().unwrap();
+    let mut fixture = fixture("set-partial");
+    fixture
+        .owner
+        .host_mut()
+        .install_product_preview_fixture_for_test();
+    let arm = std::sync::Arc::new(Arm::new(Scenario::BetweenMembers).unwrap());
+    let release = arm.release_for_test();
+    fixture
+        .owner
+        .host_mut()
+        .install_close_acceptance_for_test(arm);
+    let _original = start_product_set(&mut fixture, "acceptance-partial", false);
+    let until = Instant::now() + Duration::from_secs(2);
+    while !release.entered() {
+        assert!(
+            Instant::now() < until,
+            "original worker never reached between-member boundary"
+        );
+        std::thread::yield_now();
+    }
+    match fixture.owner.admit_connection_close_snapshot() {
+        Err(e) => assert_eq!(
+            e.stable_code(),
+            omavless_control_protocol::StableErrorCode::Busy
+        ),
+        Ok(_) => panic!("competing capture admitted while original set worker owns reservation"),
+    }
+    assert_eq!(fs::read(fixture.root.join("r/effects")).unwrap(), b"1\n");
+    signal_hook::low_level::raise(signal_hook::consts::SIGUSR2).unwrap();
+    let result = set_result(&mut fixture, "acceptance-partial");
+    assert_eq!(
+        result.members,
+        vec![
+            ExternalSetMember::Closed,
+            ExternalSetMember::Changed,
+            ExternalSetMember::NotAttempted
+        ]
+    );
+    assert_eq!(fs::read(fixture.root.join("r/effects")).unwrap(), b"1\n2\n");
+    assert!(fixture.owner.admit_connection_close_snapshot().is_err());
+}
+
+#[test]
+fn product_selected_set_busy_snapshot_preserves_the_original_worker_until_finish() {
+    let _fixtures = FIXTURES.lock().unwrap();
+    let mut fixture = product_preview_fixture();
+    let preview = retain_inert_preview(&mut fixture);
+    let handles: Vec<_> = preview.iter().map(|r| r.handle).collect();
+    let confirmation = fixture
+        .owner
+        .prepare_connection_set(handles.clone())
+        .unwrap();
+    let revision = fixture.owner.revision();
+    let mut task = match fixture
+        .owner
+        .admit_connection_set("busy-original", revision, handles, confirmation.ticket)
+        .unwrap()
+    {
+        SetAdmission::Discover(task) => task,
+        _ => panic!("one fresh original group discovery required"),
+    };
+    let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+    let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+    task.discovery
+        .observation
+        .session_mut()
+        .install_image_finish_probe_for_test(Box::new(move |deadline| {
+            entered_tx
+                .try_send(())
+                .map_err(|_| crate::conditional_close_candidate::Outcome::RefusedBeforeWrite)?;
+            let left = deadline
+                .checked_duration_since(Instant::now())
+                .ok_or(crate::conditional_close_candidate::Outcome::RefusedBeforeWrite)?;
+            release_rx
+                .recv_timeout(left)
+                .map_err(|_| crate::conditional_close_candidate::Outcome::RefusedBeforeWrite)
+        }));
+    assert!(
+        fixture
+            .owner
+            .complete_connection_set(task.observe())
+            .unwrap()
+            .is_none()
+    );
+    entered_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+    match fixture.owner.admit_connection_close_snapshot() {
+        Err(e) => assert_eq!(
+            e.stable_code(),
+            omavless_control_protocol::StableErrorCode::Busy
+        ),
+        Ok(_) => panic!("competing Snapshot invalidated or replaced an active group"),
+    }
+    assert_eq!(fixture.owner.revision(), revision);
+    release_tx.send(()).unwrap();
+    let result = set_result(&mut fixture, "busy-original");
+    assert_eq!(result.members, vec![ExternalSetMember::Closed; 2]);
+    assert_eq!(fs::read(fixture.root.join("r/effects")).unwrap(), b"1\n2\n");
+    assert_eq!(
+        fixture
+            .owner
+            .connection_set_receipt("busy-original")
+            .unwrap()
+            .unwrap()
+            .unwrap(),
+        result
+    );
+    assert!(
+        fixture.owner.admit_connection_close_snapshot().is_ok(),
+        "completed original retains normal next-epoch admission"
+    );
+}

@@ -240,8 +240,40 @@ class RustCiIsolationTests(unittest.TestCase):
         return [row[:-len(added)] if row[0] == "rustfmt" else row[:]
                 for row in commands]
 
+    def without_close_acceptance(self, commands):
+        feature = "acceptance-connection-close,t4-manager-actor-service,setup-upgrade082"
+        expected = [
+            ["cargo", "check", "--locked", "-p", "omavless-runtime", "--all-targets", "--features", feature],
+            ["cargo", "clippy", "--locked", "-p", "omavless-runtime", "--all-targets", "--features", feature, "--", "-D", "warnings"],
+            ["cargo", "test", "--locked", "-p", "omavless-image-witness", "--features", "product-epochs,acceptance-channel-cut", "--lib", "acceptance_channel_tests"],
+            ["cargo", "test", "--locked", "-p", "omavless-runtime", "--features", feature, "--lib", "acceptance_"],
+            ["cargo", "test", "--locked", "-p", "omavless-runtime", "--features", feature, "--lib", "product_selected_set"],
+            ["cargo", "test", "--locked", "-p", "omavless-runtime", "--features", feature, "--bin", "omavless", "close_acceptance_selector"],
+            ["cargo", "test", "--locked", "-p", "omavless-runtime", "--features", "product-private-backup,acceptance-connection-close,setup-upgrade082", "--bin", "omavless", "close_acceptance_selector"],
+        ]
+        retained = []
+        seen = []
+        for command in commands:
+            if not any("acceptance-connection-close" in arg or "acceptance-channel-cut" in arg for arg in command):
+                retained.append(command)
+                continue
+            normalized = command[:]
+            if normalized[:3] == ["cargo", "test", "--config"]:
+                self.assertEqual(normalized[8:14], ARGON2_TEST_PROFILE)
+                normalized = normalized[:2] + normalized[14:]
+            self.assertIn(normalized, expected)
+            self.assertNotIn(normalized, seen)
+            seen.append(normalized)
+        return retained
+
+    def test_close_acceptance_additions_are_exact_and_preserve_prior_recipe(self):
+        result, commands = self.runner_trace()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        original = self.without_close_acceptance(commands)
+        self.assertEqual(len(commands) - len(original), 7)
+
     def without_product_image_upgrade(self, commands):
-        added = [row for row in commands if "omavless-image-witness" in row]
+        added = [row for row in commands if "omavless-image-witness" in row and "product-epochs" in row]
         self.assertEqual(len(added), 1)
         command = added[0]
         self.assertEqual(command[:2], ["cargo", "test"])
@@ -288,12 +320,12 @@ class RustCiIsolationTests(unittest.TestCase):
         # Remove ONLY the exact new Argon2 argv before comparing the original
         # recipe. Do not regenerate the baseline digest to conceal other changes.
         legacy_execution = []
-        for command in self.without_terminal_return_cli(self.without_reply_loss_cli(self.without_auxiliary_scheduling(self.without_product_image_upgrade(execution)))):
+        for command in self.without_terminal_return_cli(self.without_reply_loss_cli(self.without_auxiliary_scheduling(self.without_product_image_upgrade(self.without_close_acceptance(execution))))):
             if command[:2] == ["cargo", "test"]:
                 self.assertEqual(command[8:14], ARGON2_TEST_PROFILE)
                 command = command[:8] + command[14:]
             legacy_execution.append(command)
-        static = self.without_selected_set_formatting(static)
+        static = self.without_selected_set_formatting(self.without_close_acceptance(static))
         for rows, digest in [(static, "15533c34bf33cb3189a3b4bca162f6b165786bff2e4f9f84f449e99b94dd59a7"),
                              (legacy_execution, "19d3a07ff0ad54c42344d1859330e606a2d2ffcdfc197a5244864286bb32e4e3")]:
             payload = json.dumps(rows, separators=(",", ":")).encode()
@@ -325,6 +357,7 @@ class RustCiIsolationTests(unittest.TestCase):
                 command = command[:2] + command[2 + len(profile):]
             self.assertFalse(any("profile." in arg for arg in command))
             normalized.append(command)
+        normalized = self.without_close_acceptance(normalized)
         normalized = self.without_auxiliary_scheduling(self.without_product_image_upgrade(normalized))
         normalized = self.without_reply_loss_cli(normalized)
         normalized = self.without_terminal_return_cli(normalized)
@@ -368,7 +401,7 @@ class RustCiIsolationTests(unittest.TestCase):
         self.assertEqual(commands[-1][:2], ["cargo", "test"])
         self.assertFalse(any(c[:2] in [["cargo", "test"], ["cargo", "build"],
                                      ["cargo", "run"]] for c in commands[:-1]))
-        self.assertRegex(result.stderr, r"OVT_CHECK_END test-auxiliary-inventory-13 elapsed_s=\d+ exit=17")
+        self.assertRegex(result.stderr, r"OVT_CHECK_END test-auxiliary-inventory-15 elapsed_s=\d+ exit=17")
 
     def test_auxiliary_inventory_failure_stops_before_parallel_tests(self):
         result, commands = self.runner_trace(fail_auxiliary_inventory=True)
@@ -377,7 +410,7 @@ class RustCiIsolationTests(unittest.TestCase):
                          [AUXILIARY_TEARDOWN_TEST, "--", "--exact", "--test-threads=1"])
         self.assertEqual(sum(c[:2] == ["cargo", "test"] for c in commands), 1)
         self.assertRegex(result.stderr,
-                         r"OVT_CHECK_END test-auxiliary-inventory-13 elapsed_s=\d+ exit=21")
+                         r"OVT_CHECK_END test-auxiliary-inventory-15 elapsed_s=\d+ exit=21")
 
     def test_auxiliary_normalization_rejects_missing_or_parallel_execution(self):
         result, commands = self.runner_trace()

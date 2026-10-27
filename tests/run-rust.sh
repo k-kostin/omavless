@@ -57,6 +57,10 @@ run_check lint-setup-upgrade cargo clippy --locked -p omavless-runtime --all-tar
 run_check check-image-t4 cargo check --locked -p omavless-runtime --all-targets --features product-image-witness,t4-manager-actor-service
 run_check lint-image-t4 cargo clippy --locked -p omavless-runtime --all-targets --features product-image-witness,t4-manager-actor-service -- -D warnings
 
+# Explicit instrumented image: no default activation; same guards/deadlines.
+run_check check-close-acceptance cargo check --locked -p omavless-runtime --all-targets --features acceptance-connection-close,t4-manager-actor-service,setup-upgrade082
+run_check lint-close-acceptance cargo clippy --locked -p omavless-runtime --all-targets --features acceptance-connection-close,t4-manager-actor-service,setup-upgrade082 -- -D warnings
+
 # This fixture forks a helper holding an inherited flock and tests a fixed
 # cleanup budget. Running it beside unrelated process-heavy tests can spend
 # that budget on scheduler contention, not the owned-group cleanup under test.
@@ -96,6 +100,11 @@ done
 # Dependency unit tests are not executed by the runtime's Product-feature suite.
 # Keep root-only reboot fixtures explicitly separate from these source controls.
 run_check test-product-image-upgrade cargo test "${crypto_test_profile[@]}" --locked -p omavless-image-witness --features product-epochs --lib
+run_check test-close-acceptance-channel cargo test "${crypto_test_profile[@]}" --locked -p omavless-image-witness --features product-epochs,acceptance-channel-cut --lib acceptance_channel_tests
+run_check test-close-acceptance-owner cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features acceptance-connection-close,t4-manager-actor-service,setup-upgrade082 --lib acceptance_
+run_check test-close-acceptance-regression cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features acceptance-connection-close,t4-manager-actor-service,setup-upgrade082 --lib product_selected_set
+run_check test-close-acceptance-selector cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features acceptance-connection-close,t4-manager-actor-service,setup-upgrade082 --bin omavless close_acceptance_selector
+run_check test-close-acceptance-backup cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-backup,acceptance-connection-close,setup-upgrade082 --bin omavless close_acceptance_selector
 # These suites launch real private bus processes and assert short wire deadlines.
 # Concurrent fork/exec can also briefly inherit another test's flock descriptor
 # before CLOEXEC closes it, turning a malformed-journal test into an unrelated

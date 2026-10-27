@@ -438,6 +438,90 @@ mod tests {
     use std::fs;
     use std::os::unix::fs::{PermissionsExt, symlink};
     #[test]
+    #[ignore = "actual managed package objects retained across one ordinary package upgrade"]
+    fn installed_package_retained_members_refuse_managed_upgrade() {
+        use crate::managed_pair::RELEASE_BROKER;
+        use std::io::Write;
+        assert_eq!(nix::unistd::getuid().as_raw(), 1000);
+        assert_eq!(nix::unistd::geteuid().as_raw(), 1000);
+        let chain = Chain::open(Path::new(RELEASE_CORE).parent().unwrap(), 0, false).unwrap();
+        let receipt_chain =
+            Chain::open(Path::new(RELEASE_RECEIPT).parent().unwrap(), 0, false).unwrap();
+        let core = Member::open(
+            chain.parent().unwrap(),
+            "mihomo",
+            0,
+            0o755,
+            128 * 1024 * 1024,
+        )
+        .unwrap();
+        let broker = Member::open(
+            chain.parent().unwrap(),
+            Path::new(RELEASE_BROKER)
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            0,
+            0o755,
+            32 * 1024 * 1024,
+        )
+        .unwrap();
+        let receipt = Member::open(
+            receipt_chain.parent().unwrap(),
+            "source-receipt.json",
+            0,
+            0o644,
+            8192,
+        )
+        .unwrap();
+        core.check(chain.parent().unwrap()).unwrap();
+        broker.check(chain.parent().unwrap()).unwrap();
+        receipt.check(receipt_chain.parent().unwrap()).unwrap();
+        println!("omavless.package-object.v1 stage=retained authority=none");
+        std::io::stdout().flush().unwrap();
+        let until = Instant::now() + Duration::from_secs(180);
+        let stdin = std::io::stdin();
+        let mut fds = [rustix::event::PollFd::new(
+            &stdin,
+            rustix::event::PollFlags::IN,
+        )];
+        assert_eq!(
+            rustix::event::poll(
+                &mut fds,
+                Some(&rustix::event::Timespec {
+                    tv_sec: 180,
+                    tv_nsec: 0
+                })
+            )
+            .unwrap(),
+            1
+        );
+        assert_eq!(fds[0].revents(), rustix::event::PollFlags::IN);
+        let mut command = [0];
+        assert_eq!(rustix::io::read(stdin, &mut command).unwrap(), 1);
+        assert_eq!(command, *b"I");
+        assert!(Instant::now() < until);
+        chain.check().unwrap();
+        receipt_chain.check().unwrap();
+        assert!(matches!(
+            broker.check(chain.parent().unwrap()),
+            Err(Refusal::Object)
+        ));
+        assert!(matches!(
+            receipt.check(receipt_chain.parent().unwrap()),
+            Err(Refusal::Object)
+        ));
+        let changed = match core.check(chain.parent().unwrap()) {
+            Ok(()) => false,
+            Err(Refusal::Object) => true,
+            Err(_) => panic!("core observation is not a qualified object refusal"),
+        };
+        println!(
+            "omavless.package-object.v1 stage=inspected broker_refused=true receipt_refused=true core_changed={changed}"
+        );
+    }
+    #[test]
     fn qualification_binding_never_revives_after_observed_drift_or_foreign_session() {
         let identity = Arc::new(());
         let other = Arc::new(());

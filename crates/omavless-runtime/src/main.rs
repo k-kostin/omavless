@@ -129,8 +129,56 @@ fn selected_set_reply_loss_entry(arguments: &[std::ffi::OsString]) -> bool {
             ]
 }
 
+#[cfg(feature = "acceptance-connection-close")]
+fn close_acceptance_entry(
+    arguments: &[std::ffi::OsString],
+) -> Option<omavless_runtime::close_acceptance::Scenario> {
+    use omavless_runtime::close_acceptance::Scenario;
+    if omavless_runtime::product_scope::backup_only() {
+        return None;
+    }
+    if arguments
+        == [
+            "daemon",
+            "--product-image-witness",
+            "--acceptance-close-before-attempt",
+        ]
+    {
+        Some(Scenario::BeforeAttempt)
+    } else if arguments
+        == [
+            "daemon",
+            "--product-image-witness",
+            "--acceptance-close-final-proof",
+        ]
+    {
+        Some(Scenario::FinalProof)
+    } else if arguments
+        == [
+            "daemon",
+            "--product-image-witness",
+            "--acceptance-close-between-members",
+        ]
+    {
+        Some(Scenario::BetweenMembers)
+    } else {
+        None
+    }
+}
+
 fn run() -> Result<(), CliError> {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
+    if arguments.iter().any(|a| {
+        a.to_str()
+            .is_some_and(|s| s.starts_with("--acceptance-close-"))
+    }) {
+        #[cfg(feature = "acceptance-connection-close")]
+        if close_acceptance_entry(&arguments).is_none() {
+            return Err("Close acceptance selector refused".into());
+        }
+        #[cfg(not(feature = "acceptance-connection-close"))]
+        return Err("Close acceptance selector is unavailable".into());
+    }
     if arguments
         .iter()
         .any(|argument| argument == "--discard-first-confirm-reply")
@@ -791,6 +839,15 @@ fn run() -> Result<(), CliError> {
         }
     };
     let paths = RuntimePaths::current().map_err(|error| admission_error(error.to_string()))?;
+    #[cfg(feature = "acceptance-connection-close")]
+    if let Some(cut) = close_acceptance_entry(&arguments) {
+        let stop = Arc::new(AtomicBool::new(false));
+        flag::register(SIGINT, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;
+        flag::register(SIGTERM, Arc::clone(&stop)).map_err(|_| "Signal setup failed")?;
+        return RuntimeServer::bind_current_product_close_acceptance(paths, cut)
+            .and_then(|server| server.serve_until(&stop))
+            .map_err(|error| CliError::Message(error.to_string()));
+    }
     #[cfg(feature = "product-image-witness")]
     if arguments == ["daemon", "--product-image-witness"] {
         let stop = Arc::new(AtomicBool::new(false));
@@ -1105,5 +1162,44 @@ mod tests {
             semantic_lifecycle_error(RuntimeError::PermissionDenied),
             CliError::Message(_)
         ));
+    }
+}
+
+#[cfg(all(test, feature = "acceptance-connection-close"))]
+mod close_acceptance_selector_tests {
+    use super::*;
+    #[test]
+    fn close_acceptance_selector_requires_exact_product_daemon_and_excludes_backup() {
+        use omavless_runtime::close_acceptance::Scenario;
+        for (flag, cut) in [
+            ("--acceptance-close-before-attempt", Scenario::BeforeAttempt),
+            ("--acceptance-close-final-proof", Scenario::FinalProof),
+            (
+                "--acceptance-close-between-members",
+                Scenario::BetweenMembers,
+            ),
+        ] {
+            let args = ["daemon", "--product-image-witness", flag].map(std::ffi::OsString::from);
+            assert_eq!(
+                close_acceptance_entry(&args),
+                (!omavless_runtime::product_scope::backup_only()).then_some(cut)
+            );
+            for wrong in [
+                vec!["daemon", flag],
+                vec!["tui", "--product-image-witness", flag],
+                vec!["daemon", flag, "--product-image-witness"],
+                vec!["daemon", "--product-image-witness", flag, flag],
+            ] {
+                assert!(
+                    close_acceptance_entry(
+                        &wrong
+                            .into_iter()
+                            .map(std::ffi::OsString::from)
+                            .collect::<Vec<_>>()
+                    )
+                    .is_none()
+                );
+            }
+        }
     }
 }

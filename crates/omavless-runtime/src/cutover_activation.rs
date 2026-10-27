@@ -18,8 +18,23 @@ const UNIT_BYTES: &[u8] = include_bytes!("../../../packaging/systemd/omavless-ru
 const PRODUCT_UNIT_BYTES: &[u8] =
     include_bytes!("../../../packaging/systemd/omavless-runtime-product.service");
 
+const ACCEPTANCE_BEFORE_UNIT_BYTES: &[u8] =
+    include_bytes!("../../../packaging/systemd/omavless-runtime-acceptance-before-attempt.service");
+const ACCEPTANCE_FINAL_UNIT_BYTES: &[u8] =
+    include_bytes!("../../../packaging/systemd/omavless-runtime-acceptance-final-proof.service");
+
+const ACCEPTANCE_BETWEEN_UNIT_BYTES: &[u8] = include_bytes!(
+    "../../../packaging/systemd/omavless-runtime-acceptance-between-members.service"
+);
+
 fn packaged_unit_matches(bytes: &[u8]) -> bool {
-    bytes == UNIT_BYTES || (cfg!(feature = "product-image-witness") && bytes == PRODUCT_UNIT_BYTES)
+    bytes == UNIT_BYTES
+        || (cfg!(feature = "product-image-witness") && bytes == PRODUCT_UNIT_BYTES)
+        || (cfg!(feature = "acceptance-connection-close")
+            && !crate::product_scope::backup_only()
+            && (bytes == ACCEPTANCE_BEFORE_UNIT_BYTES
+                || bytes == ACCEPTANCE_FINAL_UNIT_BYTES
+                || bytes == ACCEPTANCE_BETWEEN_UNIT_BYTES))
 }
 
 pub fn is_activation(arguments: &[OsString]) -> bool {
@@ -99,7 +114,13 @@ pub(crate) fn packaged_identity() -> Result<(), ()> {
     if !unit.is_file()
         || unit.uid() != 0
         || unit.mode() & 0o022 != 0
-        || unit.len() > UNIT_BYTES.len().max(PRODUCT_UNIT_BYTES.len()) as u64
+        || unit.len()
+            > UNIT_BYTES
+                .len()
+                .max(PRODUCT_UNIT_BYTES.len())
+                .max(ACCEPTANCE_BEFORE_UNIT_BYTES.len())
+                .max(ACCEPTANCE_FINAL_UNIT_BYTES.len())
+                .max(ACCEPTANCE_BETWEEN_UNIT_BYTES.len()) as u64
         || !packaged_unit_matches(&fs::read(UNIT).map_err(|_| ())?)
     {
         return Err(());
@@ -133,7 +154,24 @@ mod tests {
             packaged_unit_matches(PRODUCT_UNIT_BYTES),
             cfg!(feature = "product-image-witness")
         );
-        for source in [UNIT_BYTES, PRODUCT_UNIT_BYTES] {
+        for acceptance in [
+            ACCEPTANCE_BEFORE_UNIT_BYTES,
+            ACCEPTANCE_FINAL_UNIT_BYTES,
+            ACCEPTANCE_BETWEEN_UNIT_BYTES,
+        ] {
+            assert_eq!(
+                packaged_unit_matches(acceptance),
+                cfg!(feature = "acceptance-connection-close")
+                    && !crate::product_scope::backup_only()
+            );
+        }
+        for source in [
+            UNIT_BYTES,
+            PRODUCT_UNIT_BYTES,
+            ACCEPTANCE_BEFORE_UNIT_BYTES,
+            ACCEPTANCE_FINAL_UNIT_BYTES,
+            ACCEPTANCE_BETWEEN_UNIT_BYTES,
+        ] {
             let text = std::str::from_utf8(source).unwrap();
             for changed in [
                 text.replace("daemon", "daem0n"),
