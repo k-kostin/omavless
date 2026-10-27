@@ -124,6 +124,15 @@ numeric/text grammar and original completion. Derive sanitized fixtures from
 that sample; a version/help probe or a synthetic GREEN alone does not qualify
 the actual output grammar. Keep raw private input outside the diagnostic surface.
 
+Before designing unfamiliar feature semantics or bespoke test machinery, timebox
+reading the closest maintained open-source implementations, relevant tests and
+known failure reports within the same whole-outcome budget. Answer a named design
+question; record the pinned source, applicable pattern, differing guarantees and
+resulting implementation or validation decision in the existing checkpoint.
+Reuse an already checked reference for routine changes. Stop when the question
+is answered: a catalogue of projects is not feature progress, and another
+project's weaker guarantees do not waive this project's acceptance contract.
+
 Use the existing owned observer/driver and one minimal read-only preflight.
 For an installed scenario bind the actual guest/process identity, executable
 and shell/config root, native/frontend inputs, service active AND enabled state,
