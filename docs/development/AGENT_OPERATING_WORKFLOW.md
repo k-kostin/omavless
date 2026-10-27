@@ -35,6 +35,19 @@ whose benefit exceeds coordination and repeated context/review cost. Keep the
 required independent reviews on one frozen affected candidate; refresh only the
 changed boundary and its dependencies after a correction.
 
+Before estimating, separate missing product behavior, missing required evidence
+and broken tooling in the current completion matrix. Each open row names the
+user guarantee, owning requirement, earned evidence, required evidence layer
+(source, integration, installed or release), and the next concrete proof.
+Keep the selected item's boundary stable; add a criterion only for an applicable
+requirement or a newly demonstrated defect. Broader research, platform and
+release obligations keep their own disposition. Preserve explicitly required
+installed and security gates; an unreachable fault input is an applicability
+question to resolve before building its harness, not a silently waived check.
+Estimate implementation, tooling and acceptance separately. A proof method
+which has not been selected remains unestimated; do not turn it into a promised
+number of days or describe it as an unimplemented user feature.
+
 Before work, name the plan item, complete supported outcome, completion evidence
 and a finite cumulative budget covering discovery, harness, implementation,
 review, build/CI, installed checks, rework and closure. Carry previous spending
@@ -130,6 +143,12 @@ An affected-boundary review is enough for a narrow correction; full independent
 review remains required where the execution policy changes authority or safety.
 Do not manufacture a new wrapper/observer merely to rename each refusal.
 
+Keep one maintained driver with fixed-purpose interfaces. Bind fresh identities
+as independently checked data where that interface supports it; revalidate
+custody before effects. Review changed logic and affected invariants rather than
+recreating the driver for each PID or planning window. Frozen executors retain
+their contracts; this does not admit arbitrary paths, methods or caller claims.
+
 Freeze one user-visible journey and its complete kit in the existing checkpoint:
 initial state, ordinary entry/exit, success and refusal criteria, every interface,
 path, permission, dependency, original process owner and restoration reserve.
@@ -142,6 +161,15 @@ budget requires new feasibility evidence, remaining work and a completion test;
 renaming the task or starting another heartbeat does not reset spent time.
 This planning budget cannot extend product deadlines or terminate retained actors.
 
+After two installed attempts for the same outcome fail in the harness before
+the intended product boundary, stop new VM dispatches for that path. Count them
+across renamed successors. Preserve their original effects and custody, reproduce
+the demonstrated fault against the complete real-provider route, and qualify
+its correction before selecting another installed attempt. A new attempt also
+needs enough measured preparation and return time within the cumulative budget;
+another planning window does not supply that evidence. Continue independently
+actionable in-scope work without replaying the failed operations.
+
 Assign the complete missing link, not another prerequisite proposal: fixed
 interfaces, ordinary terminal result, refusal/unknown settlement and one
 composition check must fit the same deliverable. Delegate only when authorized.
@@ -152,13 +180,19 @@ GREEN. Keep component evidence distinct from whole-kit qualification and stop
 construction when the declared deliverable is complete. Required safety,
 negative controls, crypto, custody and runtime deadlines remain unchanged.
 
-Before a new expensive producer, check the assembled kit against the actual
-environment, including transport, original-child settlement, loaded package
-selection and the entire journey's time budget. A collection of component passes
-is not whole-kit qualification. A known missing link refuses admission before
-build or guest dispatch; stale environment evidence remains UNKNOWN. Where an
-owner holds an actor, preserve it and forbid a replacement actor/namespace as a
-bypass. Map its actual dependencies separately from unimplemented tooling.
+Before a new expensive producer or live dispatch, exercise the complete parent
+route with the exact real providers: lexical dependencies, command shape,
+framing, timing, original-child settlement and owned cleanup. Check loaded
+package selection and the entire journey's budget against the actual environment.
+A matching function hash or a callback substituting success does not prove the
+provider can run in that parent. A collection of component passes is not whole-kit
+qualification. Keep model/tool round trips outside short-lived actions; the
+bounded controller acquires fresh evidence and acts within the existing deadline
+without renewing its observation timestamp. A known missing link refuses
+admission before build or guest dispatch; stale environment evidence remains
+UNKNOWN. Where an owner holds an actor, preserve it and forbid a replacement
+actor/namespace as a bypass. Map its actual dependencies separately from
+unimplemented tooling.
 
 Derive sanitized positive fixtures from the actual selected interface/schema.
 Validate envelope fields and types exactly. For preservation comparisons,
