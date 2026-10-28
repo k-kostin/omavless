@@ -27,6 +27,12 @@ const ACCEPTANCE_BETWEEN_UNIT_BYTES: &[u8] = include_bytes!(
     "../../../packaging/systemd/omavless-runtime-acceptance-between-members.service"
 );
 
+const ACCEPTANCE_LATE_FINISH_UNIT_BYTES: &[u8] =
+    include_bytes!("../../../packaging/systemd/omavless-runtime-acceptance-late-finish.service");
+const ACCEPTANCE_LATE_PUBLICATION_UNIT_BYTES: &[u8] = include_bytes!(
+    "../../../packaging/systemd/omavless-runtime-acceptance-late-publication.service"
+);
+
 fn packaged_unit_matches(bytes: &[u8]) -> bool {
     bytes == UNIT_BYTES
         || (cfg!(feature = "product-image-witness") && bytes == PRODUCT_UNIT_BYTES)
@@ -34,7 +40,9 @@ fn packaged_unit_matches(bytes: &[u8]) -> bool {
             && !crate::product_scope::backup_only()
             && (bytes == ACCEPTANCE_BEFORE_UNIT_BYTES
                 || bytes == ACCEPTANCE_FINAL_UNIT_BYTES
-                || bytes == ACCEPTANCE_BETWEEN_UNIT_BYTES))
+                || bytes == ACCEPTANCE_BETWEEN_UNIT_BYTES
+                || bytes == ACCEPTANCE_LATE_FINISH_UNIT_BYTES
+                || bytes == ACCEPTANCE_LATE_PUBLICATION_UNIT_BYTES))
 }
 
 pub fn is_activation(arguments: &[OsString]) -> bool {
@@ -120,7 +128,9 @@ pub(crate) fn packaged_identity() -> Result<(), ()> {
                 .max(PRODUCT_UNIT_BYTES.len())
                 .max(ACCEPTANCE_BEFORE_UNIT_BYTES.len())
                 .max(ACCEPTANCE_FINAL_UNIT_BYTES.len())
-                .max(ACCEPTANCE_BETWEEN_UNIT_BYTES.len()) as u64
+                .max(ACCEPTANCE_BETWEEN_UNIT_BYTES.len())
+                .max(ACCEPTANCE_LATE_FINISH_UNIT_BYTES.len())
+                .max(ACCEPTANCE_LATE_PUBLICATION_UNIT_BYTES.len()) as u64
         || !packaged_unit_matches(&fs::read(UNIT).map_err(|_| ())?)
     {
         return Err(());
@@ -158,6 +168,8 @@ mod tests {
             ACCEPTANCE_BEFORE_UNIT_BYTES,
             ACCEPTANCE_FINAL_UNIT_BYTES,
             ACCEPTANCE_BETWEEN_UNIT_BYTES,
+            ACCEPTANCE_LATE_FINISH_UNIT_BYTES,
+            ACCEPTANCE_LATE_PUBLICATION_UNIT_BYTES,
         ] {
             assert_eq!(
                 packaged_unit_matches(acceptance),
@@ -171,6 +183,8 @@ mod tests {
             ACCEPTANCE_BEFORE_UNIT_BYTES,
             ACCEPTANCE_FINAL_UNIT_BYTES,
             ACCEPTANCE_BETWEEN_UNIT_BYTES,
+            ACCEPTANCE_LATE_FINISH_UNIT_BYTES,
+            ACCEPTANCE_LATE_PUBLICATION_UNIT_BYTES,
         ] {
             let text = std::str::from_utf8(source).unwrap();
             for changed in [

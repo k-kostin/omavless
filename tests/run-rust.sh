@@ -108,6 +108,8 @@ done
 # Dependency unit tests are not executed by the runtime's Product-feature suite.
 # Keep root-only reboot fixtures explicitly separate from these source controls.
 run_check test-product-image-upgrade cargo test "${crypto_test_profile[@]}" --locked -p omavless-image-witness --features product-epochs --lib
+# Includes actual SEQPACKET ACK/late-return controls; ignored installed Product
+# dead-core probe remains separately owned, never claimed by these source gates.
 run_check test-close-acceptance-channel cargo test "${crypto_test_profile[@]}" --locked -p omavless-image-witness --features product-epochs,acceptance-channel-cut --lib acceptance_channel_tests
 run_check test-close-acceptance-owner cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features acceptance-connection-close,t4-manager-actor-service,setup-upgrade082 --lib acceptance_
 run_check test-close-acceptance-regression cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features acceptance-connection-close,t4-manager-actor-service,setup-upgrade082 --lib product_selected_set

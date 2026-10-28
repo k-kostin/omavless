@@ -850,7 +850,7 @@ fn acceptance_cut_claims_only_set_and_preserves_original_attempt_and_receipt_sem
         let expected = match cut {
             Scenario::BeforeAttempt => vec![ExternalSetMember::NotAttempted; 2],
             Scenario::FinalProof => vec![ExternalSetMember::Unknown; 2],
-            Scenario::BetweenMembers => unreachable!("separate signal barrier control"),
+            Scenario::BetweenMembers | Scenario::LateFinish | Scenario::LatePreviewPublication => unreachable!("separate terminal/barrier control"),
         };
         assert_eq!(result.members, expected);
         let effects = fs::read(fixture.root.join("r/effects")).unwrap_or_default();
@@ -1003,4 +1003,28 @@ fn product_selected_set_busy_snapshot_preserves_the_original_worker_until_finish
         fixture.owner.admit_connection_close_snapshot().is_ok(),
         "completed original retains normal next-epoch admission"
     );
+}
+
+#[cfg(feature = "acceptance-connection-close")]
+#[test]
+fn acceptance_late_publication_uses_real_retirement_object_and_actual_owner_refusal() {
+    use crate::close_acceptance::{Arm, Scenario};
+    use crate::lifecycle::{CloseEpochAdmission, LifecycleHost};
+    let _fixtures = FIXTURES.lock().unwrap();
+    let mut fixture = product_preview_fixture();
+    let arm = std::sync::Arc::new(Arm::new(Scenario::LatePreviewPublication).unwrap());
+    fixture.owner.host_mut().install_close_acceptance_for_test(arm.clone());
+    let mut discovery = match fixture.owner.admit_connection_close_snapshot().unwrap() {
+        CloseSnapshotAdmission::Discover(d) => d,
+        _ => panic!("one original preview capture required"),
+    };
+    discovery.observation.session_mut().retirement_budget_for_test(Duration::from_millis(30));
+    let ready = discovery.observe_preview().unwrap();
+    assert!(arm.is_claimed());
+    assert!(Instant::now() >= ready.retired.retirement_deadline());
+    assert!(fixture.owner.retain_product_preview(Ok(ready)).is_err());
+    assert!(fixture.owner.connection_close.preview.is_none());
+    assert!(fixture.owner.host().close_epoch_admission() == CloseEpochAdmission::Refused);
+    assert!(fixture.owner.admit_connection_close_snapshot().is_err());
+    assert!(!fixture.root.join("r/effects").exists());
 }

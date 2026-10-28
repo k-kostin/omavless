@@ -1082,7 +1082,9 @@ impl Session {
             crate::close_acceptance::Scenario::FinalProof => {
                 crate::close_acceptance::Marker::FinalProof
             }
-            crate::close_acceptance::Scenario::BetweenMembers => {
+            crate::close_acceptance::Scenario::BetweenMembers
+            | crate::close_acceptance::Scenario::LateFinish
+            | crate::close_acceptance::Scenario::LatePreviewPublication => {
                 return Err(Outcome::RefusedBeforeWrite);
             }
         };
@@ -1471,6 +1473,11 @@ impl Session {
     #[cfg(feature = "product-image-witness")]
     pub(crate) fn retire_before_effect(mut self) -> Result<CloseEpochRetirement, Outcome> {
         let original = self.cancellation();
+        #[cfg(feature = "acceptance-connection-close")]
+        let retirement_claim = self
+            .acceptance_arm
+            .as_ref()
+            .and_then(|a| a.claim_retirement());
         let budget = RETIREMENT_BUDGET;
         #[cfg(test)]
         let budget = self.retirement_budget.unwrap_or(budget);
@@ -1511,6 +1518,25 @@ impl Session {
                     .map_err(|_| Outcome::RefusedBeforeWrite)?;
                 self.check_retirement_locked(&mut gate)?;
             }
+            #[cfg(feature = "acceptance-connection-close")]
+            if retirement_claim
+                .as_ref()
+                .is_some_and(|c| c.kind() == crate::close_acceptance::RetirementKind::LateFinish)
+            {
+                let Some(ImageWitness::Bound(client)) = &mut self.image_witness else {
+                    return Err(Outcome::RefusedBeforeWrite);
+                };
+                let result = client.finish_late_for_acceptance(deadline);
+                if matches!(result, Err(omavless_image_witness::Error::Expired)) {
+                    let _ = crate::close_acceptance::marker(
+                        crate::close_acceptance::Marker::LateFinishRefused,
+                    );
+                }
+                result.map_err(|_| Outcome::RefusedBeforeWrite)?;
+            } else {
+                self.finish_image_witness(deadline)?;
+            }
+            #[cfg(not(feature = "acceptance-connection-close"))]
             self.finish_image_witness(deadline)?;
             remaining(deadline)?;
             {
@@ -1554,7 +1580,12 @@ impl Session {
             original.lifetime.revoke();
             return Err(Outcome::RefusedBeforeWrite);
         }
-        Ok(CloseEpochRetirement { original, deadline })
+        Ok(CloseEpochRetirement {
+            original,
+            deadline,
+            #[cfg(feature = "acceptance-connection-close")]
+            acceptance_claim: retirement_claim,
+        })
     }
 
     #[cfg(feature = "product-image-witness")]
@@ -2141,9 +2172,27 @@ pub struct CloseEpochCompletion {
 pub struct CloseEpochRetirement {
     original: Cancellation,
     deadline: Instant,
+    #[cfg(feature = "acceptance-connection-close")]
+    acceptance_claim: Option<crate::close_acceptance::RetirementClaim>,
 }
 #[cfg(feature = "product-image-witness")]
 impl CloseEpochRetirement {
+    #[cfg(feature = "acceptance-connection-close")]
+    pub(crate) fn acceptance_delay_publication(&mut self) -> bool {
+        let Some(claim) = self.acceptance_claim.take() else {
+            return false;
+        };
+        if claim.kind() != crate::close_acceptance::RetirementKind::LatePublication {
+            return false;
+        }
+        let _ =
+            crate::close_acceptance::marker(crate::close_acceptance::Marker::LatePublicationReady);
+        crate::close_acceptance::wait_past_original(self.deadline);
+        let _ = crate::close_acceptance::marker(
+            crate::close_acceptance::Marker::LatePublicationDelivered,
+        );
+        true
+    }
     pub(crate) fn admits(&self, expected: &Cancellation) -> bool {
         remaining(self.deadline).is_ok()
             && Arc::ptr_eq(&self.original.identity, &expected.identity)

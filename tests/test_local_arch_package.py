@@ -71,6 +71,8 @@ class LocalArchPackageTests(unittest.TestCase):
                      "packaging/systemd/omavless-runtime-acceptance-before-attempt.service",
                      "packaging/systemd/omavless-runtime-acceptance-final-proof.service",
                      "packaging/systemd/omavless-runtime-acceptance-between-members.service",
+                     "packaging/systemd/omavless-runtime-acceptance-late-finish.service",
+                     "packaging/systemd/omavless-runtime-acceptance-late-publication.service",
                      "packaging/systemd/omavless-login-prepare.service", "LICENSE", "THIRD_PARTY_NOTICES.md"):
             target = self.repo / name
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -92,10 +94,10 @@ class LocalArchPackageTests(unittest.TestCase):
                                *(["--product-image-witness", str(product_helper)] if product_helper else ["--stable"] if stable else ["--candidate"] if candidate else [])],
                               capture_output=True, text=True, timeout=120)
 
-    def test_acceptance_staging_selects_only_three_fixed_units_and_rejects_other_values(self):
+    def test_acceptance_staging_selects_only_five_fixed_units_and_rejects_other_values(self):
         script = self.repo / "packaging/arch/stage-payload.sh"
         normal = (ROOT / "packaging/systemd/omavless-runtime-product.service").read_text()
-        for mode in ("before-attempt", "final-proof", "between-members"):
+        for mode in ("before-attempt", "final-proof", "between-members", "late-finish", "late-publication"):
             dest = self.base / mode
             dest.mkdir()
             subprocess.run(["bash", str(script), str(dest), str(self.binary),

@@ -740,3 +740,45 @@ owning scope. The next real checkpoints are:
 
 These are remaining obligations, not authorization to activate or publish them.
 Preserve accepted R6/read-only RC work; no unchanged migration gate is reopened.
+
+### Default-off terminal-retirement acceptance cuts
+
+The acceptance-only runtime can select exactly one of two additional fixed
+packaged modes. These selectors are absent from normal builds and remain
+subordinate to Backup-only scope. They add no request kind, authority, caller
+path, configurable duration or recovery mechanism.
+
+`--acceptance-close-late-finish` consumes the owner's one-shot retirement claim
+on the first original Product Snapshot. The original Client sends Finish and
+decodes its actual matching ACK, then returns through the existing deadline
+check only after that same request deadline. This is a late positive terminal
+return, not evidence that a network ACK arrived late. The actual Product
+Snapshot must refuse, publish no rows and leave all original flows usable.
+A helper that already sent its positive ACK can remain healthy: normal Stop
+and original pidfd completion, not an invented helper exit 2, own its return.
+
+`--acceptance-close-late-publication` first completes actual terminal retirement
+and whole original Session destruction. It holds that same noncloneable
+retirement token until its existing deadline, then delivers it to the actual
+owner's unchanged publication guard. Refusal must leave no preview, no renewed
+factory and no native write. This is the token-publication boundary, not delayed
+presentation of an already-published successful Close receipt.
+
+Both fixed delays preserve the original two-second helper, three-second
+retirement and five-second human confirmation guards. The source tests include
+real AF_UNIX ACK parsing and the actual owner publication guard, but do not
+claim installed Product evidence. Fixed current-invocation journal markers,
+actual normal TUI refusal, original process completion and protected Off return
+are separately required. No Prepare or Confirm belongs to either journey.
+A fresh owner in the same late mode would fault again; normal readmission is
+therefore performed only after the separately owned normal-image restoration.
+
+The ignored `installed_product_same_binding_refuses_original_core_death` probe
+captures actual Product roots and one original daemon/core Binding, observes it
+positively, and retains both original pidfds. The sole operator then performs
+one ordinary Disconnect. After original core pidfd death, valid roots and the
+same live daemon must remain, and the SAME Binding must refuse twice without
+renewal. Its read-only Product lease ends with the original probe process; it
+must not overlap an image upgrade. No generic memory-class result substitutes
+for this installed probe. All new installed outcomes remain UNRUN until their
+exact original receipts and independent reviews are recorded.
