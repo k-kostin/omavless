@@ -5,6 +5,7 @@
 // See LICENSE and THIRD_PARTY_NOTICES.md.
 
 import QtQuick
+import QtQuick.Controls
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
@@ -25,6 +26,8 @@ Item {
   property var preview: ({})
   readonly property bool nativeCredential: ["wireguard", "amneziawg"].indexOf(preview.protocol) >= 0
   property alias value: nameField.text
+  readonly property alias flickable: reviewScroll
+  readonly property var focusTargets: [nameField, cancelButton, confirmButton]
   property color foreground: Commons.Color.foreground
   property color dim: Qt.darker(foreground, 1.55)
   property color urgent: Commons.Color.urgent
@@ -48,6 +51,7 @@ Item {
     nameField.cancelPaste()
     nameField.resetHistory()
     nameField.text = String(text)
+    reviewScroll.contentY = 0
     visible = true
     Qt.callLater(function() {
       nameField.forceActiveFocus()
@@ -56,6 +60,21 @@ Item {
   }
 
   function dismiss() { visible = false }
+
+  // Keep the focused form control reachable at constrained panel heights,
+  // using the same bounded scrolling pattern as the local Help surface.
+  function reveal(control) {
+    Qt.callLater(function() {
+      if (!prompt.visible || !control.activeFocus) return
+      var top = control.mapToItem(reviewScroll.contentItem, 0, 0).y
+      var bottom = top + control.height
+      var next = reviewScroll.contentY
+      if (top < next) next = top
+      else if (bottom > next + reviewScroll.height) next = bottom - reviewScroll.height
+      reviewScroll.contentY = Math.max(0, Math.min(next,
+        Math.max(0, reviewScroll.contentHeight - reviewScroll.height)))
+    })
+  }
 
   Keys.onEscapePressed: canceled()
 
@@ -67,7 +86,8 @@ Item {
     BorderSurface {
       id: card
       width: Math.min(parent.width - Style.space(24), Style.space(420))
-      height: card.contentTopInset + card.contentBottomInset + body.implicitHeight
+      height: Math.min(Math.max(0, parent.height - Style.space(24)),
+        card.contentTopInset + card.contentBottomInset + body.implicitHeight)
       anchors.centerIn: parent
       color: Commons.Color.background
       borderSpec: Border.flat(Commons.Color.accent, Style.normalBorderWidth)
@@ -76,14 +96,24 @@ Item {
 
       MouseArea { anchors.fill: parent; onClicked: {} }
 
-      Column {
-        id: body
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
+      Flickable {
+        id: reviewScroll
+        objectName: "importReviewScroll"
+        anchors.fill: parent
         anchors.topMargin: card.contentTopInset
+        anchors.bottomMargin: card.contentBottomInset
         anchors.leftMargin: card.contentLeftInset
         anchors.rightMargin: card.contentRightInset
+        contentWidth: width
+        contentHeight: body.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        interactive: contentHeight > height
+        ScrollBar.vertical: OmaScrollBar { policy: ScrollBar.AsNeeded }
+
+      Column {
+        id: body
+        width: Math.max(0, parent.width - Style.space(16))
         spacing: Style.space(10)
 
         PlainText {
@@ -183,6 +213,7 @@ Item {
 
         SafeTextField {
           id: nameField
+          objectName: "importProfileName"
           locale: prompt.locale
           maximumLength: 80
           width: parent.width
@@ -190,6 +221,7 @@ Item {
           foreground: prompt.foreground
           font.family: prompt.fontFamily
           onAccepted: if (prompt.accepted) prompt.confirmed()
+          onActiveFocusChanged: if (activeFocus) prompt.reveal(this)
           KeyNavigation.tab: cancelButton
           KeyNavigation.backtab: confirmButton
           Keys.onEscapePressed: prompt.canceled()
@@ -213,29 +245,34 @@ Item {
             spacing: Style.space(10)
             Button {
               id: cancelButton
+              objectName: "importCancel"
               text: prompt.textFor("common.cancel")
               bordered: true
               foreground: prompt.foreground
               fontFamily: prompt.fontFamily
               focusable: true
+              onActiveFocusChanged: if (activeFocus) prompt.reveal(this)
               KeyNavigation.tab: confirmButton
               KeyNavigation.backtab: nameField
               onClicked: prompt.canceled()
             }
             Button {
               id: confirmButton
+              objectName: "importConfirm"
               text: prompt.confirmLabel
               bordered: true
               enabled: prompt.accepted
               foreground: enabled ? prompt.foreground : prompt.dim
               fontFamily: prompt.fontFamily
               focusable: true
+              onActiveFocusChanged: if (activeFocus) prompt.reveal(this)
               KeyNavigation.tab: nameField
               KeyNavigation.backtab: cancelButton
               onClicked: prompt.confirmed()
             }
           }
         }
+      }
       }
     }
   }

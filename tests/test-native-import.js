@@ -14,6 +14,35 @@ function profile() { return {version:1,protocol:'vless',server:'192.0.2.1',port:
 function frame(result={version:1,kind:'profile',profile:profile()}) {
   return JSON.stringify({api:'omavless.control',version:1,id:'preview',ok:true,revision:4,result});
 }
+function importScrollHarness() {
+  const source=fs.readFileSync(path.join(__dirname,'../plugin/ImportPreviewPrompt.qml'),'utf8');
+  const start=source.indexOf('  function reveal(');
+  assert(start>=0);
+  const queued=[];
+  const context=vm.createContext({prompt:{visible:true},
+    reviewScroll:{contentItem:{},contentY:80,height:100,contentHeight:400},
+    Qt:{callLater:fn=>queued.push(fn)}});
+  vm.runInContext(source.slice(start,source.indexOf('\n  }',start)+4),context);
+  return {context,queued};
+}
+test('focused import controls scroll into the bounded viewport without overscroll',()=>{
+  for(const [top,height,expected] of [[20,20,20],[160,20,80],[210,30,140],[-10,20,0],[390,30,300]]) {
+    const {context,queued}=importScrollHarness();
+    context.reveal({activeFocus:true,height,mapToItem:()=>({y:top})});
+    assert.equal(context.reviewScroll.contentY,80,'layout is deferred');
+    assert.equal(queued.length,1);queued[0]();
+    assert.equal(context.reviewScroll.contentY,expected);
+  }
+});
+test('deferred import reveal cannot move a hidden or newly unfocused surface',()=>{
+  for(const hidden of [false,true]) {
+    const {context,queued}=importScrollHarness();
+    const control={activeFocus:true,height:30,mapToItem:()=>{throw Error('stale control used');}};
+    context.reveal(control);
+    if(hidden) context.prompt.visible=false;else control.activeFocus=false;
+    queued[0]();assert.equal(context.reviewScroll.contentY,80);
+  }
+});
 test('actual managed preview warning explains refusal before unchanged explicit Save',()=>{
   const source=fs.readFileSync(path.join(__dirname,'../plugin/ImportPreviewPrompt.qml'),'utf8');
   const binding=source.match(/text: (prompt.nativeCredential \? (?:prompt.textFor|prompt.managedWarning)[^\n]+)/);
