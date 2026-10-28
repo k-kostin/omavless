@@ -12,6 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CANONICAL_STAGE_TEST = "manager_actor_service::transfer::tests::failed_canonical_stage_keeps_auth_and_normalized_private_returns"
 AUXILIARY_TEARDOWN_TEST = "auxiliary_core::tests::finish_inventory_refusal_retains_owned_child_and_first_failure_evidence"
+STARTUP_CAPABILITY_TEST = "startup_validation::tests::startup_capability_probe_is_fixed_bounded_and_checks_effective_flags"
 ARGON2_TEST_PROFILE = [
     "--config", "profile.test.package.argon2.opt-level=3",
     "--config", "profile.test.package.argon2.debug-assertions=true",
@@ -20,6 +21,47 @@ ARGON2_TEST_PROFILE = [
 
 
 class RustCiIsolationTests(unittest.TestCase):
+    def without_startup_scheduling(self, commands):
+        """Undo only the two independently asserted skip/exact pairs."""
+        selected = [c for c in commands if STARTUP_CAPABILITY_TEST in c]
+        self.assertEqual(len(selected), 4)
+        for features in (None, "product-image-witness,t4-manager-actor-service"):
+            same = [c for c in selected if
+                    (c[c.index("--features") + 1] if "--features" in c else None) == features]
+            self.assertEqual(len(same), 2)
+            isolated = next(c for c in same if "--exact" in c)
+            skipped = next(c for c in same if "--skip" in c)
+            self.assertEqual(isolated[-4:],
+                             [STARTUP_CAPABILITY_TEST, "--", "--exact", "--test-threads=1"])
+            self.assertIn("--lib", isolated)
+            self.assertIn("--locked", isolated)
+            self.assertEqual(isolated[isolated.index("-p") + 1], "omavless-runtime")
+            self.assertNotIn("--ignored", isolated)
+            self.assertLess(commands.index(isolated), commands.index(skipped))
+            expected = ["cargo", "test"]
+            if isolated[2:3] == ["--config"]:
+                expected += [
+                    "--config", "profile.test.package.sha2.opt-level=3",
+                    "--config", "profile.test.package.sha2.debug-assertions=true",
+                    "--config", "profile.test.package.sha2.overflow-checks=true",
+                ] + ARGON2_TEST_PROFILE
+            expected += ["--locked", "-p", "omavless-runtime", "--lib"]
+            if features is not None:
+                expected += ["--features", features]
+            expected += [STARTUP_CAPABILITY_TEST, "--", "--exact", "--test-threads=1"]
+            self.assertEqual(isolated, expected)
+        restored = []
+        for row in commands:
+            command = row[:]
+            if STARTUP_CAPABILITY_TEST in command:
+                if "--exact" in command:
+                    continue
+                index = command.index(STARTUP_CAPABILITY_TEST)
+                self.assertEqual(command[index - 1], "--skip")
+                del command[index - 1:index + 1]
+            restored.append(command)
+        return restored
+
     def without_auxiliary_scheduling(self, commands):
         """Undo only the two independently asserted skip/exact pairs."""
         selected = [c for c in commands if AUXILIARY_TEARDOWN_TEST in c]
@@ -70,7 +112,7 @@ class RustCiIsolationTests(unittest.TestCase):
 
     def runner_trace(self, fail_test=False, fail_canonical_stage=False, fail_clippy=False,
                      fail_auxiliary_inventory=False, fail_image_upgrade=False,
-                     fail_reply_loss=False, fail_terminal_return=False):
+                     fail_reply_loss=False, fail_terminal_return=False, fail_startup_capability=False):
         """Execute only the shell recipe; every external leaf is an inert stub."""
         with tempfile.TemporaryDirectory(prefix="rust-recipe-") as directory:
             scratch = Path(directory)
@@ -95,6 +137,9 @@ class RustCiIsolationTests(unittest.TestCase):
                 "if os.environ.get('RECIPE_FAIL_AUXILIARY_INVENTORY') == '1' and '--exact' in row and "
                 + repr(AUXILIARY_TEARDOWN_TEST) + " in row:\n"
                 "    sys.exit(21)\n"
+                "if os.environ.get('RECIPE_FAIL_STARTUP_CAPABILITY') == '1' and '--exact' in row and "
+                + repr(STARTUP_CAPABILITY_TEST) + " in row:\n"
+                "    sys.exit(39)\n"
                 "if os.environ.get('RECIPE_FAIL_IMAGE_UPGRADE') == '1' and "
                 "row[:2] == ['cargo', 'test'] and 'omavless-image-witness' in row:\n"
                 "    sys.exit(29)\n"
@@ -118,6 +163,7 @@ class RustCiIsolationTests(unittest.TestCase):
                      "RECIPE_FAIL_CANONICAL_STAGE": "1" if fail_canonical_stage else "0",
                      "RECIPE_FAIL_IMAGE_UPGRADE": "1" if fail_image_upgrade else "0",
                      "RECIPE_FAIL_REPLY_LOSS": "1" if fail_reply_loss else "0",
+                     "RECIPE_FAIL_STARTUP_CAPABILITY": "1" if fail_startup_capability else "0",
                      "RECIPE_FAIL_TERMINAL_RETURN": "1" if fail_terminal_return else "0"},
                 capture_output=True, text=True, timeout=10,
             )
@@ -240,8 +286,40 @@ class RustCiIsolationTests(unittest.TestCase):
         return [row[:-len(added)] if row[0] == "rustfmt" else row[:]
                 for row in commands]
 
+    def without_close_acceptance(self, commands):
+        feature = "acceptance-connection-close,t4-manager-actor-service,setup-upgrade082"
+        expected = [
+            ["cargo", "check", "--locked", "-p", "omavless-runtime", "--all-targets", "--features", feature],
+            ["cargo", "clippy", "--locked", "-p", "omavless-runtime", "--all-targets", "--features", feature, "--", "-D", "warnings"],
+            ["cargo", "test", "--locked", "-p", "omavless-image-witness", "--features", "product-epochs,acceptance-channel-cut", "--lib", "acceptance_channel_tests"],
+            ["cargo", "test", "--locked", "-p", "omavless-runtime", "--features", feature, "--lib", "acceptance_"],
+            ["cargo", "test", "--locked", "-p", "omavless-runtime", "--features", feature, "--lib", "product_selected_set"],
+            ["cargo", "test", "--locked", "-p", "omavless-runtime", "--features", feature, "--bin", "omavless", "close_acceptance_selector"],
+            ["cargo", "test", "--locked", "-p", "omavless-runtime", "--features", "product-private-backup,acceptance-connection-close,setup-upgrade082", "--bin", "omavless", "close_acceptance_selector"],
+        ]
+        retained = []
+        seen = []
+        for command in commands:
+            if not any("acceptance-connection-close" in arg or "acceptance-channel-cut" in arg for arg in command):
+                retained.append(command)
+                continue
+            normalized = command[:]
+            if normalized[:3] == ["cargo", "test", "--config"]:
+                self.assertEqual(normalized[8:14], ARGON2_TEST_PROFILE)
+                normalized = normalized[:2] + normalized[14:]
+            self.assertIn(normalized, expected)
+            self.assertNotIn(normalized, seen)
+            seen.append(normalized)
+        return retained
+
+    def test_close_acceptance_additions_are_exact_and_preserve_prior_recipe(self):
+        result, commands = self.runner_trace()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        original = self.without_close_acceptance(commands)
+        self.assertEqual(len(commands) - len(original), 7)
+
     def without_product_image_upgrade(self, commands):
-        added = [row for row in commands if "omavless-image-witness" in row]
+        added = [row for row in commands if "omavless-image-witness" in row and "product-epochs" in row]
         self.assertEqual(len(added), 1)
         command = added[0]
         self.assertEqual(command[:2], ["cargo", "test"])
@@ -288,12 +366,12 @@ class RustCiIsolationTests(unittest.TestCase):
         # Remove ONLY the exact new Argon2 argv before comparing the original
         # recipe. Do not regenerate the baseline digest to conceal other changes.
         legacy_execution = []
-        for command in self.without_terminal_return_cli(self.without_reply_loss_cli(self.without_auxiliary_scheduling(self.without_product_image_upgrade(execution)))):
+        for command in self.without_startup_scheduling(self.without_terminal_return_cli(self.without_reply_loss_cli(self.without_auxiliary_scheduling(self.without_product_image_upgrade(self.without_close_acceptance(execution)))))):
             if command[:2] == ["cargo", "test"]:
                 self.assertEqual(command[8:14], ARGON2_TEST_PROFILE)
                 command = command[:8] + command[14:]
             legacy_execution.append(command)
-        static = self.without_selected_set_formatting(static)
+        static = self.without_selected_set_formatting(self.without_close_acceptance(static))
         for rows, digest in [(static, "15533c34bf33cb3189a3b4bca162f6b165786bff2e4f9f84f449e99b94dd59a7"),
                              (legacy_execution, "19d3a07ff0ad54c42344d1859330e606a2d2ffcdfc197a5244864286bb32e4e3")]:
             payload = json.dumps(rows, separators=(",", ":")).encode()
@@ -325,6 +403,8 @@ class RustCiIsolationTests(unittest.TestCase):
                 command = command[:2] + command[2 + len(profile):]
             self.assertFalse(any("profile." in arg for arg in command))
             normalized.append(command)
+        normalized = self.without_startup_scheduling(normalized)
+        normalized = self.without_close_acceptance(normalized)
         normalized = self.without_auxiliary_scheduling(self.without_product_image_upgrade(normalized))
         normalized = self.without_reply_loss_cli(normalized)
         normalized = self.without_terminal_return_cli(normalized)
@@ -368,7 +448,7 @@ class RustCiIsolationTests(unittest.TestCase):
         self.assertEqual(commands[-1][:2], ["cargo", "test"])
         self.assertFalse(any(c[:2] in [["cargo", "test"], ["cargo", "build"],
                                      ["cargo", "run"]] for c in commands[:-1]))
-        self.assertRegex(result.stderr, r"OVT_CHECK_END test-auxiliary-inventory-13 elapsed_s=\d+ exit=17")
+        self.assertRegex(result.stderr, r"OVT_CHECK_END test-auxiliary-inventory-15 elapsed_s=\d+ exit=17")
 
     def test_auxiliary_inventory_failure_stops_before_parallel_tests(self):
         result, commands = self.runner_trace(fail_auxiliary_inventory=True)
@@ -377,7 +457,7 @@ class RustCiIsolationTests(unittest.TestCase):
                          [AUXILIARY_TEARDOWN_TEST, "--", "--exact", "--test-threads=1"])
         self.assertEqual(sum(c[:2] == ["cargo", "test"] for c in commands), 1)
         self.assertRegex(result.stderr,
-                         r"OVT_CHECK_END test-auxiliary-inventory-13 elapsed_s=\d+ exit=21")
+                         r"OVT_CHECK_END test-auxiliary-inventory-15 elapsed_s=\d+ exit=21")
 
     def test_auxiliary_normalization_rejects_missing_or_parallel_execution(self):
         result, commands = self.runner_trace()
@@ -426,6 +506,66 @@ class RustCiIsolationTests(unittest.TestCase):
         self.assertEqual(commands[-1][-4:],
                          [CANONICAL_STAGE_TEST, "--", "--exact", "--test-threads=1"])
         self.assertFalse(any(c[:2] == ["cargo", "run"] for c in commands))
+
+    def assert_startup_crypto(self, commands):
+        selected = [row for row in commands if STARTUP_CAPABILITY_TEST in row and "--exact" in row]
+        self.assertEqual(len(selected), 2)
+        profile = ["--config", "profile.test.package.sha2.opt-level=3",
+                   "--config", "profile.test.package.sha2.debug-assertions=true",
+                   "--config", "profile.test.package.sha2.overflow-checks=true"] + ARGON2_TEST_PROFILE
+        for row in selected:
+            self.assertEqual(row[2:14], profile)
+
+    def test_startup_capability_probe_is_exact_isolated_and_keeps_crypto(self):
+        result, commands = self.runner_trace()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_startup_crypto(commands)
+        restored = self.without_startup_scheduling(commands)
+        self.assertEqual(len(commands) - len(restored), 2)
+        self.assertFalse(any(STARTUP_CAPABILITY_TEST in row for row in restored))
+        profile = ["--config", "profile.test.package.sha2.opt-level=3",
+                   "--config", "profile.test.package.sha2.debug-assertions=true",
+                   "--config", "profile.test.package.sha2.overflow-checks=true"] + ARGON2_TEST_PROFILE
+        for row in commands:
+            if STARTUP_CAPABILITY_TEST in row and "--exact" in row:
+                self.assertEqual(row[2:14], profile)
+        source = (ROOT / "crates/omavless-runtime/src/startup_validation.rs").read_text()
+        self.assertIn("fn " + STARTUP_CAPABILITY_TEST.rsplit("::", 1)[1] + "()", source)
+        self.assertIn("Instant::now() + Duration::from_secs(1)", source)
+
+    def test_startup_capability_scheduling_rejects_missing_parallel_or_changed_config(self):
+        result, commands = self.runner_trace()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        isolated = [i for i, row in enumerate(commands)
+                    if STARTUP_CAPABILITY_TEST in row and "--exact" in row]
+        self.assertEqual(len(isolated), 2)
+        for index in isolated:
+            with self.assertRaises(AssertionError):
+                self.without_startup_scheduling(commands[:index] + commands[index + 1:])
+            for mutation in ("threads", "profile", "crypto", "filter"):
+                changed = [row[:] for row in commands]
+                if mutation == "threads":
+                    changed[index][-1] = "--test-threads=2"
+                elif mutation == "profile":
+                    changed[index].insert(2, "--release")
+                elif mutation == "crypto":
+                    del changed[index][2:14]
+                    with self.assertRaises(AssertionError):
+                        self.assert_startup_crypto(changed)
+                    continue
+                else:
+                    changed[index][changed[index].index(STARTUP_CAPABILITY_TEST)] = "startup_validation::tests"
+                with self.assertRaises(AssertionError):
+                    self.without_startup_scheduling(changed)
+
+    def test_startup_capability_original_failure_stops_before_parallel_suite(self):
+        result, commands = self.runner_trace(fail_startup_capability=True)
+        self.assertEqual(result.returncode, 39, result.stderr)
+        self.assertEqual(commands[-1][-4:],
+                         [STARTUP_CAPABILITY_TEST, "--", "--exact", "--test-threads=1"])
+        self.assertFalse(any("--workspace" in row and row[:2] == ["cargo", "test"]
+                             for row in commands))
+        self.assertFalse(any(row[:2] == ["cargo", "run"] for row in commands))
 
     def test_full_source_push_lane_is_development_not_the_user_distribution(self):
         source = (ROOT / ".github/workflows/test.yml").read_text()

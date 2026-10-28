@@ -1304,6 +1304,14 @@ impl ProductionNativeOwner<NativeLifecycleHost> {
         Self::current_with_image(runtime_paths, CloseImageSelection::Product)
     }
 
+    #[cfg(feature = "acceptance-connection-close")]
+    pub(crate) fn current_product_close_acceptance(
+        runtime_paths: &RuntimePaths,
+        cut: crate::close_acceptance::Scenario,
+    ) -> Result<Self, ProductionOwnerError> {
+        Self::current_with_image(runtime_paths, CloseImageSelection::ProductAcceptance(cut))
+    }
+
     fn current_with_image(
         runtime_paths: &RuntimePaths,
         image: CloseImageSelection,

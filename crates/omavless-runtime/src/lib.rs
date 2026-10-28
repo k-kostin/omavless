@@ -7,6 +7,8 @@
 
 mod backup_destination_candidate;
 mod backup_source_candidate;
+#[cfg(feature = "acceptance-connection-close")]
+pub mod close_acceptance;
 #[cfg(feature = "t4-manager-actor-service")]
 pub mod developer_current_restore;
 mod managed_close_receipt;
@@ -1631,6 +1633,20 @@ impl RuntimeServer {
             paths,
             production_owner::ProductionNativeOwner::current_product_image,
         )
+    }
+
+    /// Separate instrumented image; normal ownership and helper checks remain.
+    #[cfg(feature = "acceptance-connection-close")]
+    pub fn bind_current_product_close_acceptance(
+        paths: RuntimePaths,
+        cut: close_acceptance::Scenario,
+    ) -> Result<Self> {
+        if product_scope::backup_only() || !close_acceptance::marker_capable() {
+            return Err(RuntimeError::NativeOwnerUnavailable);
+        }
+        Self::bind_with_owner_factory(paths, |paths| {
+            production_owner::ProductionNativeOwner::current_product_close_acceptance(paths, cut)
+        })
     }
 
     fn bind_with_owner_factory<H, F>(paths: RuntimePaths, construct_owner: F) -> Result<Self>

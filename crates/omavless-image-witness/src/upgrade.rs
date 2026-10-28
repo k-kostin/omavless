@@ -1673,6 +1673,26 @@ fn inspect_at(layout: &Layout, uid: u32, operation: &str, until: Instant) -> Res
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    #[ignore = "actual production root tree, no other Product leases; read-only lock exclusion"]
+    fn installed_product_lease_excludes_the_actual_maintenance_lock() {
+        use super::*;
+        let until = Instant::now() + BUDGET;
+        let layout = Layout::production();
+        layout.authorize().unwrap();
+        let chain = Chain::capture(&layout, &layout.directory, until).unwrap();
+        // Each acquisition opens its own original descriptor. No upgrade/request/publication.
+        drop(Lock::acquire(chain.last(), layout.owner, true, until).unwrap());
+        let lease = ProductLease::acquire(until).unwrap();
+        assert!(matches!(
+            Lock::acquire(chain.last(), layout.owner, true, until),
+            Err(Error::Refused)
+        ));
+        lease.check(until).unwrap();
+        drop(lease);
+        drop(Lock::acquire(chain.last(), layout.owner, true, until).unwrap());
+        chain.check(until).unwrap();
+    }
     use super::*;
     use std::{
         os::unix::fs::{PermissionsExt, symlink},

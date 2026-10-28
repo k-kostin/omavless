@@ -599,7 +599,8 @@ impl Workspace {
             && self
                 .started
                 .is_some_and(|s| now.saturating_duration_since(s) >= LIFE);
-        if expired || frame.area().width < MIN_WIDTH || frame.area().height < MIN_HEIGHT {
+        let constrained = frame.area().width < MIN_WIDTH || frame.area().height < MIN_HEIGHT;
+        if expired || constrained {
             frame.render_widget(
                 Paragraph::new(tr(if expired {
                     "tui.dev_close_expired"
@@ -648,6 +649,8 @@ impl Workspace {
                 "{}\n{}\n{}\n{}",
                 tr(if expired {
                     "tui.dev_close_expired"
+                } else if constrained && self.prepared {
+                    "tui.dev_close_resize"
                 } else {
                     self.notice
                 }),
@@ -657,6 +660,8 @@ impl Workspace {
                     "tui.dev_close_terminal_keys"
                 } else if self.phase.is_some() {
                     "tui.dev_close_wait_keys"
+                } else if constrained {
+                    "tui.set_close_resize_keys"
                 } else if self.prepared && !expired {
                     "tui.dev_close_confirm_keys"
                 } else if expired || !self.enabled || self.rows.is_empty() {
@@ -1702,6 +1707,68 @@ mod tests {
                 w.input(key(KeyCode::Char('r')), now, true),
                 Input::None
             ));
+        }
+    }
+    #[test]
+    fn single_constrained_view_hides_unavailable_actions_before_and_after_prepare() {
+        let now = Instant::now();
+        for locale in [Locale::En, Locale::Ru] {
+            for prepared_view in [false, true] {
+                let mut workspace = Workspace::new(locale);
+                ready(&mut workspace, now);
+                if prepared_view {
+                    prepared(&mut workspace, now);
+                }
+                for (width, height) in [(60, 24), (70, 23)] {
+                    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                    terminal.draw(|f| workspace.draw(f, now)).unwrap();
+                    let text: String = terminal
+                        .backend()
+                        .buffer()
+                        .content
+                        .iter()
+                        .map(|c| c.symbol())
+                        .collect();
+                    assert!(!text.contains("Enter"), "constrained view cannot submit");
+                    assert!(!text.contains("x:"), "constrained view cannot prepare");
+                    assert!(text.contains(if locale == Locale::En {
+                        "Resize"
+                    } else {
+                        "Увеличьте"
+                    }));
+                    assert!(matches!(
+                        workspace.input(key(KeyCode::Enter), now, false),
+                        Input::None
+                    ));
+                    assert!(!workspace.submitted);
+                }
+                let mut terminal = Terminal::new(TestBackend::new(70, 24)).unwrap();
+                terminal.draw(|f| workspace.draw(f, now)).unwrap();
+                let text: String = terminal
+                    .backend()
+                    .buffer()
+                    .content
+                    .iter()
+                    .map(|c| c.symbol())
+                    .collect();
+                assert!(text.contains(if prepared_view { "Enter" } else { "x:" }));
+                workspace.refuse();
+                let mut terminal = Terminal::new(TestBackend::new(60, 24)).unwrap();
+                terminal.draw(|f| workspace.draw(f, now)).unwrap();
+                let text: String = terminal
+                    .backend()
+                    .buffer()
+                    .content
+                    .iter()
+                    .map(|c| c.symbol())
+                    .collect();
+                let refusal: String = locale
+                    .text("tui.dev_close_unavailable")
+                    .chars()
+                    .take(20)
+                    .collect();
+                assert!(text.contains(&refusal), "resize must not hide a refusal");
+            }
         }
     }
     #[test]

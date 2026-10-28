@@ -16,7 +16,7 @@ class LocalArchPackageContractTests(unittest.TestCase):
     def test_fixed_command_boundaries_and_reviewed_identity(self):
         script = (ROOT / "packaging/arch/build-local-package.sh").read_text()
         code = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("#"))
-        self.assertIn('[[ ( $# -eq 3 || ( $# -eq 4 && ( $4 == --candidate || $4 == --stable ) ) || ( $# -eq 5 && $4 == --product-image-witness && -n $5 ) ) && $EUID -ne 0 ]] || fail', code)
+        self.assertIn('[[ ( $# -eq 3 || ( $# -eq 4 && ( $4 == --candidate || $4 == --stable ) ) || ( ( $# -eq 5 || $# -eq 6 ) && $4 == --product-image-witness && -n $5 ) ) && $EUID -ne 0 ]] || fail', code)
         self.assertIn('^[0-9a-f]{40}$', code)
         self.assertEqual(code.count('git -C "$repo_root" rev-parse HEAD'), 2)
         self.assertEqual(code.count('status --porcelain --untracked-files=normal'), 2)
@@ -68,6 +68,9 @@ class LocalArchPackageTests(unittest.TestCase):
                      "Cargo.toml",
                      "packaging/systemd/omavless-runtime.service",
                      "packaging/systemd/omavless-runtime-product.service",
+                     "packaging/systemd/omavless-runtime-acceptance-before-attempt.service",
+                     "packaging/systemd/omavless-runtime-acceptance-final-proof.service",
+                     "packaging/systemd/omavless-runtime-acceptance-between-members.service",
                      "packaging/systemd/omavless-login-prepare.service", "LICENSE", "THIRD_PARTY_NOTICES.md"):
             target = self.repo / name
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -88,6 +91,29 @@ class LocalArchPackageTests(unittest.TestCase):
                                str(build or self.build), str(self.binary if binary is None else binary), sha or self.sha,
                                *(["--product-image-witness", str(product_helper)] if product_helper else ["--stable"] if stable else ["--candidate"] if candidate else [])],
                               capture_output=True, text=True, timeout=120)
+
+    def test_acceptance_staging_selects_only_three_fixed_units_and_rejects_other_values(self):
+        script = self.repo / "packaging/arch/stage-payload.sh"
+        normal = (ROOT / "packaging/systemd/omavless-runtime-product.service").read_text()
+        for mode in ("before-attempt", "final-proof", "between-members"):
+            dest = self.base / mode
+            dest.mkdir()
+            subprocess.run(["bash", str(script), str(dest), str(self.binary),
+                            "--product-image-witness", str(self.binary),
+                            "--acceptance-close-" + mode], check=True)
+            unit = (dest / "usr/lib/systemd/user/omavless-runtime.service").read_text()
+            self.assertEqual(unit, normal.replace("daemon --product-image-witness\n",
+                             "daemon --product-image-witness --acceptance-close-" + mode + "\n"))
+            self.assertFalse((dest / "var").exists())
+            self.assertFalse((dest / "etc").exists())
+        for flag in ("--acceptance-close-unknown", "--acceptance-close-final-proof --force", "--force"):
+            dest = self.base / ("invalid" + str(len(flag)))
+            dest.mkdir()
+            result = subprocess.run(["bash", str(script), str(dest), str(self.binary),
+                                     "--product-image-witness", str(self.binary), flag],
+                                    capture_output=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(list(dest.iterdir()), [])
 
     def test_product_staging_is_exclusive_opt_in_and_has_no_enrollment_or_activation(self):
         plain = self.base / "plain"

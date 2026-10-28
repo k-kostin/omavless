@@ -450,6 +450,20 @@ pub struct Client {
     uid: u32,
 }
 impl Client {
+    /// Cut only this already-bound original channel. The following ordinary
+    /// Observe/Finish must independently fail; no result or authority is forged.
+    #[cfg(feature = "acceptance-channel-cut")]
+    pub fn cut_channel_for_acceptance(&mut self, caller: Instant) -> Result<()> {
+        if self.terminal {
+            return Err(Error::Refused);
+        }
+        let deadline = until(caller);
+        self.endpoint.check(deadline)?;
+        access(self.class, self.uid, self.node)?;
+        kernel::alive(&self.child, deadline)?;
+        cut_original_channel(&self.endpoint.fd, deadline)
+    }
+
     pub fn bind_original(child: OwnedFd, caller: Instant) -> Result<Self> {
         Self::bind_class(child, caller, Class::Tests)
     }
@@ -566,5 +580,65 @@ impl Client {
         }
         // Helper may exit after this ACK. No live authority follows from it.
         kernel::tick(deadline)
+    }
+}
+
+#[cfg(feature = "acceptance-channel-cut")]
+fn cut_original_channel(fd: impl AsFd, deadline: Instant) -> Result<()> {
+    kernel::tick(deadline)?;
+    net::shutdown(fd, net::Shutdown::Both).map_err(|_| Error::ChannelLost)?;
+    kernel::tick(deadline)
+}
+
+#[cfg(all(test, feature = "acceptance-channel-cut"))]
+mod acceptance_channel_tests {
+    use super::*;
+    use nix::sys::socket::{AddressFamily, SockFlag, SockType, socketpair};
+    use std::io::{Read, Write};
+
+    #[test]
+    fn actual_seqpacket_cut_ends_only_original_peer_and_prevents_next_send() {
+        let (client, helper) = socketpair(
+            AddressFamily::Unix,
+            SockType::SeqPacket,
+            None,
+            SockFlag::SOCK_CLOEXEC | SockFlag::SOCK_NONBLOCK,
+        )
+        .unwrap();
+        let (other, control) = socketpair(
+            AddressFamily::Unix,
+            SockType::SeqPacket,
+            None,
+            SockFlag::SOCK_CLOEXEC | SockFlag::SOCK_NONBLOCK,
+        )
+        .unwrap();
+        cut_original_channel(&client, Instant::now() + Duration::from_secs(1)).unwrap();
+        let mut helper = File::from(helper);
+        assert_eq!(helper.read(&mut [0u8; 16]).unwrap(), 0);
+        assert!(net::send(&client, b"next", net::SendFlags::NOSIGNAL).is_err());
+        let mut other = File::from(other);
+        let mut control = File::from(control);
+        other.write_all(b"fresh").unwrap();
+        let mut fresh = [0u8; 5];
+        control.read_exact(&mut fresh).unwrap();
+        assert_eq!(&fresh, b"fresh");
+    }
+
+    #[test]
+    fn expired_cut_leaves_the_original_channel_usable() {
+        let (client, helper) = socketpair(
+            AddressFamily::Unix,
+            SockType::SeqPacket,
+            None,
+            SockFlag::SOCK_CLOEXEC | SockFlag::SOCK_NONBLOCK,
+        )
+        .unwrap();
+        assert!(cut_original_channel(&client, Instant::now() - Duration::from_secs(1)).is_err());
+        let mut client = File::from(client);
+        let mut helper = File::from(helper);
+        client.write_all(b"live").unwrap();
+        let mut live = [0u8; 4];
+        helper.read_exact(&mut live).unwrap();
+        assert_eq!(&live, b"live");
     }
 }

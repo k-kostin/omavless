@@ -8,7 +8,7 @@ fail() {
   exit 2
 }
 
-if [[ $# -ne 2 && !( $# -eq 4 && $3 == --product-image-witness && -n $4 ) ]]; then
+if [[ $# -ne 2 && !( ( $# -eq 4 || $# -eq 5 ) && $3 == --product-image-witness && -n $4 ) ]]; then
   echo "Usage: stage-payload.sh ABSOLUTE_DESTDIR ABSOLUTE_PREBUILT_BINARY" >&2
   exit 2
 fi
@@ -16,6 +16,11 @@ fi
 destdir=$1
 binary=$2
 product_helper=${4-}
+acceptance_cut=${5-}
+case "$acceptance_cut" in
+  ""|--acceptance-close-before-attempt|--acceptance-close-final-proof|--acceptance-close-between-members) ;;
+  *) fail ;;
+esac
 
 # This helper assembles a package payload. It must never be usable as a live
 # host installer, and it must not follow a package-root symlink into another
@@ -55,6 +60,11 @@ repo_root=$(cd -- "$script_dir/../.." && pwd -P)
 unit_source="$repo_root/packaging/systemd/omavless-runtime.service"
 if [[ -n $product_helper ]]; then
   unit_source="$repo_root/packaging/systemd/omavless-runtime-product.service"
+  case "$acceptance_cut" in
+    --acceptance-close-between-members) unit_source="$repo_root/packaging/systemd/omavless-runtime-acceptance-between-members.service" ;;
+    --acceptance-close-before-attempt) unit_source="$repo_root/packaging/systemd/omavless-runtime-acceptance-before-attempt.service" ;;
+    --acceptance-close-final-proof) unit_source="$repo_root/packaging/systemd/omavless-runtime-acceptance-final-proof.service" ;;
+  esac
 fi
 
 binary_target="$destdir/usr/bin/omavless"

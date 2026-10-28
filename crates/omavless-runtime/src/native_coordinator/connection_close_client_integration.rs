@@ -2,6 +2,51 @@
 // Included only inside the existing test module with both developer + TUI.
 // No production entry, fixture permit, raw-ID mapping or privileged dispatcher.
 
+#[cfg(feature = "product-image-witness")]
+#[test]
+#[ignore = "same actual Product owner with original selected-set worker held; one normal competing client"]
+fn installed_product_competing_client_gets_busy_without_a_replacement_snapshot() {
+    use omavless_tui::developer_close::{Input, KeyCode, KeyEvent, KeyModifiers, Workspace};
+    use omavless_tui::i18n::Locale;
+    assert_eq!(nix::unistd::getuid().as_raw(), 1000);
+    assert_eq!(nix::unistd::geteuid().as_raw(), 1000);
+    let paths = crate::RuntimePaths::current().unwrap();
+    let until = Instant::now() + Duration::from_millis(700);
+    let mut workspace = Workspace::new(Locale::En);
+    let Input::Send(mut call) = workspace.input(
+        KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE),
+        Instant::now(),
+        true,
+    ) else {
+        panic!("normal workspace did not construct its fixed refresh")
+    };
+    for expected in [
+        "system.hello",
+        "capabilities.get",
+        "development.connections.snapshot",
+    ] {
+        assert_eq!(call.method(), expected);
+        let left = until
+            .checked_duration_since(Instant::now())
+            .expect("competing client deadline");
+        let value = crate::call_with_timeout(&paths, call.method(), call.params(), left).unwrap();
+        if expected == "development.connections.snapshot" {
+            assert_eq!(value["ok"], false);
+            assert_eq!(
+                value["error"]["code"],
+                omavless_control_protocol::StableErrorCode::Busy.as_str()
+            );
+            assert!(Instant::now() < until);
+            return;
+        }
+        assert_client_reply(expected, &value);
+        call = workspace
+            .accept(Ok(value), Instant::now())
+            .expect("normal workspace stopped before Snapshot");
+    }
+    panic!("exactly one canonical Snapshot required");
+}
+
 #[test]
 #[ignore = "separately reviewed disposable VM namespace and exact developer pair only"]
 fn actual_owner_developer_pair_tui_workspace_in_dev_vm() {

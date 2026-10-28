@@ -88,6 +88,8 @@ pub(crate) enum CloseImageSelection {
     InstalledDevelopment,
     #[cfg(feature = "product-image-witness")]
     Product,
+    #[cfg(feature = "acceptance-connection-close")]
+    ProductAcceptance(crate::close_acceptance::Scenario),
 }
 
 #[cfg(feature = "developer-image-witness")]
@@ -503,6 +505,8 @@ pub struct NativeLifecycleHost {
     development_image: DevelopmentImageState,
     #[cfg(feature = "product-image-witness")]
     product_image: Option<ProductImageEpochs>,
+    #[cfg(feature = "acceptance-connection-close")]
+    close_acceptance: Option<std::sync::Arc<crate::close_acceptance::Arm>>,
     #[cfg(all(test, feature = "product-image-witness"))]
     product_preview_fixture: bool,
 }
@@ -571,6 +575,16 @@ impl LifecycleHost for ObservationOnlyNativeHost {
 }
 
 impl NativeLifecycleHost {
+    #[cfg(all(test, feature = "acceptance-connection-close"))]
+    pub(crate) fn install_close_acceptance_for_test(
+        &mut self,
+        arm: std::sync::Arc<crate::close_acceptance::Arm>,
+    ) {
+        assert!(self.product_image.is_some());
+        assert!(self.close_acceptance.is_none());
+        self.close_acceptance = Some(arm);
+    }
+
     #[cfg(all(test, feature = "product-image-witness"))]
     pub(crate) fn install_product_preview_fixture_for_test(&mut self) {
         assert!(matches!(
@@ -870,6 +884,8 @@ impl NativeLifecycleHost {
             development_image: DevelopmentImageState::Disabled,
             #[cfg(feature = "product-image-witness")]
             product_image: None,
+            #[cfg(feature = "acceptance-connection-close")]
+            close_acceptance: None,
             #[cfg(all(test, feature = "product-image-witness"))]
             product_preview_fixture: false,
         })
@@ -905,6 +921,14 @@ impl NativeLifecycleHost {
             CloseImageSelection::InstalledDevelopment => Self::new_development_image(paths, uid),
             #[cfg(feature = "product-image-witness")]
             CloseImageSelection::Product => Self::new_product_image(paths, uid),
+            #[cfg(feature = "acceptance-connection-close")]
+            CloseImageSelection::ProductAcceptance(cut) => {
+                let mut host = Self::new_product_image(paths, uid)?;
+                host.close_acceptance = Some(std::sync::Arc::new(
+                    crate::close_acceptance::Arm::new(cut).map_err(|_| HostStepError::Prepare)?,
+                ));
+                Ok(host)
+            }
         }
     }
 
@@ -949,7 +973,8 @@ impl NativeLifecycleHost {
         if let Some(epochs) = &mut self.product_image {
             epochs.reserve()?;
             #[cfg(test)]
-            let observation = if self.product_preview_fixture {
+            #[allow(unused_mut)]
+            let mut observation = if self.product_preview_fixture {
                 let mut observation =
                     self.capture_original_close(desired, CloseImageCapture::Direct)?;
                 let image = observation.session().original_image_for_test();
@@ -966,8 +991,15 @@ impl NativeLifecycleHost {
                 self.capture_original_close(desired, CloseImageCapture::ProductWitness)?
             };
             #[cfg(not(test))]
-            let observation =
+            #[allow(unused_mut)]
+            let mut observation =
                 self.capture_original_close(desired, CloseImageCapture::ProductWitness)?;
+            #[cfg(feature = "acceptance-connection-close")]
+            if let Some(arm) = &self.close_acceptance {
+                observation
+                    .session_mut()
+                    .install_acceptance_arm(std::sync::Arc::clone(arm));
+            }
             self.product_image
                 .as_mut()
                 .ok_or(HostStepError::Observation)?

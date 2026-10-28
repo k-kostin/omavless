@@ -624,6 +624,12 @@ pub(crate) struct Session {
     expected_display: Option<serde_json::Value>,
     #[cfg(feature = "product-image-witness")]
     set_progress: Option<SetProgress>,
+    #[cfg(feature = "acceptance-connection-close")]
+    acceptance_arm: Option<Arc<crate::close_acceptance::Arm>>,
+    #[cfg(feature = "acceptance-connection-close")]
+    acceptance_cut: Option<crate::close_acceptance::Scenario>,
+    #[cfg(feature = "acceptance-connection-close")]
+    acceptance_release: Option<Arc<crate::close_acceptance::Release>>,
     #[cfg(test)]
     proof_pause: Option<(usize, Arc<std::sync::Barrier>)>,
     #[cfg(test)]
@@ -748,6 +754,12 @@ impl Session {
             expected_display: None,
             #[cfg(feature = "product-image-witness")]
             set_progress: None,
+            #[cfg(feature = "acceptance-connection-close")]
+            acceptance_arm: None,
+            #[cfg(feature = "acceptance-connection-close")]
+            acceptance_cut: None,
+            #[cfg(feature = "acceptance-connection-close")]
+            acceptance_release: None,
             #[cfg(test)]
             proof_pause: None,
             #[cfg(test)]
@@ -1042,6 +1054,42 @@ impl Session {
         Ok(())
     }
 
+    #[cfg(feature = "acceptance-connection-close")]
+    pub(crate) fn install_acceptance_arm(&mut self, arm: Arc<crate::close_acceptance::Arm>) {
+        self.acceptance_arm = Some(arm);
+    }
+
+    #[cfg(feature = "acceptance-connection-close")]
+    fn acceptance_channel_cut(
+        &mut self,
+        at: crate::close_acceptance::Scenario,
+    ) -> Result<(), Outcome> {
+        if self.acceptance_cut != Some(at) {
+            return Ok(());
+        }
+        self.acceptance_cut = None; // consume before any fallible I/O
+        let deadline = self.deadline.ok_or(Outcome::RefusedBeforeWrite)?;
+        let Some(ImageWitness::Bound(client)) = &mut self.image_witness else {
+            return Err(Outcome::RefusedBeforeWrite);
+        };
+        client
+            .cut_channel_for_acceptance(deadline)
+            .map_err(|_| Outcome::RefusedBeforeWrite)?;
+        let marker = match at {
+            crate::close_acceptance::Scenario::BeforeAttempt => {
+                crate::close_acceptance::Marker::BeforeAttempt
+            }
+            crate::close_acceptance::Scenario::FinalProof => {
+                crate::close_acceptance::Marker::FinalProof
+            }
+            crate::close_acceptance::Scenario::BetweenMembers => {
+                return Err(Outcome::RefusedBeforeWrite);
+            }
+        };
+        let _ = crate::close_acceptance::marker(marker);
+        Ok(())
+    }
+
     fn effect_lease(&mut self, finalizing: bool) -> Result<Option<EffectLease>, Outcome> {
         if self.effect_proof.is_none() {
             #[cfg(feature = "developer-image-witness")]
@@ -1050,6 +1098,10 @@ impl Session {
                 return Err(Outcome::RefusedBeforeWrite);
             }
             return Ok(None);
+        }
+        #[cfg(feature = "acceptance-connection-close")]
+        if !finalizing {
+            self.acceptance_channel_cut(crate::close_acceptance::Scenario::BeforeAttempt)?;
         }
         let flight = self.image_proof_flight()?;
         // New developer-object pathname/descriptor work uses this same flight,
@@ -1061,6 +1113,8 @@ impl Session {
         #[cfg(feature = "developer-image-witness")]
         if finalizing && self.image_witness_selected() {
             let deadline = self.deadline.ok_or(Outcome::RefusedBeforeWrite)?;
+            #[cfg(feature = "acceptance-connection-close")]
+            self.acceptance_channel_cut(crate::close_acceptance::Scenario::FinalProof)?;
             if self.finish_image_witness(deadline).is_err() {
                 self.revoke_image();
                 return Err(Outcome::RefusedBeforeWrite);
@@ -2372,6 +2426,15 @@ impl Session {
         members: Vec<ObservedRow>,
         _permit: CandidateEffectPermit,
     ) -> Result<SetSession, Outcome> {
+        // Preview retirement never claims this arm. One original set transfer
+        // consumes it even when the following authorization refuses.
+        #[cfg(feature = "acceptance-connection-close")]
+        {
+            if let Some(claim) = self.acceptance_arm.take().and_then(|arm| arm.claim()) {
+                self.acceptance_cut = Some(claim.scenario);
+                self.acceptance_release = claim.release;
+            }
+        }
         if !(1..=MAX_ROWS).contains(&members.len())
             || Instant::now() >= expiry
             || self.effect_proof.is_some()
@@ -2553,6 +2616,26 @@ impl SetSession {
                 .reply(index, result);
             if result != Outcome::Closed {
                 break;
+            }
+            #[cfg(feature = "acceptance-connection-close")]
+            if index == 0
+                && self.members.len() > 1
+                && self.session.acceptance_cut
+                    == Some(crate::close_acceptance::Scenario::BetweenMembers)
+            {
+                self.session.acceptance_cut = None;
+                let released = self
+                    .session
+                    .acceptance_release
+                    .take()
+                    .is_some_and(|release| {
+                        self.session
+                            .deadline
+                            .is_some_and(|deadline| release.wait(deadline).is_ok())
+                    });
+                if !released {
+                    return self.session.finish_set(false);
+                }
             }
         }
         #[cfg(test)]

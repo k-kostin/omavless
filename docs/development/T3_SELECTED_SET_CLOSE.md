@@ -124,3 +124,95 @@ no private UI/payload log, raw RPC harness or diagnostic file is required.
 New source, package, installed, own-PR/merged-PUSH and final distribution gates
 remain separate. No actual lost-reply, sticky-Unknown or whole-T3 PASS is claimed
 by adding this capability.
+
+## Explicit acceptance image: failed final proof
+
+`acceptance-connection-close` is a separate default-off runtime feature, not a
+public/default activation. Its closed selectors are `daemon --product-image-witness
+--acceptance-close-before-attempt` and `daemon --product-image-witness
+--acceptance-close-final-proof`, and `daemon --product-image-witness
+--acceptance-close-between-members`, with exact argument order and no extras.
+Backup-only builds refuse all three. Normal Product selection remains unchanged.
+The local packager selects one of three fixed acceptance unit files; it records
+`featureSelection=product-image-witness-acceptance` and the closed cut name in the
+private schema4 build identity. No helper wire field, endpoint or privilege changes.
+
+The same current Product owner shares one arm across its captures. Inert preview
+retirement cannot consume it; the first set-authorization transfer consumes it
+before fallible authorization. The before-attempt cut shuts down only the original
+bound helper channel before the first POST's proof. The final-proof cut does so
+at finalizing `effect_lease`, after its fresh image/package checks and before the
+ordinary Client Finish. The ordinary Observe/Finish error and unchanged settlement
+path determine the result. No fake outcome, attempt bit, native response, receipt,
+retry, rearm, sleep or deadline extension is supplied by the cut.
+
+Source controls use real SEQPACKET lifetime checks and the existing owned
+controller/owner fixture with explicitly memory-only image callbacks. They are
+not real Product authority or installed failure evidence. Installed acceptance
+requires this declared image's normal package/root admission, exact cut-reached
+marker, original selected TCP witnesses and unaffected control, the same indexed
+receipt remaining Unknown through explicit receipt reads, no renewal/resend,
+original worker/helper/client completion and protected ordinary Off return.
+A before-attempt falsifying control must instead preserve every original flow
+and return NotAttempted. Instrumented evidence proves the real failed-final-proof
+handling; it does not assert an organically occurring failure in an unchanged
+runtime image, default/public readiness or whole T3 closure.
+
+The between-members scenario shares the same one-shot set arm. After the first
+real Closed member of a multi-member set, the worker waits on one owned nonblocking
+socket pair released by its selected owner's fixed SIGUSR2 handler. The pair is
+created once for that owner, not per preview; its registration is dropped with
+its owner. There is no pathname, arbitrary FD, message payload, effect permission,
+sleep or renewed deadline. The wait uses the original absolute native deadline,
+holds no proof/owner/migration lock and fails closed on preloaded input, timeout,
+EOF/error or repeat entry. Normal proofs run again before the next write and at
+Finish. The caller must bind the exact original daemon pidfd and wait for the
+closed `between_members barrier=entered` marker before the single release signal.
+A release authorizes no operation; the original normal guards still decide.
+This declared instrumentation can align real member disappearance and a competing
+normal client while the original worker is held. Source fixture Partial is not
+installed real-flow Partial or shared-owner client acceptance.
+
+Acceptance markers use one nonblocking send to the existing stderr socket, with
+no Rust stderr lock and no global descriptor-policy change. A full or unsupported
+output drops the marker; this never blocks a native proof/operation. Missing or
+partial marker delivery is not cut qualification: the installed driver must bind
+the exact full journal line to the current original owner invocation. Source
+controls cover saturated owned output and contended Rust stderr separately.
+
+Before binding the instrumented owner, the explicit acceptance entry requires
+stderr to be an AF_UNIX stream socket accepting an empty nonblocking probe. It
+emits no cut marker during preflight and cannot guarantee later delivery. This
+refuses unsupported terminal/file/pipe redirection before creating that owner;
+the fixed packaged units retain ordinary journal routing. Default/Product
+entries do not gain this requirement.
+
+### Installed Product guard probes
+
+Ignored test entries exercise the existing Product primitives on their fixed
+installed paths; they are not runtime commands, helper wire methods or authority
+exports. The parent/UID test requires the actual enrolled core and its daemon,
+plus one owned inert normal selected-set TUI. It holds original pidfds, proves
+the positive daemon/core binding, independently checks the TUI's enrolled image,
+four UIDs and namespaces, then requires exactly `Refused` for its foreign parent.
+Its real root SEQPACKET peer control checks the same UID admission primitive;
+this alone is not a packaged helper-listener rejection or helper-exit result.
+
+The read-only maintenance test acquires the actual exclusive lock before and
+after its own Product lease, requiring exclusive refusal while that lease exists.
+It requires no other live leases, creates no record and issues no upgrade.
+
+The retained-object test consumes real Product Roots into a private diagnostic
+holder and drops the lease before ordinary managed package/root upgrade. It
+cannot produce Roots, a Binding, session or permit. Original runtime/enrollment
+objects must then refuse; an unchanged core is explicitly a positive control.
+A separate normal-UID test retains the actual managed core/broker/source-receipt
+Chain/Member objects and checks their independent package-object guards across
+that upgrade. These waits accept one fixed stdin inspection byte within 180s;
+they are diagnostic lifetimes, not extensions of product deadlines.
+
+These actual retained-object results, exact source composition/poisoning tests
+and normal installed Product refusals have different evidence layers. They do
+not claim a live authority session survived an upgrade, nor waive an unexecuted
+probe. Expiry, unavailable observation, absent originals or ambiguous processes
+cannot count as the required identity refusal.

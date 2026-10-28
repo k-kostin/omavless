@@ -48,13 +48,13 @@ class SelectedDeliveryTests(unittest.TestCase):
 
     def test_selected_frontend_tuple_is_closed_and_not_a_compiled_self_hash(self):
         app, dns, update = self.selected()
-        self.assertEqual(update['sourceCommit'], 'd606b4a4dfc403084263091dbdede7c2800f1326')
+        self.assertEqual(update['sourceCommit'], '702d73eb718f42051eb6ff5613829216fb3cc928')
         self.assertEqual(app['version'], '0.9.9')
         for arch, app_sha, dns_sha in (
-            ('x86_64', 'edfc83910e846d5f2d19c0622c1c87af46777795564de60d8a03f9573331142a',
-             '55379eb02d0b50004f1c5ca096faca0d18e6e41df939cf7e46096c6176699417'),
-            ('aarch64', '39e814d1d997884361605883ace3bfb39daf508152d9c371be65ee4643977611',
-             '6725ac1abc6affddac8659e8cec080fd78e0f34301c6dcee03dc3d4b2bf5cbf4'),
+            ('x86_64', '513b6baab4101688daa2769941a1d423ad074967a28e9dc8b08271a7eede107f',
+             'db00372db875e30498a2a3e255b50559c66b58341dea91d7fd350c662630adf8'),
+            ('aarch64', 'a896dcd3411743509072b38c7acb413c65b7b8ea484e24253c8207a84f67c42d',
+             '42496d9808a679b9d8a11c282f2e3663fd88a5b86b2eefff60747c6eb7dcba5b'),
         ):
             self.assertEqual(app['packages'][arch]['sha256'], app_sha)
             self.assertEqual(dns['packages'][arch]['sha256'], dns_sha)

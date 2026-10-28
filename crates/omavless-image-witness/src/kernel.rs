@@ -17,6 +17,10 @@ use std::{
     time::Instant,
 };
 
+#[cfg(all(test, feature = "product-epochs"))]
+#[path = "kernel_product_tests.rs"]
+mod product_tests;
+
 pub(crate) const CORE: &str = "/usr/lib/omavless-dns/mihomo";
 const PIDFS: i64 = 0x50494446;
 const PROCFS: i64 = 0x9fa0;
