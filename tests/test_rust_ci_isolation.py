@@ -14,6 +14,7 @@ CANONICAL_STAGE_TEST = "manager_actor_service::transfer::tests::failed_canonical
 AUXILIARY_TEARDOWN_TEST = "auxiliary_core::tests::finish_inventory_refusal_retains_owned_child_and_first_failure_evidence"
 STARTUP_CAPABILITY_TEST = "startup_validation::tests::startup_capability_probe_is_fixed_bounded_and_checks_effective_flags"
 DISCONNECT_CANCEL_TEST = "native_coordinator::connection_close::tests::actual_owner_disconnect_cancels_stalled_read_or_reply_before_lifecycle_effects"
+AUXILIARY_MODULE = "auxiliary_core::tests::"
 ARGON2_TEST_PROFILE = [
     "--config", "profile.test.package.argon2.opt-level=3",
     "--config", "profile.test.package.argon2.debug-assertions=true",
@@ -22,6 +23,41 @@ ARGON2_TEST_PROFILE = [
 
 
 class RustCiIsolationTests(unittest.TestCase):
+    def without_auxiliary_module_scheduling(self, commands, complete=True):
+        """Restore only the independently checked module/negative partition."""
+        restored, isolated, skipped = [], [], []
+        configurations = [None, "product-image-witness,t4-manager-actor-service"]
+        for row in commands:
+            command = row[:]
+            if AUXILIARY_MODULE not in command:
+                restored.append(command)
+                continue
+            features = command[command.index("--features") + 1] if "--features" in command else None
+            self.assertIn(features, configurations)
+            index = command.index(AUXILIARY_MODULE)
+            if command[index - 1] == "--skip":
+                self.assertGreater(index, command.index("--"))
+                self.assertIn(features, isolated)
+                self.assertNotIn(features, skipped)
+                skipped.append(features)
+                command[index] = AUXILIARY_TEARDOWN_TEST
+                restored.append(command)
+            else:
+                expected = ["cargo", "test", "--config", "profile.test.package.sha2.opt-level=3",
+                            "--config", "profile.test.package.sha2.debug-assertions=true",
+                            "--config", "profile.test.package.sha2.overflow-checks=true"] + ARGON2_TEST_PROFILE
+                expected += ["--locked", "-p", "omavless-runtime", "--lib"]
+                if features is not None:
+                    expected += ["--features", features]
+                expected += [AUXILIARY_MODULE, "--", "--skip", AUXILIARY_TEARDOWN_TEST, "--test-threads=1"]
+                self.assertEqual(command, expected)
+                self.assertNotIn(features, isolated)
+                isolated.append(features)
+        if complete:
+            self.assertEqual(isolated, configurations)
+            self.assertEqual(skipped, configurations)
+        return restored
+
     def without_startup_scheduling(self, commands, selected_test=STARTUP_CAPABILITY_TEST):
         """Undo only the two independently asserted skip/exact pairs."""
         selected = [c for c in commands if selected_test in c]
@@ -117,7 +153,8 @@ class RustCiIsolationTests(unittest.TestCase):
 
     def runner_trace(self, fail_test=False, fail_canonical_stage=False, fail_clippy=False,
                      fail_auxiliary_inventory=False, fail_image_upgrade=False,
-                     fail_reply_loss=False, fail_terminal_return=False, fail_startup_capability=False):
+                     fail_reply_loss=False, fail_terminal_return=False, fail_startup_capability=False,
+                     fail_auxiliary_module=False, raw=False):
         """Execute only the shell recipe; every external leaf is an inert stub."""
         with tempfile.TemporaryDirectory(prefix="rust-recipe-") as directory:
             scratch = Path(directory)
@@ -136,6 +173,9 @@ class RustCiIsolationTests(unittest.TestCase):
                 "    sys.exit(17)\n"
                 "if row[:2] == ['cargo', 'clippy'] and os.environ.get('RECIPE_FAIL_CLIPPY') == '1':\n"
                 "    sys.exit(23)\n"
+                "if os.environ.get('RECIPE_FAIL_AUXILIARY_MODULE') == '1' and '--' in row and "
+                + repr(AUXILIARY_MODULE) + " in row[:row.index('--')]:\n"
+                "    sys.exit(41)\n"
                 "if os.environ.get('RECIPE_FAIL_CANONICAL_STAGE') == '1' and '--exact' in row and "
                 + repr(CANONICAL_STAGE_TEST) + " in row:\n"
                 "    sys.exit(19)\n"
@@ -164,6 +204,7 @@ class RustCiIsolationTests(unittest.TestCase):
                      "CARGO_TARGET_DIR": "target", "RECIPE_TRACE": str(trace),
                      "RECIPE_FAIL": "1" if fail_test else "0",
                      "RECIPE_FAIL_CLIPPY": "1" if fail_clippy else "0",
+                     "RECIPE_FAIL_AUXILIARY_MODULE": "1" if fail_auxiliary_module else "0",
                      "RECIPE_FAIL_AUXILIARY_INVENTORY": "1" if fail_auxiliary_inventory else "0",
                      "RECIPE_FAIL_CANONICAL_STAGE": "1" if fail_canonical_stage else "0",
                      "RECIPE_FAIL_IMAGE_UPGRADE": "1" if fail_image_upgrade else "0",
@@ -172,7 +213,36 @@ class RustCiIsolationTests(unittest.TestCase):
                      "RECIPE_FAIL_TERMINAL_RETURN": "1" if fail_terminal_return else "0"},
                 capture_output=True, text=True, timeout=10,
             )
-            return result, [json.loads(line) for line in trace.read_text().splitlines()]
+            commands = [json.loads(line) for line in trace.read_text().splitlines()]
+            return result, commands if raw else self.without_auxiliary_module_scheduling(
+                commands, complete=result.returncode == 0)
+
+    def test_owned_auxiliary_module_partition_preserves_each_existing_case(self):
+        result, commands = self.runner_trace(raw=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        restored = self.without_auxiliary_module_scheduling(commands)
+        self.assertEqual(len(commands) - len(restored), 2)
+        self.assertFalse(any(AUXILIARY_MODULE in c for c in restored))
+        self.without_auxiliary_scheduling(restored)
+
+    def test_owned_auxiliary_failure_stops_before_the_broad_suite(self):
+        result, commands = self.runner_trace(fail_auxiliary_module=True, raw=True)
+        self.assertEqual(result.returncode, 41)
+        self.assertIn(AUXILIARY_MODULE, commands[-1][:commands[-1].index("--")])
+        self.assertFalse(any("--workspace" in c for c in commands if c[:2] == ["cargo", "test"]))
+
+    def test_owned_auxiliary_partition_rejects_missing_duplicate_or_weakened_command(self):
+        result, commands = self.runner_trace(raw=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        index = next(i for i, c in enumerate(commands)
+                     if AUXILIARY_MODULE in c and c[c.index(AUXILIARY_MODULE) - 1] != "--skip")
+        missing = commands[:index] + commands[index + 1:]
+        duplicate = commands[:index] + [commands[index]] + commands[index:]
+        weakened = [c[:] for c in commands]
+        weakened[index].remove("--test-threads=1")
+        for mutant in (missing, duplicate, weakened):
+            with self.assertRaises(AssertionError):
+                self.without_auxiliary_module_scheduling(mutant)
 
     def without_terminal_return_cli(self, commands):
         selected = [row for row in commands if "developer_terminal_pty_" in row]
@@ -384,7 +454,7 @@ class RustCiIsolationTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(payload).hexdigest(), digest)
 
     def test_every_command_has_a_paired_closed_label_timing(self):
-        result, commands = self.runner_trace()
+        result, commands = self.runner_trace(raw=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         starts = re.findall(r"^OVT_CHECK_START ([a-z0-9-]+)$", result.stderr, re.M)
         ends = re.findall(r"^OVT_CHECK_END ([a-z0-9-]+) elapsed_s=(\d+) exit=(\d+)$",

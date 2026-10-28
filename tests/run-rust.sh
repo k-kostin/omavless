@@ -70,6 +70,12 @@ run_check lint-close-acceptance cargo clippy --locked -p omavless-runtime --all-
 # Keep semantic assertions and the short held-proof bound. Successful complete
 # Disconnect also includes an independently budgeted real owned-child stop.
 auxiliary_inventory_test='auxiliary_core::tests::finish_inventory_refusal_retains_owned_child_and_first_failure_evidence'
+# These remaining owned-child fixtures also exercise bounded procfs/group
+# cleanup. Keep the whole module away from unrelated fork-heavy tests, with
+# its existing reject-only case still executed separately and exactly once.
+# This preserves every assertion/deadline; it does not establish the internal
+# cause of the prior concurrent identity/quiesce Cleanup refusal.
+auxiliary_module='auxiliary_core::tests::'
 # This fixed child probe retains its one-second bound and every assertion.
 # Isolate it from unrelated process/crypto-heavy tests in both broad suites.
 # The prior false positive-case result has no recorded internal cause; this
@@ -95,9 +101,11 @@ run_check test-auxiliary-inventory cargo test "${crypto_test_profile[@]}" --lock
   "$auxiliary_inventory_test" -- --exact --test-threads=1
 run_check test-startup-capability cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --lib \
   "$startup_capability_test" -- --exact --test-threads=1
+run_check test-auxiliary-owned-group cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --lib \
+  "$auxiliary_module" -- --skip "$auxiliary_inventory_test" --test-threads=1
 run_check test-default-workspace cargo test "${crypto_test_profile[@]}" --workspace --locked --exclude omavless-dns-broker --exclude omavless-dns-resolved -- \
   --skip core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn \
-  --skip "$auxiliary_inventory_test" \
+  --skip "$auxiliary_module" \
   --skip "$startup_capability_test" \
   "${close_drain_skips[@]}"
 run_check test-helper-drain cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --lib \
@@ -184,9 +192,11 @@ run_check test-image-auxiliary-inventory cargo test "${crypto_test_profile[@]}" 
   "$auxiliary_inventory_test" -- --exact --test-threads=1
 run_check test-image-startup-capability cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --lib --features product-image-witness,t4-manager-actor-service \
   "$startup_capability_test" -- --exact --test-threads=1
+run_check test-image-auxiliary-owned-group cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --lib --features product-image-witness,t4-manager-actor-service \
+  "$auxiliary_module" -- --skip "$auxiliary_inventory_test" --test-threads=1
 run_check test-image-t4 cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --lib --features product-image-witness,t4-manager-actor-service -- \
   --skip core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn \
-  --skip "$auxiliary_inventory_test" \
+  --skip "$auxiliary_module" \
   --skip "$startup_capability_test" \
   --skip "$canonical_stage_retention_test" \
   "${close_drain_skips[@]}"
