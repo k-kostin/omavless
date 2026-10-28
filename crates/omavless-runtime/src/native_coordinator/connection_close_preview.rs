@@ -141,7 +141,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             {
                 #[cfg(feature = "acceptance-connection-close")]
                 if acceptance_late && Instant::now() >= ready.retired.retirement_deadline() {
-                    let _ = crate::close_acceptance::marker(crate::close_acceptance::Marker::LatePublicationRefused);
+                    let _ = crate::close_acceptance::marker(
+                        crate::close_acceptance::Marker::LatePublicationRefused,
+                    );
                 }
                 return Err(NativeOwnerError::OwnershipUnavailable);
             }
@@ -153,7 +155,9 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             {
                 #[cfg(feature = "acceptance-connection-close")]
                 if acceptance_late && Instant::now() >= ready.retired.retirement_deadline() {
-                    let _ = crate::close_acceptance::marker(crate::close_acceptance::Marker::LatePublicationRefused);
+                    let _ = crate::close_acceptance::marker(
+                        crate::close_acceptance::Marker::LatePublicationRefused,
+                    );
                 }
                 return Err(NativeOwnerError::OwnershipUnavailable);
             }
