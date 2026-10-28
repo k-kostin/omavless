@@ -55,6 +55,19 @@ impl PreparedProfileMutation {
     }
 }
 
+pub(crate) fn prepare_subscription_schedule(
+    store_path: &Path,
+    uid: u32,
+    id: &str,
+    enabled: bool,
+    now: u64,
+) -> Result<PreparedProfileMutation, ProfileMutationCommitError> {
+    let prepared = prepare_private_store_write(store_path, uid, |input| {
+        omavless_domain::private_store::apply_subscription_schedule(input, id, enabled, now)
+    })?;
+    Ok(PreparedProfileMutation { prepared })
+}
+
 /// Validate and render a complete replacement without changing the store.
 pub fn prepare_profile_mutation(
     store_path: &Path,

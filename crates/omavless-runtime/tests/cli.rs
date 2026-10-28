@@ -122,6 +122,91 @@ fn normal_selected_set_cli_does_not_arm_reply_loss_from_environment() {
 }
 
 #[test]
+fn daily_schedule_cli_fixed_settings_read_and_unknown_reply_do_not_resend() {
+    use omavless_control_protocol::{
+        FrameKind, decode_request, encode_response, read_unary_frame, success_response,
+    };
+    use std::os::unix::net::UnixListener;
+    let base = runtime_base();
+    prepare_isolated_daemon_environment(&base);
+    let paths = omavless_runtime::RuntimePaths::below(&base);
+    fs::create_dir(&paths.directory).unwrap();
+    fs::set_permissions(&paths.directory, fs::Permissions::from_mode(0o700)).unwrap();
+    let listener = UnixListener::bind(&paths.socket).unwrap();
+    fs::set_permissions(&paths.socket, fs::Permissions::from_mode(0o600)).unwrap();
+    let id = "10000000-0000-4000-8000-000000000001";
+    let peer = thread::spawn(move || {
+        for mode in ["read", "ok", "lost", "malformed"] {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let request =
+                decode_request(&read_unary_frame(&mut stream, FrameKind::Request).unwrap())
+                    .unwrap();
+            assert_eq!(
+                request["method"],
+                if mode == "read" {
+                    "subscriptions.schedule.get"
+                } else {
+                    "subscriptions.schedule.configure"
+                }
+            );
+            assert_eq!(
+                request["params"],
+                if mode == "read" {
+                    serde_json::json!({"subscriptionId":id})
+                } else {
+                    serde_json::json!({"subscriptionId":id,"enabled":true,"operationId":mode,"expectedRevision":7})
+                }
+            );
+            if mode == "lost" {
+                continue;
+            }
+            let result = match mode {
+                "read" => serde_json::json!({"enabled":false}),
+                "malformed" => serde_json::json!({"accepted":"true"}),
+                _ => serde_json::json!({"accepted":true}),
+            };
+            let response = success_response(request["id"].as_str().unwrap(), 8, result).unwrap();
+            stream
+                .write_all(&encode_response(&response).unwrap())
+                .unwrap();
+        }
+        listener
+    });
+    assert!(
+        isolated_command(&base)
+            .args(["subscription", "schedule", id])
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    for mode in ["ok", "lost", "malformed"] {
+        let output = isolated_command(&base)
+            .args(["subscription", "schedule", id, "daily", mode, "7"])
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(if mode == "ok" { 0 } else { 73 })
+        );
+        if mode != "ok" {
+            assert!(output.stdout.is_empty());
+            assert!(String::from_utf8_lossy(&output.stderr).contains("outcome is unknown"));
+        }
+    }
+    let listener = peer.join().unwrap();
+    listener.set_nonblocking(true).unwrap();
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
 fn selected_refresh_cli_uses_original_handles_and_never_resends_after_lost_reply() {
     use omavless_control_protocol::{
         FrameKind, decode_request, encode_response, read_unary_frame, success_response,

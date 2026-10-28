@@ -176,6 +176,7 @@ mod subscription_probe_work;
 pub mod subscription_read_protocol;
 pub mod subscription_refresh;
 pub mod subscription_refresh_protocol;
+mod subscription_schedule;
 pub mod subscription_transport;
 mod subscription_usage;
 mod support_diagnostics;
@@ -374,6 +375,7 @@ const NATIVE_MUTATION_METHODS: &[&str] = &[
     "plugin.action",
     "onboarding.complete",
     "startup.configure",
+    "subscriptions.schedule.configure",
     "profiles.replace",
     "profiles.import",
     "profiles.importBundle",
@@ -414,6 +416,7 @@ fn valid_mutation_shape(request: &Value, instance: &str) -> bool {
             custom_rule_protocol::parse(request).is_ok()
         }
         "startup.configure" => startup_protocol::parse_startup_request(request).is_ok(),
+        "subscriptions.schedule.configure" => subscription_schedule::parse(request).is_ok(),
         "onboarding.complete" => onboarding_protocol::parse(request).is_ok(),
         _ => false,
     }
@@ -650,6 +653,11 @@ trait NativeRuntimeOwner: Send {
     fn batch_finish(&mut self, job: native_coordinator::NativeSubscriptionBatch);
     fn batch_abort(&mut self, ticket: native_coordinator::NativeBatchTicket);
     fn batch_stop(&mut self);
+    fn batch_due(
+        &mut self,
+        instance: &str,
+        now: u64,
+    ) -> std::result::Result<Option<batch_scheduler::BatchWork>, native_coordinator::NativeOwnerError>;
     fn provider_preflight(
         &mut self,
         request: &Value,
@@ -1185,6 +1193,9 @@ where
             coordinator.initialize_batch_operations(instance)?;
             self.batch_initialized = true;
         }
+        if request["method"] == "subscriptions.schedule.get" {
+            return Ok((coordinator.subscription_schedule(request, instance)?, None));
+        }
         if matches!(
             request["method"].as_str(),
             Some("subscriptions.probe_results" | "profiles.probe_results")
@@ -1360,6 +1371,29 @@ where
 
     fn batch_stop(&mut self) {
         let _ = self.owner.batch_coordinator().stop_batch_operations();
+    }
+
+    fn batch_due(
+        &mut self,
+        instance: &str,
+        now: u64,
+    ) -> std::result::Result<Option<batch_scheduler::BatchWork>, native_coordinator::NativeOwnerError>
+    {
+        if !self.owner.rust_ownership_available() {
+            return Ok(None);
+        }
+        let coordinator = self.owner.batch_coordinator();
+        if !self.batch_initialized {
+            coordinator.initialize_batch_operations(instance)?;
+            self.batch_initialized = true;
+        }
+        let operation = self.record_ids.next();
+        let job = coordinator.start_due_subscription_batch(instance, &operation, now)?;
+        Ok(job.map(|job| batch_scheduler::BatchWork::Subscription {
+            job,
+            transport: self.transport.clone(),
+            record_ids: RecordIdGenerator::new(&self.record_ids.next()),
+        }))
     }
 
     fn revision(&self) -> u64 {
@@ -1727,6 +1761,15 @@ impl RuntimeServer {
         let server = &self;
         thread::scope(|scope| {
             while !stop.load(Ordering::Relaxed) && !self.quit_requested.load(Ordering::Acquire) {
+                if let Ok(gate) = self.quit_gate.try_read()
+                    && !*gate
+                {
+                    self.batch_scheduler.reconcile_due(
+                        &self.instance_id,
+                        &self.dispatcher,
+                        &self.remote_fetches,
+                    );
+                }
                 match self.listener.accept() {
                     Ok((mut stream, _address)) => {
                         if let Some(slot) = claim_slot(&active, MAX_CONCURRENT_CLIENTS) {
@@ -8112,6 +8155,267 @@ mod tests {
         assert!(fs::read(base.join("config/profiles.json")).unwrap() == before);
         drop(server);
         fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn daily_schedule_real_http_socket_cancel_restart_and_no_duplicate() {
+        use std::io::{Read, Write};
+        const SUB: &str = "10000000-0000-4000-8000-000000000001";
+        for outcome in ["success", "cancel", "restart-active"] {
+            let base = temporary_base("daily-real-ipc");
+            let (owner, cutover, calls) = native_owner_fixture(&base);
+            let initial_calls = calls.load(Ordering::Relaxed);
+            let store_path = base.join("config/profiles.json");
+            let desired_path = base.join("state/omavless/desired.json");
+            let desired_before = fs::read(&desired_path).unwrap();
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let mut document: Value =
+                serde_json::from_slice(&fs::read(&store_path).unwrap()).unwrap();
+            document["subscriptions"][0]["url"] =
+                json!(format!("http://{}/daily", listener.local_addr().unwrap()));
+            fs::write(&store_path, document.to_string()).unwrap();
+            let feed_before = document["subscriptions"][0]["updatedAt"].clone();
+            let (arrived_tx, arrived_rx) = std::sync::mpsc::sync_channel(4);
+            let (release_tx, release_rx) = std::sync::mpsc::sync_channel(4);
+            let fixture_stop = Arc::new(AtomicBool::new(false));
+            let fixture_flag = Arc::clone(&fixture_stop);
+            let http = thread::spawn(move || {
+                let mut count = 0;
+                while !fixture_flag.load(Ordering::Acquire) {
+                    let mut stream = match listener.accept() {
+                        Ok((stream, _)) => stream,
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                            thread::sleep(Duration::from_millis(5));
+                            continue;
+                        }
+                        Err(_) => panic!("HTTP fixture accept failed"),
+                    };
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(3)))
+                        .unwrap();
+                    let mut headers = Vec::new();
+                    while !headers.ends_with(b"\r\n\r\n") {
+                        let mut byte = [0];
+                        stream.read_exact(&mut byte).unwrap();
+                        headers.push(byte[0]);
+                        assert!(headers.len() < 8192);
+                    }
+                    assert!(headers.starts_with(b"GET /daily "));
+                    count += 1;
+                    arrived_tx.send(count).unwrap();
+                    release_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+                    let body = "vless://22222222-2222-4222-8222-222222222222@192.0.2.2:443?security=none&type=tcp#Daily";
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                }
+                count
+            });
+            let paths = RuntimePaths::below(&base.join("runtime"));
+            let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+            let old_instance = server.instance_id.clone();
+            server.register_native_owner(
+                owner,
+                subscription_transport::HttpsSubscriptionTransport::new(),
+            );
+            let dispatcher = Arc::clone(&server.dispatcher);
+            let stop = Arc::new(AtomicBool::new(false));
+            let flag = Arc::clone(&stop);
+            let runtime = thread::spawn(move || server.serve_until(&flag).unwrap());
+            let read = call(
+                &paths,
+                "subscriptions.schedule.get",
+                json!({"subscriptionId":SUB}),
+            )
+            .unwrap();
+            assert_eq!(read["result"]["enabled"], false);
+            assert!(arrived_rx.try_recv().is_err());
+            let arguments: Vec<std::ffi::OsString> = [
+                "subscription",
+                "schedule",
+                SUB,
+                "daily",
+                "enable-daily",
+                "0",
+            ]
+            .into_iter()
+            .map(Into::into)
+            .collect();
+            let (method, params) = semantic_cli::parse_semantic_mutation(&arguments, None)
+                .unwrap()
+                .into_parts();
+            assert_eq!(call(&paths, method, params.clone()).unwrap()["ok"], true);
+            assert_eq!(arrived_rx.recv_timeout(Duration::from_secs(3)).unwrap(), 1);
+            // Exact configuration retry must not reset the consumed deadline.
+            assert_eq!(call(&paths, method, params).unwrap()["ok"], true);
+            let read = call(
+                &paths,
+                "subscriptions.schedule.get",
+                json!({"subscriptionId":SUB}),
+            )
+            .unwrap();
+            let handle = json!({"instanceId":old_instance,"operationId":read["result"]["lastAttempt"]["operationId"]});
+            assert_eq!(read["result"]["lastAttempt"]["disposition"], "admitted");
+            assert_eq!(
+                read["result"]["operation"]["method"],
+                "subscriptions.refresh_selected"
+            );
+            assert_eq!(
+                call(
+                    &paths,
+                    "subscriptions.refresh_all",
+                    json!({"instanceId":old_instance,"operationId":"manual-contender"})
+                )
+                .unwrap()["error"]["code"],
+                "busy"
+            );
+            if outcome == "cancel" {
+                assert_eq!(
+                    call(&paths, "operations.cancel", handle.clone()).unwrap()["result"]["accepted"],
+                    true
+                );
+            }
+            if outcome == "restart-active" {
+                stop.store(true, Ordering::Release);
+                let lookup =
+                    make_request("shutdown-observation", "operations.get", handle.clone()).unwrap();
+                let deadline = std::time::Instant::now() + Duration::from_secs(1);
+                loop {
+                    let stopped = {
+                        let mut guard = dispatcher.lock().unwrap();
+                        let RuntimeDispatcher::Native(owner) = &mut *guard else {
+                            panic!("missing original owner");
+                        };
+                        let (value, _) = owner.batch_control(&lookup, &old_instance).unwrap();
+                        value["operation"]["state"] == "failed"
+                            && value["operation"]["error"]["code"] == "daemon_restarting"
+                    };
+                    if stopped {
+                        break;
+                    }
+                    assert!(std::time::Instant::now() < deadline);
+                    thread::sleep(Duration::from_millis(1));
+                }
+            }
+            release_tx.send(()).unwrap();
+            if outcome != "restart-active" {
+                let deadline = std::time::Instant::now() + Duration::from_secs(3);
+                loop {
+                    let result = call(&paths, "operations.get", handle.clone()).unwrap();
+                    if matches!(
+                        result["result"]["operation"]["state"].as_str(),
+                        Some("succeeded" | "cancelled")
+                    ) {
+                        assert_eq!(
+                            result["result"]["operation"]["state"],
+                            if outcome == "success" {
+                                "succeeded"
+                            } else {
+                                "cancelled"
+                            }
+                        );
+                        break;
+                    }
+                    assert!(std::time::Instant::now() < deadline);
+                    thread::sleep(Duration::from_millis(5));
+                }
+                stop.store(true, Ordering::Release);
+            }
+            runtime.join().unwrap();
+            assert_eq!(calls.load(Ordering::Relaxed), initial_calls);
+            drop(dispatcher);
+            assert!(!paths.socket.exists());
+            let after: Value = serde_json::from_slice(&fs::read(&store_path).unwrap()).unwrap();
+            if outcome == "success" {
+                assert_ne!(after["subscriptions"][0]["updatedAt"], feed_before);
+            } else {
+                assert_eq!(after["subscriptions"][0]["updatedAt"], feed_before);
+            }
+            let effects = Arc::new(AtomicUsize::new(0));
+            let host = FakeHost {
+                #[cfg(feature = "product-image-witness")]
+                close_registration: lifecycle::CloseRegistration::Disabled,
+                auxiliary: None,
+                probe_paths: None,
+                lifecycle_effects: Arc::clone(&effects),
+                fresh_calls: Arc::new(AtomicUsize::new(0)),
+                fresh_result: Err(HostStepError::Observation),
+                connection_details_payload: None,
+                on_fresh: None,
+                route_config: None,
+                observation: OwnedObservation {
+                    service_active: false,
+                    controller_ready: false,
+                    core_count: 0,
+                    tun_count: 0,
+                    active_profile_matches: false,
+                },
+                calls: Arc::clone(&calls),
+            };
+            let uid = fs::metadata(&base).unwrap().uid();
+            // Reopen the SAME canonical store and owner namespace, without
+            // editing a receipt or rebuilding a fixture around the restart.
+            let owner = production_owner::ProductionNativeOwner::initialize(
+                host,
+                DesiredPaths::below(&base.join("state")),
+                &store_path,
+                cutover,
+                uid,
+            )
+            .unwrap();
+            let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+            assert_ne!(server.instance_id, old_instance);
+            server.register_native_owner(
+                owner,
+                subscription_transport::HttpsSubscriptionTransport::new(),
+            );
+            let stop = Arc::new(AtomicBool::new(false));
+            let flag = Arc::clone(&stop);
+            let runtime = thread::spawn(move || server.serve_until(&flag).unwrap());
+            assert_eq!(
+                call(&paths, "operations.get", handle.clone()).unwrap()["error"]["code"],
+                "not_found"
+            );
+            assert_eq!(
+                call(&paths, "operations.cancel", handle).unwrap()["error"]["code"],
+                "not_found"
+            );
+            let read = call(
+                &paths,
+                "subscriptions.schedule.get",
+                json!({"subscriptionId":SUB}),
+            )
+            .unwrap();
+            assert_eq!(
+                read["result"]["lastAttempt"]["disposition"],
+                match outcome {
+                    "success" => "committed",
+                    "cancel" => "cancelled_before_commit",
+                    _ => "failed_before_commit",
+                }
+            );
+            assert!(
+                arrived_rx
+                    .recv_timeout(Duration::from_millis(1100))
+                    .is_err()
+            );
+            assert_eq!(fs::read(&desired_path).unwrap(), desired_before);
+            assert_eq!(effects.load(Ordering::Relaxed), 0);
+            let settings = json!({"subscriptionId":SUB,"enabled":false,"operationId":"daily-off","expectedRevision":read["revision"]});
+            assert_eq!(
+                call(&paths, "subscriptions.schedule.configure", settings).unwrap()["ok"],
+                true
+            );
+            stop.store(true, Ordering::Release);
+            runtime.join().unwrap();
+            fixture_stop.store(true, Ordering::Release);
+            assert_eq!(http.join().unwrap(), 1);
+            assert!(!paths.socket.exists());
+            fs::remove_dir_all(base).unwrap();
+        }
     }
 
     #[test]
