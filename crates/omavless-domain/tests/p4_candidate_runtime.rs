@@ -4,8 +4,10 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use omavless_domain::config::assemble_runtime_config;
 use omavless_domain::private_store::{
-    CompatibilityPointerTarget, PrivateStoreError, apply_candidate_compatibility_pointer_update,
-    apply_compatibility_pointer_update, parse_candidate_private_store, parse_private_store,
+    CompatibilityPointerTarget, PrivateStoreError, ProfileMutation,
+    apply_candidate_compatibility_pointer_update, apply_compatibility_pointer_update,
+    apply_profile_import, apply_profile_mutation, parse_candidate_private_store,
+    parse_private_store,
 };
 use omavless_domain::routing::{CustomRule, template_with_mode};
 use omavless_profile::wireguard::parse_wireguard_config;
@@ -146,6 +148,140 @@ fn four_uri_families_keep_legacy_config_parity_inside_a_mixed_store() {
                 new.expose_private_bytes() == old.as_bytes(),
                 "URI rendering stays unchanged"
             );
+        }
+    }
+}
+
+#[test]
+fn normal_store_retains_ipv6_dns_but_refuses_ipv4_only_execution_without_filtering() {
+    for generation in 0..=4 {
+        for (dns, expected_export) in [
+            ("2001:db8::53", "DNS = 2001:db8::53\n"),
+            (
+                "192.0.2.53, 2001:db8::53",
+                "DNS = 192.0.2.53,2001:db8::53\n",
+            ),
+        ] {
+            let input = native(generation).replace("DNS = 192.0.2.53", &format!("DNS = {dns}"));
+            let imported = apply_profile_import(&base().to_string(), WG_ID, NAME, &input).unwrap();
+            let snapshot: Value = serde_json::from_slice(imported.payload()).unwrap();
+            let store =
+                parse_private_store(std::str::from_utf8(imported.payload()).unwrap()).unwrap();
+            assert_eq!(
+                store.managed_connection_compatibility(WG_ID),
+                Err(PrivateStoreError::TypedCredentialRequired)
+            );
+            for mode in ["global", "rule", "direct"] {
+                assert!(matches!(
+                    store.prepare_config_mode(WG_ID, TEMPLATE, SOCKET, mode),
+                    Err(PrivateStoreError::TypedCredentialRequired)
+                ));
+            }
+            let exported = store.profile_credential_export(WG_ID).unwrap();
+            let private = std::str::from_utf8(exported.expose_private_bytes()).unwrap();
+            assert!(private.contains(expected_export));
+            let reparsed = parse_wireguard_config(private).unwrap();
+            assert_eq!(
+                reparsed.subscription_identity(),
+                parse_wireguard_config(&input)
+                    .unwrap()
+                    .subscription_identity()
+            );
+            let unchanged = apply_profile_mutation(
+                std::str::from_utf8(imported.payload()).unwrap(),
+                ProfileMutation::Replace {
+                    profile_id: WG_ID.into(),
+                    new_name: NAME.into(),
+                    new_input: private.into(),
+                },
+            )
+            .unwrap();
+            assert!(!unchanged.changed);
+            assert_eq!(unchanged.payload(), imported.payload());
+            let after: Value = serde_json::from_slice(unchanged.payload()).unwrap();
+            assert_eq!(after, snapshot);
+            assert_eq!(after["profiles"][0], base()["profiles"][0]);
+            for key in ["activeId", "lastId", "startup", "customRules", "vendorRoot"] {
+                assert_eq!(after[key], base()[key]);
+            }
+        }
+        for (dns, expected_config) in [
+            (None, None),
+            (Some("192.0.2.53"), Some("  dns: [\"192.0.2.53\"]")),
+            (
+                Some("192.0.2.53, 192.0.2.54"),
+                Some("  dns: [\"192.0.2.53\", \"192.0.2.54\"]"),
+            ),
+        ] {
+            let line = dns.map_or_else(String::new, |dns| format!("DNS = {dns}\n"));
+            let input = native(generation).replace("DNS = 192.0.2.53\n", &line);
+            let imported = apply_profile_import(&base().to_string(), WG_ID, NAME, &input).unwrap();
+            let store =
+                parse_private_store(std::str::from_utf8(imported.payload()).unwrap()).unwrap();
+            assert_eq!(store.managed_connection_compatibility(WG_ID), Ok(()));
+            for mode in ["global", "rule", "direct"] {
+                let config = store
+                    .prepare_config_mode(WG_ID, TEMPLATE, SOCKET, mode)
+                    .unwrap();
+                if let Some(expected) = expected_config {
+                    assert!(config.lines().any(|line| line == expected));
+                    assert!(config.contains("  remote-dns-resolve: true"));
+                } else {
+                    assert!(!config.contains("  dns:") && !config.contains("remote-dns-resolve"));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn normal_store_preserves_awg_decimal_source_but_prepares_canonical_numeric_yaml() {
+    for generation in 1..=4 {
+        let input = native(generation)
+            .replace("Jc = 4\n", "Jc = 0004\n")
+            .replace("Jmin = 10\n", "Jmin = 0010\n")
+            .replace("Jmax = 30\n", "Jmax = +0030\n")
+            .replace("S1 = 20\n", "S1 = 00020\n")
+            .replace("S2 = 25\n", "S2 = 00025\n")
+            .replace("S3 = 30\n", "S3 = 00030\n")
+            .replace("S4 = 35\n", "S4 = 00035\n");
+        let imported = apply_profile_import(&base().to_string(), WG_ID, NAME, &input).unwrap();
+        let stored: Value = serde_json::from_slice(imported.payload()).unwrap();
+        let store = parse_private_store(std::str::from_utf8(imported.payload()).unwrap()).unwrap();
+        assert_eq!(store.managed_connection_compatibility(WG_ID), Ok(()));
+        for mode in ["global", "rule", "direct"] {
+            let prepared = store
+                .prepare_config_mode(WG_ID, TEMPLATE, SOCKET, mode)
+                .unwrap();
+            for expected in [
+                "    jc: 4",
+                "    jmin: 10",
+                "    jmax: 30",
+                "    s1: 20",
+                "    s2: 25",
+            ] {
+                assert!(prepared.lines().any(|line| line == expected));
+            }
+            if generation >= 2 {
+                assert!(prepared.lines().any(|line| line == "    s3: 30"));
+                assert!(prepared.lines().any(|line| line == "    s4: 35"));
+            }
+        }
+        let exported = store.profile_credential_export(WG_ID).unwrap();
+        let private = std::str::from_utf8(exported.expose_private_bytes()).unwrap();
+        assert!(private.contains("Jmin = 0010\n") && private.contains("Jmax = +0030\n"));
+        assert!(private.contains("S1 = 00020\n") && private.contains("S2 = 00025\n"));
+        let restored = parse_wireguard_config(private).unwrap();
+        assert_eq!(
+            restored.subscription_identity(),
+            parse_wireguard_config(&input)
+                .unwrap()
+                .subscription_identity()
+        );
+        let original = base();
+        assert_eq!(stored["profiles"][0], original["profiles"][0]);
+        for key in ["activeId", "lastId", "startup", "customRules", "vendorRoot"] {
+            assert_eq!(stored[key], original[key]);
         }
     }
 }

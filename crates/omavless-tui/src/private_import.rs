@@ -60,6 +60,7 @@ pub struct Preview {
     pub skip_reasons: Option<omavless_domain::subscription_feed::ImportReasons>,
     pub warning: bool,
     pub native: bool,
+    pub managed_note_key: &'static str,
     fingerprint: String,
 }
 fn name(value: &Value, fallback: &str) -> Option<String> {
@@ -171,6 +172,23 @@ fn preview(value: &Value, revision: u64) -> Option<Preview> {
             r["profile"]["protocol"].as_str(),
             Some("wireguard" | "amneziawg")
         ),
+        managed_note_key: match r["profile"].get("compatibilityNote") {
+            None => "import.managed_scope",
+            Some(Value::String(note)) if note.is_empty() => "import.managed_scope",
+            Some(Value::String(note)) => match note.as_str() {
+                "managed_ipv4_only" => "import.managed_ipv4_only",
+                "managed_keepalive_range" => "import.managed_keepalive_range",
+                "managed_header_ranges" => "import.managed_header_ranges",
+                "managed_legacy_headers" => "import.managed_legacy_headers",
+                "managed_padding" => "import.managed_padding",
+                "managed_legacy_padding" => "import.managed_legacy_padding",
+                "managed_junk_budget" => "import.managed_junk_budget",
+                "managed_special_junk" => "import.managed_special_junk",
+                "managed_numeric_parameters" => "import.managed_numeric_parameters",
+                _ => "import.managed_unavailable",
+            },
+            _ => "import.managed_unavailable",
+        },
         fingerprint,
     })
 }

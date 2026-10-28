@@ -377,6 +377,10 @@ core. See the [precise managed subset](docs/roadmap/CONTROL_PLANE.md#experimenta
 Variable keepalive, incompatible legacy headers/padding and unsupported junk
 expressions refuse execution while remaining private data. Dual-stack parsing
 and export are not IPv6 connection support.
+Scalar keepalive zero is an explicit disabled interval, preserved through native
+and guest import, private export and managed rendering; omission remains omitted.
+It is not permission to execute variable/zero-containing ranges or a claim of
+new installed WG/AWG timer/traffic acceptance.
 
 These source capabilities are not installed/live acceptance. Exact-candidate
 matching-server traffic, wrong-key/wrong-header controls, Full/Routing/Direct,

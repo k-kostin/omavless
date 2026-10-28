@@ -433,14 +433,27 @@ The separately verified conditional-close family retains its own fixed
 `/connections/conditional-capabilities` report and original Session binding;
 the normal traffic-ready family grants NO conditional-close authority.
 Older two-patch and unmanaged URI paths retain configured-only compatibility.
-New WG/AWG activation specifically requires the verified normal traffic-ready
-family before intent/quiesce, repeated at prepare/start/login. Active replacement
+WG/AWG source admission accepts the verified normal traffic-ready family or
+the exact three-patch `release-close` family: both fixed read-only reports derive
+`ready` from the pinned core's `tunnel.Status() == Running`. Each keeps its own
+endpoint, strict receipt/hash binding and before/after observations; no endpoint
+fallback or copied boolean qualifies another family. The separate K1 close/device
+family remains WG-refused pending its own qualification. This source composition
+is not installed WG-on-close-pair evidence and grants no close permit.
+The requirement holds before intent/quiesce, repeated at prepare/start/login.
+Active replacement
 derives this requirement from sealed candidate credentials, not a client label;
 inactive data import/edit and explicit Disconnect/Quit remain available. Invalid
 or missing reports never fall back to legacy configured-only readiness. See
 the [core report contract](../../tests/core_dns_adapter/TRAFFIC_READY.md).
 
-Initial managed admission requires IPv4 interface/AllowedIPs/endpoint transport.
+Initial managed admission requires IPv4 interface/AllowedIPs/endpoint transport
+and IPv4 imported DNS servers, when present. The pinned core sends imported DNS
+through the same WG outbound; an IPv4-only local address and peer AllowedIPs do
+not provide an IPv6 path to a DNS server. IPv6 or mixed DNS remains private data
+for editing/export, but refuses execution before intent/quiesce rather than
+dropping the IPv6 entry, falling back to system DNS or widening the tunnel.
+An omitted DNS setting stays omitted; IPv4 DNS lists retain their exact order.
 The renderer fixes one `peers[]` entry with its exact endpoint/public key/PSK
 and AllowedIPs; the adapter's synthesized root-peer path ignores root
 AllowedIPs. Per-proxy `ip-version: ipv4` also constrains hostname resolution,
@@ -449,7 +462,32 @@ and exportable but are not currently connection-admitted.
 
 Nonconstant peer keepalive ranges are retained privately but explicitly
 unsupported for execution, never lowered to a minimum. Constant intervals
-remain representable. H1–H4 use uint32 ordered, pairwise nonoverlapping ranges;
+remain representable. A scalar `PersistentKeepalive = 0` explicitly disables
+persistent keepalive; it survives private store/export as zero and renders as
+`persistent-keepalive: 0`, distinct from an omitted field. Positive scalar
+intervals retain their uint16 bound. Zero-containing ranges remain rejected;
+this scalar support does not introduce randomized range execution.
+
+The pinned corresponding source binds this interpretation: Mihomo's
+`adapter/outbound/wireguard.go` forwards a nonzero scalar to each explicit peer
+and leaves a fresh peer's default interval zero otherwise. Vendored standard
+WireGuard and AWG v1/v3 timers do not arm persistent keepalive for zero.
+This does not disable ordinary authenticated handshake/data timers, prove
+installed timer behavior or widen any managed family/traffic-ready gate.
+Earlier strict readers rejected explicit zero. Newly stored zero values require
+the updated application; downgrade compatibility is not implied by unchanged
+private record/schema field names or by the source round-trip tests.
+
+AWG Jc/Jmin/Jmax/S1–S4 are interpreted as decimal by the native parser.
+Their private spelling remains intact, but their numeric YAML projection uses
+canonical decimal integers: `S1 = 00012` becomes `s1: 12`, not YAML `00012`.
+The pinned Mihomo common YAML wrapper uses go.yaml.in/yaml/v3, whose resolver
+also accepts legacy octal literals. Forwarding the original spelling could
+therefore change a validated value before lazy UAPI admission. Header and timer
+range fields remain quoted strings; all existing managed bounds still apply.
+This source correction is not an installed handshake or packet-size result.
+
+H1–H4 use uint32 ordered, pairwise nonoverlapping ranges;
 legacy v1/v2 admission additionally requires each minimum >4, or its exact
 corresponding default singleton 1/2/3/4. Other low-header values/ranges stay
 private data but refuse connection because that engine would substitute defaults.

@@ -1617,7 +1617,7 @@ impl LifecycleHost for NativeLifecycleHost {
         pair.verify()?;
         // Old configured-only pairs remain valid for their existing URI path,
         // but do not acquire WG traffic readiness from version or YAML flags.
-        if pair.running_report() != crate::core_readiness::TrafficReadiness::TrafficV1 {
+        if !pair.supports_native_profiles() {
             return Err(HostStepError::Prepare);
         }
         Ok(())
@@ -2260,6 +2260,25 @@ mod tests {
         fs::create_dir(&new_root).unwrap();
         host.paths.managed_pair = Some(ManagedPair::test_pair(&new_root, true));
         assert_eq!(host.connection_preflight_for(&target), Ok(()));
+        host.paths.managed_pair = None;
+        let close_root = root.join("close-pair");
+        fs::create_dir(&close_root).unwrap();
+        host.paths.managed_pair = Some(ManagedPair::test_pair_with_receipt(
+            &close_root,
+            Some(crate::managed_close_receipt::fixture(
+                std::env::consts::ARCH,
+            )),
+        ));
+        assert_eq!(host.connection_preflight_for(&target), Ok(()));
+        assert!(
+            host.paths.managed_pair.as_ref().unwrap().running_report()
+                == crate::core_readiness::TrafficReadiness::ConditionalV1
+        );
+        fs::write(close_root.join("package/managed-core"), b"changed core").unwrap();
+        assert_eq!(
+            host.connection_preflight_for(&target),
+            Err(ConnectionPreflightError::DnsPairRequired)
+        );
         assert!(host.core.is_none() && host.profile_id.is_none());
         assert!(fs::read(&host.paths.store).unwrap() == store.payload());
         drop(host);
