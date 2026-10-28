@@ -34,7 +34,12 @@ use omavless_profile::import::ImportFamily;
 use omavless_profile::wireguard::parse_unique_private_json;
 mod local_bundle;
 pub use local_bundle::{LocalBundleCounts, LocalBundlePlan};
+mod schedule;
 mod startup;
+pub use schedule::{
+    DAILY_REFRESH_MILLIS, DueSubscription, ScheduleDisposition, ScheduledAttempt,
+    admit_subscription_schedule, apply_subscription_schedule, finish_subscription_schedule,
+};
 mod support;
 pub use candidate::{
     CandidateExportFormat, CandidatePrivateStore, CandidateProfileEditInput,
@@ -1016,6 +1021,7 @@ pub fn parse_private_store(input: &str) -> Result<PrivateStore, PrivateStoreErro
             return Err(PrivateStoreError::DuplicateSubscriptionUrl);
         }
         let updated_at = optional_u64(record, "updatedAt", 0)?;
+        schedule::validate(record.get("refreshSchedule"))?;
         subscription_states.push(SubscriptionState { id: id.to_owned() });
         subscriptions.push(PrivateSubscription {
             id: id.to_owned(),

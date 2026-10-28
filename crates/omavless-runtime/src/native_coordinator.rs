@@ -21,6 +21,7 @@ mod probe;
 mod profile_admission;
 mod provider;
 mod restore_candidate;
+mod schedule;
 #[cfg(all(test, feature = "t4-manager-actor-service"))]
 pub(crate) use restore_candidate::HeldExecutionSlot as NativeVmReservation;
 mod restore_retirement_candidate;
@@ -5782,6 +5783,211 @@ mod tests {
                 ))
                 .is_ok()
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn daily_configure(revision: u64) -> Value {
+        omavless_control_protocol::make_request("daily-config", "subscriptions.schedule.configure", json!({"subscriptionId":SUBSCRIPTION,"enabled":true,"operationId":"daily-enable","expectedRevision":revision})).unwrap()
+    }
+
+    #[test]
+    fn daily_schedule_owner_consumes_before_fetch_and_publishes_one_atomic_result() {
+        let (root, path, mut owner) = batch_fixture("daily-admission");
+        let desired = fs::read(&owner.transaction.desired_paths().file).unwrap();
+        let calls = owner.host().calls;
+        let request = daily_configure(1);
+        applied(
+            owner
+                .execute_subscription_schedule(&request, || 1000)
+                .unwrap(),
+        );
+        assert_eq!(owner.revision(), 2);
+        assert!(matches!(
+            owner
+                .execute_subscription_schedule(&request, || panic!("replay read clock"))
+                .unwrap(),
+            NativeOwnerExecution::Replay(_)
+        ));
+        let mut job = owner
+            .start_due_subscription_batch("owner-instance", "scheduled-one", 1000)
+            .unwrap()
+            .unwrap();
+        assert_eq!(owner.revision(), 3);
+        let admitted = fs::read(&path).unwrap();
+        let value: Value = serde_json::from_slice(&admitted).unwrap();
+        assert_eq!(value["subscriptions"][0]["updatedAt"], 10);
+        assert_eq!(
+            value["subscriptions"][0]["refreshSchedule"]["lastAttempt"]["disposition"],
+            "admitted"
+        );
+        assert_eq!(
+            value["subscriptions"][0]["refreshSchedule"]["nextDueAt"],
+            86_401_000
+        );
+        assert!(
+            owner
+                .start_due_subscription_batch("owner-instance", "duplicate", 1000)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            owner
+                .start_subscription_batch(&batch_request(
+                    "subscriptions.refresh_all",
+                    "manual-contender"
+                ))
+                .is_err()
+        );
+        assert_eq!(fs::read(&path).unwrap(), admitted);
+        run_batch(&owner, &mut job);
+        owner.complete_subscription_batch(job, || 1001).unwrap();
+        assert_eq!(owner.revision(), 4);
+        let value: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(value["subscriptions"][0]["updatedAt"], 1001);
+        assert_eq!(
+            value["subscriptions"][0]["refreshSchedule"]["lastAttempt"]["disposition"],
+            "committed"
+        );
+        assert_eq!(batch_status(&owner, "scheduled-one")["state"], "succeeded");
+        assert!(
+            owner
+                .start_due_subscription_batch("owner-instance", "too-early", 1002)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(owner.host().calls, calls);
+        assert_eq!(
+            fs::read(&owner.transaction.desired_paths().file).unwrap(),
+            desired
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn daily_schedule_cancel_failure_and_manual_win_preserve_feed_and_consumed_slot() {
+        for scenario in ["cancel", "fetch-failure", "url-changed"] {
+            let (root, path, mut owner) = batch_fixture("daily-refusal");
+            applied(
+                owner
+                    .execute_subscription_schedule(&daily_configure(1), || 1000)
+                    .unwrap(),
+            );
+            let manual = owner
+                .start_subscription_batch(&batch_request(
+                    "subscriptions.refresh_all",
+                    "manual-first",
+                ))
+                .unwrap()
+                .unwrap();
+            let before = fs::read(&path).unwrap();
+            assert!(
+                owner
+                    .start_due_subscription_batch("owner-instance", "busy", 1000)
+                    .unwrap()
+                    .is_none()
+            );
+            assert_eq!(fs::read(&path).unwrap(), before);
+            owner
+                .abort_subscription_batch(manual.supervisor_ticket())
+                .unwrap();
+            drop(manual);
+            let mut job = owner
+                .start_due_subscription_batch("owner-instance", "scheduled-one", 1000)
+                .unwrap()
+                .unwrap();
+            if scenario == "fetch-failure" {
+                assert!(
+                    job.step(
+                        &FakeTransport::failure(),
+                        &crate::remote_fetch::RemoteFetchPool::default(),
+                        &mut || SUBSCRIPTION_PROFILE.to_owned()
+                    )
+                    .is_err()
+                );
+            } else {
+                run_batch(&owner, &mut job);
+                if scenario == "cancel" {
+                    owner
+                        .cancel_subscription_batch(&batch_request(
+                            "operations.cancel",
+                            "scheduled-one",
+                        ))
+                        .unwrap();
+                } else {
+                    let mut value: Value =
+                        serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+                    value["subscriptions"][0]["url"] = json!("https://changed.invalid/feed");
+                    fs::write(&path, value.to_string()).unwrap();
+                }
+            }
+            let _ = owner.complete_subscription_batch(job, || 2000);
+            let value: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+            assert_eq!(value["subscriptions"][0]["updatedAt"], 10);
+            assert_eq!(
+                value["subscriptions"][0]["refreshSchedule"]["lastAttempt"]["disposition"],
+                if scenario == "cancel" {
+                    "cancelled_before_commit"
+                } else {
+                    "failed_before_commit"
+                }
+            );
+            assert!(
+                owner
+                    .start_due_subscription_batch("owner-instance", "no-retry", 2001)
+                    .unwrap()
+                    .is_none()
+            );
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn daily_schedule_post_rename_ambiguity_fences_resend_and_reconstructs_unknown() {
+        let (root, path, mut owner) = batch_fixture("daily-unknown");
+        applied(
+            owner
+                .execute_subscription_schedule(&daily_configure(1), || 1000)
+                .unwrap(),
+        );
+        let mut job = owner
+            .start_due_subscription_batch("owner-instance", "scheduled-unknown", 1000)
+            .unwrap()
+            .unwrap();
+        run_batch(&owner, &mut job);
+        assert!(
+            owner
+                .complete_subscription_batch_with_store(
+                    job,
+                    || 2000,
+                    |path, uid, snapshot, updates, now| {
+                        // Existing effect seam: real store rename, then lost finalization.
+                        crate::subscription_mutation::commit_subscription_refresh_batch(
+                            path, uid, snapshot, updates, now,
+                        )?;
+                        Err(crate::subscription_mutation::SubscriptionMutationCommitError::StoreIo)
+                    }
+                )
+                .is_err()
+        );
+        assert!(
+            owner
+                .start_due_subscription_batch("owner-instance", "must-not-resend", 2001)
+                .is_err()
+        );
+        let bytes = fs::read(&path).unwrap();
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["subscriptions"][0]["updatedAt"], 2000);
+        let store = omavless_domain::private_store::parse_private_store(
+            std::str::from_utf8(&bytes).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            store
+                .subscription_schedule(SUBSCRIPTION, "new-instance")
+                .unwrap()["lastAttempt"]["disposition"],
+            "unknown"
+        );
+        assert!(store.due_subscription(2001).is_none());
         fs::remove_dir_all(root).unwrap();
     }
 

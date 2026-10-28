@@ -98,7 +98,9 @@ fn refresh_all_digest(
 }
 
 /// Private start intent. The correlation ID is deliberately not formattable
-/// or serializable and must not be copied to journals.
+/// or serializable. Do not journal requests; the fixed daily scheduler keeps
+/// only its own generated instance/operation identity in a private admission
+/// receipt, never this request or its provider material.
 pub struct RefreshAllStartRequest {
     instance_id: String,
     operation_id: String,

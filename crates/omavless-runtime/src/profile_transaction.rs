@@ -171,7 +171,9 @@ pub(crate) fn store_error(error: ProfileMutationCommitError) -> ProfileTransacti
             ProfileTransactionError::UnsupportedProfile
         }
         ProfileMutationCommitError::Mutation(
-            PrivateStoreError::ProfileNotFound | PrivateStoreError::CustomRuleNotFound,
+            PrivateStoreError::ProfileNotFound
+            | PrivateStoreError::CustomRuleNotFound
+            | PrivateStoreError::SubscriptionNotFound,
         ) => ProfileTransactionError::NotFound,
         ProfileMutationCommitError::Mutation(
             PrivateStoreError::DuplicateProfileName

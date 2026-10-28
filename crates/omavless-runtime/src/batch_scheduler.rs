@@ -14,6 +14,7 @@ use crate::subscription_batch_work::BatchWorkStep;
 pub(super) const METHODS: &[&str] = &[
     "subscriptions.refresh_all",
     "subscriptions.refresh_selected",
+    "subscriptions.schedule.get",
     "subscriptions.probe",
     "subscriptions.probe_results",
     "profiles.probe",
@@ -54,6 +55,7 @@ impl BatchWork {
 pub(super) struct BatchScheduler {
     worker: Mutex<Option<thread::JoinHandle<()>>>,
     stopping: Arc<AtomicBool>,
+    schedule_check: Mutex<Option<std::time::Instant>>,
     #[cfg(test)]
     pub(super) fail_next_spawn: AtomicBool,
 }
@@ -262,21 +264,8 @@ impl BatchScheduler {
         let revision = owner.revision();
         drop(owner_guard);
         if let Some(work) = work {
-            // A new job can only be admitted after its predecessor terminalized
-            // under the owner mutex. The predecessor has no remaining I/O.
-            if let Some(previous) = worker.take() {
-                let _ = previous.join();
-            }
-            let supervisor = Supervisor {
-                dispatcher: Arc::clone(dispatcher),
-                ticket: Some(work.ticket()),
-            };
-            let stopping = Arc::clone(&self.stopping);
-            let pool = pool.clone();
-            match self.spawn(move || {
-                run(work, supervisor, &stopping, &pool);
-            }) {
-                Ok(handle) => *worker = Some(handle),
+            match self.start_work(&mut worker, work, dispatcher, pool) {
+                Ok(()) => {}
                 // Failed spawn drops the captured supervisor, terminalizing the
                 // admitted operation without a detached/lost private payload.
                 Err(_) => {
@@ -291,6 +280,70 @@ impl BatchScheduler {
             }
         }
         success_response(id, revision, projection)
+    }
+
+    fn start_work(
+        &self,
+        worker: &mut Option<thread::JoinHandle<()>>,
+        work: BatchWork,
+        dispatcher: &Arc<Mutex<RuntimeDispatcher>>,
+        pool: &remote_fetch::RemoteFetchPool,
+    ) -> io::Result<()> {
+        // Only one supervised executor, for both manual and planned refresh.
+        if let Some(previous) = worker.take() {
+            let _ = previous.join();
+        }
+        let supervisor = Supervisor {
+            dispatcher: Arc::clone(dispatcher),
+            ticket: Some(work.ticket()),
+        };
+        let stopping = Arc::clone(&self.stopping);
+        let pool = pool.clone();
+        *worker = Some(self.spawn(move || run(work, supervisor, &stopping, &pool))?);
+        Ok(())
+    }
+
+    pub(super) fn reconcile_due(
+        &self,
+        instance: &str,
+        dispatcher: &Arc<Mutex<RuntimeDispatcher>>,
+        pool: &remote_fetch::RemoteFetchPool,
+    ) {
+        if self.stopping.load(Ordering::Acquire) {
+            return;
+        }
+        let Ok(mut check) = self.schedule_check.try_lock() else {
+            return;
+        };
+        if check.is_some_and(|last| last.elapsed() < Duration::from_secs(1)) {
+            return;
+        }
+        *check = Some(std::time::Instant::now());
+        let Ok(mut worker) = self.worker.try_lock() else {
+            return;
+        };
+        // The registry may terminalize just before its thread returns. Avoid
+        // joining that predecessor while holding a mutex it may still need.
+        if worker.as_ref().is_some_and(|thread| !thread.is_finished()) {
+            return;
+        }
+        let Ok(mut owner_guard) = dispatcher.try_lock() else {
+            return;
+        };
+        let RuntimeDispatcher::Native(owner) = &mut *owner_guard else {
+            return;
+        };
+        let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) else {
+            return;
+        };
+        let Ok(now) = u64::try_from(now.as_millis()) else {
+            return;
+        };
+        let work = owner.batch_due(instance, now);
+        drop(owner_guard);
+        if let Ok(Some(work)) = work {
+            let _ = self.start_work(&mut worker, work, dispatcher, pool);
+        }
     }
 
     pub(super) fn stop(&self, dispatcher: &Arc<Mutex<RuntimeDispatcher>>) {

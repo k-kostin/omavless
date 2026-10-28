@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! Owner-side composition of the inactive refresh-all protocol and worker.
+//! Owner-side composition of the supervised refresh protocol and worker.
 //! The caller serializes this owner, but runs `NativeSubscriptionBatch::step`
 //! outside that lock. No scheduler, thread, IPC registration or cutover here.
 
@@ -70,6 +70,7 @@ pub struct NativeSubscriptionBatch {
     pub(super) base_revision: u64,
     work: SubscriptionBatchWork,
     failure: Option<BatchWorkError>,
+    pub(super) scheduled: Option<omavless_domain::private_store::ScheduledAttempt>,
 }
 
 impl NativeSubscriptionBatch {
@@ -241,7 +242,21 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                 None,
             )
         };
-        let _lock = admission.lock(self)?;
+        let lock = admission.lock(self)?;
+        self.start_subscription_batch_locked(request, method, selected, admission, &lock)
+    }
+
+    pub(super) fn start_subscription_batch_locked(
+        &mut self,
+        request: crate::long_operation_protocol::RefreshAllStartRequest,
+        method: crate::long_operation_protocol::LongOperationMethod,
+        selected: Option<String>,
+        admission: &mut super::batch_admission::BatchAdmission<'_>,
+        lock: &crate::connection_transaction::MigrationLease,
+    ) -> Result<Option<NativeSubscriptionBatch>, NativeOwnerError> {
+        if !lock.authorizes(self.transaction.cutover_paths(), self.transaction.uid()) {
+            return Err(NativeOwnerError::OwnershipUnavailable);
+        }
         let revision = self.revision();
         let ordinary_id = self
             .coordinator
@@ -344,6 +359,7 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             base_revision: revision,
             work: SubscriptionBatchWork::new(snapshot, cancellation),
             failure: None,
+            scheduled: None,
         }))
     }
 
@@ -489,14 +505,29 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     /// cancellation before the single existing atomic store transaction.
     pub fn complete_subscription_batch<N: FnOnce() -> u64>(
         &mut self,
-        job: NativeSubscriptionBatch,
+        mut job: NativeSubscriptionBatch,
         now_millis: N,
     ) -> Result<(), NativeOwnerError> {
-        self.complete_subscription_batch_with_store(
+        let scheduled = job.scheduled.take();
+        let Some(scheduled) = scheduled else {
+            return self.complete_subscription_batch_with_store(
+                job,
+                now_millis,
+                commit_subscription_refresh_batch,
+            );
+        };
+        let completed_at = now_millis();
+        let result = self.complete_subscription_batch_with_store(
             job,
-            now_millis,
-            commit_subscription_refresh_batch,
-        )
+            || completed_at,
+            |path, uid, snapshot, updates, now| {
+                crate::subscription_mutation::commit_scheduled_subscription_refresh_batch(
+                    path, uid, snapshot, updates, now, &scheduled,
+                )
+            },
+        );
+        self.record_schedule_terminal(&scheduled, completed_at);
+        result
     }
 
     // Fixed production store function above; the seam permits deterministic
