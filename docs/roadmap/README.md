@@ -34,6 +34,9 @@ must not be confused:
   UI responsibilities and T2+ delivery phases.
 - [`PRIVATE_BACKUP_RESTORE.md`](PRIVATE_BACKUP_RESTORE.md) — T4 portable private
   state contract: shipped Backup-only scope versus separately gated consumer Restore.
+- [`T4_SELECTED_SUBSCRIPTION_REFRESH.md`](../development/T4_SELECTED_SUBSCRIPTION_REFRESH.md)
+  — independent T4 source candidate: selected-feed CLI refresh with the existing
+  supervised operation/status/cancellation boundary; not schedule activation.
 - [`GUI_RESEARCH.md`](GUI_RESEARCH.md) — G1 candidates, huacnlee/GPUI references,
   semantic-client boundary, dependency risks and staged evaluation gates;
   research direction, not GUI implementation or adoption approval.

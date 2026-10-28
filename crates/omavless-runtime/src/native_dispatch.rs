@@ -481,6 +481,8 @@ where
         owner.execute_onboarding(request)
     } else if method == "startup.configure" {
         owner.execute_startup(request)
+    } else if method == "subscriptions.schedule.configure" {
+        owner.execute_subscription_schedule(request, now_millis)
     } else if method == "profiles.import" {
         owner.execute_profile_import(request, next_record_id)
     } else if method == "profiles.importBundle" {

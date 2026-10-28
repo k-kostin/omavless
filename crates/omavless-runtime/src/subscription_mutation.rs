@@ -2,10 +2,9 @@
 
 //! Atomic private-store commit boundary for native subscription mutations.
 //!
-//! This module is deliberately absent from live IPC dispatch. Remote fetch and
-//! profile parsing complete before this fixed store path is opened; a future
-//! owner binding must also hold the migration lock and serialized mutation
-//! slot before calling it.
+//! Remote fetch and profile parsing complete before this fixed store path is
+//! opened. The canonical runtime owner holds the migration lock and serialized
+//! mutation slot before calling it; no client-selected writer is accepted.
 
 use omavless_domain::private_store::{
     IncomingSubscriptionProfile, PrivateStoreError, SubscriptionEditInput, SubscriptionMutation,
@@ -151,6 +150,22 @@ pub fn snapshot_subscription_refresh_batch(
     prepare_subscription_refresh_batch(&input).map_err(SubscriptionMutationCommitError::Mutation)
 }
 
+/// Selected-feed variant of the supervised refresh snapshot. Caller holds the
+/// same owner/migration lease; no caller-provided provider URL is accepted.
+pub fn snapshot_selected_subscription_refresh_batch(
+    store_path: &Path,
+    uid: u32,
+    subscription_id: &str,
+) -> Result<SubscriptionRefreshBatchSnapshot, SubscriptionMutationCommitError> {
+    validate_existing_store(store_path, uid)?;
+    let input = read_private_utf8(store_path, uid).map_err(map_io)?;
+    omavless_domain::private_store::prepare_selected_subscription_refresh_batch(
+        &input,
+        subscription_id,
+    )
+    .map_err(SubscriptionMutationCommitError::Mutation)
+}
+
 /// Read one intentional editor payload from a validated private store. The
 /// caller must hold the migration lock and keep the returned URL out of
 /// ordinary status, logs, diagnostics and argv.
@@ -207,6 +222,23 @@ pub fn commit_subscription_refresh_batch(
 
 /// Exact canonical preparation shared by the fixed production writer and its
 /// test-only historical admission. No caller-selected writer or proof result.
+pub(crate) fn commit_scheduled_subscription_refresh_batch(
+    store_path: &Path,
+    uid: u32,
+    snapshot: SubscriptionRefreshBatchSnapshot,
+    updates: Vec<SubscriptionRefreshBatchEntries>,
+    updated_at: u64,
+    attempt: &omavless_domain::private_store::ScheduledAttempt,
+) -> Result<SubscriptionRefreshCommit, SubscriptionMutationCommitError> {
+    let mut prepared =
+        prepare_subscription_batch_commit(store_path, uid, snapshot, updates, updated_at)?;
+    prepared.result = prepared
+        .result
+        .finish_scheduled(attempt, updated_at)
+        .map_err(SubscriptionMutationCommitError::Mutation)?;
+    prepared.commit().map(|committed| committed.outcome())
+}
+
 pub(crate) struct PreparedSubscriptionBatchCommit {
     path: std::path::PathBuf,
     uid: u32,

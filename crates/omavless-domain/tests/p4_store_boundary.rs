@@ -65,6 +65,73 @@ fn document(bytes: &[u8]) -> Value {
 }
 
 #[test]
+fn native_preview_reasons_follow_the_same_admission_without_changing_saved_credentials() {
+    let base = native_config(true);
+    let v3 = base.replace("[Peer]", &format!("S3 = 30\nS4 = 35\nHeaderProtectionKey = {}\nContentPaddingAddition = 12-100\nRekeyAfterTime = 100-120\nRekeyTimeout = 3-7\nRejectAfterTime = 150-180\nKeepaliveTimeout = 5-15\nMaxHandshakeAttempts = 15-20\n[Peer]", STANDARD.encode([15_u8;32])));
+    for (input, code) in [
+        (
+            base.replace("10.8.0.2/32", "2001:db8::2/128"),
+            "managed_ipv4_only",
+        ),
+        (
+            base.replace("Endpoint =", "PersistentKeepalive = 25-35\nEndpoint ="),
+            "managed_keepalive_range",
+        ),
+        (v3.replace("H1 = 100", "H1 = 200"), "managed_header_ranges"),
+        (base.replace("H1 = 100", "H1 = 0"), "managed_legacy_headers"),
+        (v3.replace("S1 = 20", "S1 = 11"), "managed_padding"),
+        (base.replace("S2 = 25", "S2 = 76"), "managed_legacy_padding"),
+        (v3.replace("Jc = 4", "Jc = 65"), "managed_junk_budget"),
+        (
+            v3.replace("[Peer]", "I1 = <d>\n[Peer]"),
+            "managed_special_junk",
+        ),
+        (
+            v3.replace("RekeyTimeout = 3-7", "RekeyTimeout = 3 - 7"),
+            "managed_numeric_parameters",
+        ),
+        (base, ""),
+        (native_config(false), ""),
+    ] {
+        let parsed = parse_wireguard_config(&input).unwrap();
+        let original = parsed.private_record().unwrap();
+        let admission = parsed.managed_compatibility();
+        assert_eq!(admission.is_ok(), code.is_empty());
+        let preview = omavless_domain::import::preview_import(&input, &[])
+            .unwrap()
+            .private_ui_value();
+        assert_eq!(preview["profile"]["compatibilityNote"], code);
+        let result =
+            apply_profile_import(&legacy_store().to_string(), NEW_ID, "Kept", &input).unwrap();
+        let store = parse_private_store(text(result.payload())).unwrap();
+        let exported = store.profile_credential_export(NEW_ID).unwrap();
+        let reparsed = parse_wireguard_config(text(exported.expose_private_bytes())).unwrap();
+        assert_eq!(
+            reparsed.private_record().unwrap().expose_private_bytes(),
+            original.expose_private_bytes()
+        );
+        assert_eq!(reparsed.managed_compatibility(), admission);
+    }
+}
+
+#[test]
+fn incompatible_native_import_preview_explains_refusal_without_rewriting_input() {
+    for amnezia in [false, true] {
+        let input = native_config(amnezia).replace("10.8.0.2/32", "2001:db8::2/128");
+        let original = input.clone();
+        let preview = omavless_domain::import::preview_import(&input, &[]).unwrap();
+        let value = preview.private_ui_value();
+        assert_eq!(value["profile"]["compatibilityNote"], "managed_ipv4_only");
+        let result =
+            apply_profile_import(&legacy_store().to_string(), NEW_ID, "Kept", &input).unwrap();
+        let store = parse_private_store(text(result.payload())).unwrap();
+        let exported = store.profile_credential_export(NEW_ID).unwrap();
+        assert!(text(exported.expose_private_bytes()).contains("2001:db8::2/128"));
+        assert_eq!(input, original);
+    }
+}
+
+#[test]
 fn managed_configuration_refuses_keepalive_range_without_lowering_or_data_loss() {
     let options = format!(
         "S3 = 30\nS4 = 35\nHeaderProtectionKey = {}\nContentPaddingAddition = 12-100\nRekeyAfterTime = 100-120\nRekeyTimeout = 3-7\nRejectAfterTime = 150-180\nKeepaliveTimeout = 5-15\nMaxHandshakeAttempts = 15-20\n[Peer]",
@@ -115,6 +182,53 @@ fn first_native_import_prepares_atomic_typed_v4_without_changing_original() {
                 "input remains immutable"
             );
         }
+    }
+}
+
+#[test]
+fn disabled_keepalive_import_store_export_and_config_preserve_zero_and_prior_state() {
+    let template = "external-controller: 0.0.0.0:9090\nmode: rule\nproxies:\n{{OMAVLESS_PROXY}}\nrules:\n  - MATCH,PROXY\n";
+    for amnezia in [false, true] {
+        let input = native_config(amnezia) + "PersistentKeepalive = 0\n";
+        let imported = apply_profile_import(
+            &legacy_store().to_string(),
+            NEW_ID,
+            "Disabled keepalive",
+            &input,
+        )
+        .unwrap();
+        let original = imported.payload().to_vec();
+        let store = parse_private_store(text(&original)).unwrap();
+        assert_eq!(store.managed_connection_compatibility(NEW_ID), Ok(()));
+        let exported = store.profile_credential_export(NEW_ID).unwrap();
+        assert_eq!(exported.format(), CandidateExportFormat::WireGuardConfig);
+        assert!(text(exported.expose_private_bytes()).contains("PersistentKeepalive = 0\n"));
+        for mode in ["global", "rule", "direct"] {
+            let prepared = store
+                .prepare_config_mode(NEW_ID, template, "/private/synthetic/mihomo.sock", mode)
+                .unwrap();
+            assert!(
+                prepared
+                    .lines()
+                    .any(|line| line == "  persistent-keepalive: 0")
+            );
+        }
+        let reimported = apply_profile_mutation(
+            text(&original),
+            ProfileMutation::Replace {
+                profile_id: NEW_ID.into(),
+                new_name: "Disabled keepalive".into(),
+                new_input: text(exported.expose_private_bytes()).into(),
+            },
+        )
+        .unwrap();
+        assert!(!reimported.changed);
+        assert_eq!(reimported.payload(), original);
+        let document = document(reimported.payload());
+        assert_eq!(document["profiles"][0]["uri"], URI);
+        assert_eq!(document["activeId"], ID);
+        assert_eq!(document["lastId"], ID);
+        assert_eq!(document["startup"]["profileId"], ID);
     }
 }
 

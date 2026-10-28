@@ -17,6 +17,23 @@ pub enum ManagedCompatibilityError {
     NumericParameters,
 }
 
+impl ManagedCompatibilityError {
+    /// Closed, data-free preview codes. Clients own their localized wording.
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Ipv4Only => "managed_ipv4_only",
+            Self::KeepaliveRange => "managed_keepalive_range",
+            Self::HeaderRanges => "managed_header_ranges",
+            Self::LegacyHeaders => "managed_legacy_headers",
+            Self::Padding => "managed_padding",
+            Self::LegacyPadding => "managed_legacy_padding",
+            Self::JunkBudget => "managed_junk_budget",
+            Self::SpecialJunk => "managed_special_junk",
+            Self::NumericParameters => "managed_numeric_parameters",
+        }
+    }
+}
+
 impl fmt::Display for ManagedCompatibilityError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
@@ -108,6 +125,11 @@ impl WireGuardProfile {
         if self.addresses.iter().any(|ip| ip.address.is_ipv6())
             || self.allowed_ips.iter().any(|ip| ip.address.is_ipv6())
             || self.endpoint.kind == HostKind::Ipv6
+            || self.dns.iter().any(|dns| {
+                dns.parse::<IpAddr>()
+                    .expect("DNS addresses were validated")
+                    .is_ipv6()
+            })
         {
             return Err(E::Ipv4Only);
         }
@@ -199,6 +221,7 @@ impl WireGuardProfile {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::wireguard::private_record::parse_private_wireguard_record;
 
     fn config(generation: u8) -> String {
         let mut fields = String::new();
@@ -228,6 +251,100 @@ mod tests {
     }
 
     #[test]
+    fn explicit_disabled_keepalive_survives_private_roundtrip_and_managed_render() {
+        let input = config(0).replace("PersistentKeepalive = 25", "PersistentKeepalive = 0");
+        let profile = parse_wireguard_config(&input).unwrap();
+        let original = profile.private_record().unwrap();
+        let restored = parse_private_wireguard_record(original.expose_private_bytes()).unwrap();
+        let exported = restored.private_config().unwrap();
+        assert!(
+            std::str::from_utf8(exported.expose_private_bytes())
+                .unwrap()
+                .contains("PersistentKeepalive = 0\n")
+        );
+        let reparsed =
+            parse_wireguard_config(std::str::from_utf8(exported.expose_private_bytes()).unwrap())
+                .unwrap();
+        assert_eq!(reparsed.managed_compatibility(), Ok(()));
+        let rendered = reparsed.render_mihomo_proxy("Test", None).unwrap();
+        assert!(
+            rendered
+                .lines()
+                .any(|line| line == "  persistent-keepalive: 0")
+        );
+        assert_eq!(
+            reparsed.private_record().unwrap().expose_private_bytes(),
+            original.expose_private_bytes()
+        );
+        let omitted =
+            parse_wireguard_config(&config(0).replace("PersistentKeepalive = 25\n", "")).unwrap();
+        assert!(
+            !omitted
+                .render_mihomo_proxy("Test", None)
+                .unwrap()
+                .contains("persistent-keepalive:")
+        );
+        assert_ne!(
+            profile.subscription_identity(),
+            omitted.subscription_identity()
+        );
+    }
+
+    #[test]
+    fn scalar_keepalive_bounds_do_not_widen_range_or_family_admission() {
+        for generation in 0..=4 {
+            let base = config(generation);
+            for value in ["0", "1", "65535"] {
+                let input = base.replace(
+                    "PersistentKeepalive = 25",
+                    &format!("PersistentKeepalive = {value}"),
+                );
+                let profile = parse_wireguard_config(&input).unwrap();
+                assert_eq!(profile.managed_compatibility(), Ok(()));
+                assert!(
+                    profile
+                        .render_mihomo_proxy("Test", None)
+                        .unwrap()
+                        .lines()
+                        .any(|line| line == format!("  persistent-keepalive: {value}"))
+                );
+                assert_eq!(
+                    profile.render_mihomo_proxy("Test", Some("2001:db8::2")),
+                    Err(ManagedCompatibilityError::Ipv4Only)
+                );
+            }
+            for value in ["-1", "65536", "off", "false", "0-0", "0-25"] {
+                let input = base.replace(
+                    "PersistentKeepalive = 25",
+                    &format!("PersistentKeepalive = {value}"),
+                );
+                assert_eq!(
+                    parse_wireguard_config(&input).unwrap_err(),
+                    WireGuardError::InvalidKeepalive
+                );
+            }
+            let ranged = base.replace("PersistentKeepalive = 25", "PersistentKeepalive = 1-2");
+            if generation == 0 {
+                assert_eq!(
+                    parse_wireguard_config(&ranged).unwrap_err(),
+                    WireGuardError::InvalidKeepalive
+                );
+            } else {
+                let profile = parse_wireguard_config(&ranged).unwrap();
+                assert_eq!(
+                    profile.managed_compatibility(),
+                    Err(ManagedCompatibilityError::KeepaliveRange)
+                );
+                assert!(
+                    std::str::from_utf8(profile.private_config().unwrap().expose_private_bytes())
+                        .unwrap()
+                        .contains("PersistentKeepalive = 1-2\n")
+                );
+            }
+        }
+    }
+
+    #[test]
     fn one_peer_ipv4_fixed_keepalive_subset_is_representable_without_mutating_data() {
         for generation in 0..=4 {
             let p = parse_wireguard_config(&config(generation)).unwrap();
@@ -245,6 +362,91 @@ mod tests {
                 Err(ManagedCompatibilityError::Ipv4Only)
             );
         }
+    }
+
+    #[test]
+    fn decimal_padding_does_not_become_yaml_octal_and_private_spelling_survives() {
+        let input = config(3).replace("S1 = 20", "S1 = 00012");
+        let profile = parse_wireguard_config(&input).unwrap();
+        assert_eq!(profile.managed_compatibility(), Ok(()));
+        let original = profile.private_record().unwrap();
+        let rendered = profile.render_mihomo_proxy("Test", None).unwrap();
+        assert!(rendered.lines().any(|line| line == "    s1: 12"));
+        assert!(!rendered.contains("s1: 00012"));
+        let exported = profile.private_config().unwrap();
+        assert!(
+            std::str::from_utf8(exported.expose_private_bytes())
+                .unwrap()
+                .contains("S1 = 00012\n")
+        );
+        let restored = parse_private_wireguard_record(original.expose_private_bytes()).unwrap();
+        assert_eq!(
+            restored.render_mihomo_proxy("Test", None).unwrap(),
+            rendered
+        );
+        assert_eq!(
+            profile.private_record().unwrap().expose_private_bytes(),
+            original.expose_private_bytes()
+        );
+    }
+
+    #[test]
+    fn every_awg_numeric_yaml_field_uses_decimal_without_rewriting_private_data() {
+        for generation in 1..=4 {
+            for (field, plain, spelling, output) in [
+                ("Jc", "4", "0004", "    jc: 4"),
+                ("Jmin", "10", "0010", "    jmin: 10"),
+                ("Jmax", "30", "+0030", "    jmax: 30"),
+                ("S1", "20", "00020", "    s1: 20"),
+                ("S2", "25", "00025", "    s2: 25"),
+                ("S3", "30", "00030", "    s3: 30"),
+                ("S4", "35", "00035", "    s4: 35"),
+            ] {
+                let base = config(generation);
+                let original_line = format!("{field} = {plain}\n");
+                if generation == 1 && matches!(field, "S3" | "S4") {
+                    assert!(!base.contains(&original_line));
+                    continue;
+                }
+                let private_line = format!("{field} = {spelling}\n");
+                let input = base.replace(&original_line, &private_line);
+                assert_ne!(input, base);
+                let profile = parse_wireguard_config(&input).unwrap();
+                assert_eq!(profile.managed_compatibility(), Ok(()));
+                assert!(
+                    profile
+                        .render_mihomo_proxy("Test", None)
+                        .unwrap()
+                        .lines()
+                        .any(|line| line == output)
+                );
+                assert!(
+                    std::str::from_utf8(profile.private_config().unwrap().expose_private_bytes())
+                        .unwrap()
+                        .contains(&private_line)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn ipv6_dns_remains_private_data_but_cannot_enter_an_ipv4_only_tunnel() {
+        let input = config(0).replace("[Peer]", "DNS = 2001:db8::53\n[Peer]");
+        let profile = parse_wireguard_config(&input).unwrap();
+        let original = profile.private_record().unwrap();
+        assert_eq!(
+            profile.render_mihomo_proxy("Test", None),
+            Err(ManagedCompatibilityError::Ipv4Only)
+        );
+        assert!(
+            std::str::from_utf8(profile.private_config().unwrap().expose_private_bytes())
+                .unwrap()
+                .contains("DNS = 2001:db8::53\n")
+        );
+        assert_eq!(
+            profile.private_record().unwrap().expose_private_bytes(),
+            original.expose_private_bytes()
+        );
     }
 
     #[test]

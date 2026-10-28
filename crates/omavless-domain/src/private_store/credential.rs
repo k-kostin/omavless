@@ -217,7 +217,11 @@ impl PrivateProfileCredential {
                 } else {
                     "AmneziaWG"
                 };
-                serde_json::json!({"version":1,"protocol":self.family().as_str(),"server":host,"port":port.parse::<u16>().expect("validated endpoint port"),"transport":"udp","security":"wireguard","sni":"","flow":"","insecure":false,"advancedXhttp":false,"experimental":true,"experimentalFeatures":[name],"compatibilityNote":"","credentialHint":"••••","suggestedName":name})
+                let compatibility_note = profile
+                    .managed_compatibility()
+                    .err()
+                    .map_or("", |reason| reason.code());
+                serde_json::json!({"version":1,"protocol":self.family().as_str(),"server":host,"port":port.parse::<u16>().expect("validated endpoint port"),"transport":"udp","security":"wireguard","sni":"","flow":"","insecure":false,"advancedXhttp":false,"experimental":true,"experimentalFeatures":[name],"compatibilityNote":compatibility_note,"credentialHint":"••••","suggestedName":name})
             }
         }
     }

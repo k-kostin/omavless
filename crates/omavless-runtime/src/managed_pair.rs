@@ -49,6 +49,7 @@ pub(crate) struct ManagedPair {
     core_sha: [u8; 32],
     broker_sha: [u8; 32],
     running_report: TrafficReadiness,
+    native_profiles_supported: bool,
 }
 
 struct PackageHashes {
@@ -56,6 +57,7 @@ struct PackageHashes {
     core: [u8; 32],
     broker: [u8; 32],
     running_report: TrafficReadiness,
+    native_profiles_supported: bool,
 }
 
 fn safe_file(path: &Path, owner: u32, mode: u32, max_bytes: u64) -> Result<File, HostStepError> {
@@ -142,9 +144,15 @@ fn decoded_sha(raw: &str) -> Result<[u8; 32], HostStepError> {
 impl ManagedPair {
     #[cfg(test)]
     pub(crate) fn test_pair(root: &Path, traffic: bool) -> Self {
+        Self::test_pair_with_receipt(
+            root,
+            traffic.then(|| crate::managed_traffic_receipt::fixture(std::env::consts::ARCH)),
+        )
+    }
+    #[cfg(test)]
+    pub(crate) fn test_pair_with_receipt(root: &Path, value: Option<serde_json::Value>) -> Self {
         let (selector, core, broker, receipt, _) = tests::desktop_fixture(root);
-        if traffic {
-            let mut value = crate::managed_traffic_receipt::fixture(std::env::consts::ARCH);
+        if let Some(mut value) = value {
             value["sha256"]["mihomo"] =
                 serde_json::json!(format!("{:x}", Sha256::digest(fs::read(&core).unwrap())));
             value["sha256"]["omavless-dns-broker"] =
@@ -195,6 +203,7 @@ impl ManagedPair {
             core_sha: hashes.core,
             broker_sha: hashes.broker,
             running_report: hashes.running_report,
+            native_profiles_supported: hashes.native_profiles_supported,
         };
         selection.verify()?;
         Ok(Some(selection))
@@ -218,6 +227,7 @@ impl ManagedPair {
                 core: hashes.core,
                 broker: hashes.broker,
                 running_report: TrafficReadiness::TrafficV1,
+                native_profiles_supported: true,
             });
         }
         // The new distinct family can continue the existing DNS/TUN path.
@@ -234,6 +244,7 @@ impl ManagedPair {
                 core: hashes.core,
                 broker: hashes.broker,
                 running_report: TrafficReadiness::ConditionalV1,
+                native_profiles_supported: !hashes.k1_device,
             });
         }
         let value: Receipt = serde_json::from_slice(&bytes).map_err(|_| HostStepError::Prepare)?;
@@ -276,6 +287,7 @@ impl ManagedPair {
             core: core_sha,
             broker: broker_sha,
             running_report: TrafficReadiness::ConfiguredOnly,
+            native_profiles_supported: false,
         })
     }
 
@@ -293,6 +305,12 @@ impl ManagedPair {
     /// Old two-patch DNS pairs and unmanaged cores retain their legacy contract.
     pub(crate) fn running_report(&self) -> TrafficReadiness {
         self.running_report
+    }
+
+    /// Derived only from the verified receipt family, never a close permit.
+    /// K1's distinct device/enrollment family needs separate WG qualification.
+    pub(crate) fn supports_native_profiles(&self) -> bool {
+        self.native_profiles_supported
     }
 
     pub(crate) fn core_path(&self) -> &Path {
@@ -485,12 +503,9 @@ mod tests {
             json!(format!("{:x}", Sha256::digest(b"synthetic broker")));
         write_mode(&receipt, &serde_json::to_vec(&value).unwrap(), 0o644);
         let uid = nix::unistd::getuid().as_raw();
-        assert!(
-            ManagedPair::validate_package_at(&core, &broker, &receipt, uid)
-                .unwrap()
-                .running_report
-                == TrafficReadiness::ConditionalV1
-        );
+        let hashes = ManagedPair::validate_package_at(&core, &broker, &receipt, uid).unwrap();
+        assert!(hashes.running_report == TrafficReadiness::ConditionalV1);
+        assert!(hashes.native_profiles_supported);
         // The second qualified family shares compatibility verification only,
         // never a permit. No device/consent family may be inferred from ABI.
         value["schema"] = json!(crate::managed_close_receipt::K1_SCHEMA);
@@ -503,12 +518,9 @@ mod tests {
         value["enrollment_policy"] = json!("omavless0-ipv4-development-v1");
         value["managed_device_source"] = json!("08194a275d315db7ca502e50f960c80af6dc163b");
         write_mode(&receipt, &serde_json::to_vec(&value).unwrap(), 0o644);
-        assert!(
-            ManagedPair::validate_package_at(&core, &broker, &receipt, uid)
-                .unwrap()
-                .running_report
-                == TrafficReadiness::ConditionalV1
-        );
+        let hashes = ManagedPair::validate_package_at(&core, &broker, &receipt, uid).unwrap();
+        assert!(hashes.running_report == TrafficReadiness::ConditionalV1);
+        assert!(!hashes.native_profiles_supported);
         value["enrollment_policy"] = json!("meta-ipv4-release-v1");
         write_mode(&receipt, &serde_json::to_vec(&value).unwrap(), 0o644);
         assert!(ManagedPair::validate_package_at(&core, &broker, &receipt, uid).is_err());

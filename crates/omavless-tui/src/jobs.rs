@@ -13,13 +13,18 @@ pub const MAX_POLLS: usize = 1810;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     RefreshAll,
+    RefreshSelected,
     SubscriptionProbe,
     ProfileProbe,
 }
 impl Kind {
+    pub fn is_refresh(self) -> bool {
+        matches!(self, Self::RefreshAll | Self::RefreshSelected)
+    }
     pub fn method(self) -> &'static str {
         match self {
             Self::RefreshAll => "subscriptions.refresh_all",
+            Self::RefreshSelected => "subscriptions.refresh_selected",
             Self::SubscriptionProbe => "subscriptions.probe",
             Self::ProfileProbe => "profiles.probe",
         }
@@ -27,6 +32,7 @@ impl Kind {
     pub fn maximum(self) -> usize {
         match self {
             Self::RefreshAll => 64,
+            Self::RefreshSelected => 1,
             Self::SubscriptionProbe | Self::ProfileProbe => 256,
         }
     }
@@ -37,7 +43,7 @@ impl Kind {
                 .iter()
                 .all(|name| methods.iter().any(|v| v == name))
             && match self {
-                Self::RefreshAll => true,
+                Self::RefreshAll | Self::RefreshSelected => true,
                 Self::SubscriptionProbe => {
                     methods.iter().any(|v| v == "subscriptions.probe_results")
                 }
@@ -108,7 +114,9 @@ impl Request {
             || expected_revision > i64::MAX as u64
             || match kind {
                 Kind::RefreshAll => target.is_some(),
-                Kind::SubscriptionProbe => !target.as_deref().is_some_and(record),
+                Kind::RefreshSelected | Kind::SubscriptionProbe => {
+                    !target.as_deref().is_some_and(record)
+                }
                 Kind::ProfileProbe => target.as_deref().is_some_and(|id| !record(id)),
             }
         {
@@ -148,7 +156,7 @@ impl Request {
     }
     pub fn results_call(&self) -> Option<Call> {
         match self.kind {
-            Kind::RefreshAll => None,
+            Kind::RefreshAll | Kind::RefreshSelected => None,
             Kind::SubscriptionProbe => Some(self.lookup("subscriptions.probe_results")),
             Kind::ProfileProbe => Some(self.lookup("profiles.probe_results")),
         }
@@ -163,11 +171,40 @@ impl Request {
             return Update::Unknown;
         };
         if value["ok"] == false {
+            // The new selected-refresh method never acknowledges an incomplete
+            // refusal as proof that its start did not run. Preserve legacy jobs.
+            if self.kind == Kind::RefreshSelected
+                && (value.get("result").is_some()
+                    || !value["error"].as_object().is_some_and(|error| {
+                        error.len() == 3
+                            && error
+                                .get("code")
+                                .and_then(Value::as_str)
+                                .is_some_and(|s| opaque(s, 64))
+                            && error
+                                .get("message")
+                                .and_then(Value::as_str)
+                                .is_some_and(|s| s.len() <= 1024)
+                            && error.get("retryable").is_some_and(Value::is_boolean)
+                    }))
+            {
+                return Update::Unknown;
+            }
             return safe_error(&value["error"])
                 .map(Update::Rejected)
                 .unwrap_or(Update::Unknown);
         }
         if value["ok"] != true {
+            return Update::Unknown;
+        }
+        if self.kind == Kind::RefreshSelected
+            && !value["result"].as_object().is_some_and(|result| {
+                result.contains_key("operation")
+                    && (result.len() == 1
+                        || (result.len() == 2
+                            && result.get("accepted").is_some_and(Value::is_boolean)))
+            })
+        {
             return Update::Unknown;
         }
         let op = &value["result"]["operation"];
@@ -205,7 +242,7 @@ impl Request {
                 _ => return None,
             };
             let import_summary = if let Some(value) = op.get("importSummary") {
-                if self.kind != Kind::RefreshAll || state != State::Succeeded {
+                if !self.kind.is_refresh() || state != State::Succeeded {
                     return None;
                 }
                 Some(omavless_domain::subscription_feed::ImportSummary::from_value(value)?)
@@ -225,9 +262,14 @@ impl Request {
                 None
             } else {
                 let error = op["error"].as_object()?;
+                if self.kind == Kind::RefreshSelected
+                    && !native_error_code(error.get("code")?.as_str()?)
+                {
+                    return None;
+                }
                 if !(error.len() == 3
                     || (error.len() == 4
-                        && self.kind == Kind::RefreshAll
+                        && self.kind.is_refresh()
                         && crate::private_import::import_error(
                             &json!({"ok":false,"error":op["error"]}),
                         )
@@ -241,6 +283,7 @@ impl Request {
                 Some(safe_error(&op["error"]).unwrap_or("tui.action_rejected"))
             };
             if total > self.kind.maximum()
+                || self.kind == Kind::RefreshSelected && total != 1
                 || completed > total
                 || op["progress"].as_object()?.len() != 2
                 || state.terminal() != outcome_revision.is_some()
@@ -254,12 +297,12 @@ impl Request {
                     && outcome_revision
                         != self
                             .revision
-                            .checked_add(u64::from(total != 0 && self.kind == Kind::RefreshAll))
+                            .checked_add(u64::from(total != 0 && self.kind.is_refresh()))
             {
                 return None;
             }
             Some(Progress {
-                import_reasons: if state == State::Failed && self.kind == Kind::RefreshAll {
+                import_reasons: if state == State::Failed && self.kind.is_refresh() {
                     crate::private_import::import_error(&json!({"ok":false,"error":op["error"]}))
                 } else {
                     None
@@ -279,7 +322,7 @@ impl Request {
     /// IDs stay in private UI memory for matching to current snapshot rows.
     /// Unknown fields, duplicate IDs and impossible timing facts fail closed.
     pub fn results(&self, response: Result<Value, ReadError>) -> Option<Vec<ProbeRow>> {
-        if self.kind == Kind::RefreshAll {
+        if self.kind.is_refresh() {
             return None;
         }
         let value = response.ok()?;
@@ -335,6 +378,30 @@ impl Request {
             })
             .collect()
     }
+}
+
+// Independent closed native-v1 vocabulary: display fallbacks alone must not
+// turn an impossible terminal receipt into permission to start another job.
+fn native_error_code(code: &str) -> bool {
+    matches!(
+        code,
+        "invalid_request"
+            | "unsupported_version"
+            | "unknown_method"
+            | "invalid_argument"
+            | "not_found"
+            | "conflict"
+            | "busy"
+            | "capability_unavailable"
+            | "dns_pair_required"
+            | "permission_denied"
+            | "core_rejected"
+            | "subscription_unavailable"
+            | "transition_failed_restored"
+            | "manual_recovery_required"
+            | "daemon_restarting"
+            | "internal_error"
+    )
 }
 
 fn safe_error(value: &Value) -> Option<&'static str> {

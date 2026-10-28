@@ -150,6 +150,101 @@ fn subscription_save_preserves_only_applied_typed_summary() {
 }
 
 #[test]
+fn managed_preview_codes_are_localized_closed_and_never_change_unknown_or_stale_fences() {
+    for (note, key) in [
+        ("managed_ipv4_only", "import.managed_ipv4_only"),
+        ("managed_keepalive_range", "import.managed_keepalive_range"),
+        ("managed_header_ranges", "import.managed_header_ranges"),
+        ("managed_legacy_headers", "import.managed_legacy_headers"),
+        ("managed_padding", "import.managed_padding"),
+        ("managed_legacy_padding", "import.managed_legacy_padding"),
+        ("managed_junk_budget", "import.managed_junk_budget"),
+        ("managed_special_junk", "import.managed_special_junk"),
+        (
+            "managed_numeric_parameters",
+            "import.managed_numeric_parameters",
+        ),
+        ("private-sentinel\nsecret", "import.managed_unavailable"),
+        ("import.managed_ipv4_only", "import.managed_unavailable"),
+        ("", "import.managed_scope"),
+    ] {
+        for locale in [Locale::En, Locale::Ru] {
+            let (mut app, now) = app(locale);
+            let mut w = draft(700);
+            let mut value = profile();
+            let p = &mut value["result"]["profile"];
+            p["protocol"] = json!("wireguard");
+            p["transport"] = json!("udp");
+            p["security"] = json!("wireguard");
+            p["credentialHint"] = json!("••••");
+            p["experimental"] = json!(true);
+            p["compatibilityNote"] = json!(note);
+            preview(&mut w, value.clone(), now);
+            assert_eq!(w.preview().unwrap().managed_note_key, key);
+            app.import = Some(w);
+            app.import_open = true;
+            let output = render(&app, now, 70, 24);
+            let normalized = output
+                .replace('│', " ")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            assert!(
+                normalized.contains(locale.text(key)),
+                "missing complete localized warning {key}: {normalized}"
+            );
+            assert!(!output.contains("private-sentinel") && !output.contains(PRIVATE));
+            assert!(!output.contains("import.managed_"));
+            let w = app.import.as_mut().unwrap();
+            let request = w.confirm("one-save".into(), now).unwrap();
+            w.accept(request.settle(Err(ReadError::Unavailable)));
+            assert_eq!(w.state(), State::Unknown);
+            assert!(w.confirm("never-resend".into(), now).is_none());
+            w.cancel();
+            assert_eq!(w.state(), State::Unknown);
+            let mut stale = draft(701);
+            let request = stale.classify(now).unwrap();
+            value["revision"] = json!(8);
+            stale.accept(request.settle(Ok(value)));
+            assert_ne!(stale.state(), State::Preview);
+            assert!(stale.preview().is_none());
+        }
+    }
+}
+
+#[test]
+fn native_preview_explains_ipv4_refusal_and_preserves_ordinary_import_target() {
+    for locale in [Locale::En, Locale::Ru] {
+        let (mut app, now) = app(locale);
+        press(&mut app, KeyCode::F(3), now);
+        app.import_paste(PRIVATE.into());
+        press(&mut app, KeyCode::Enter, now);
+        let request = app.take_import_request().unwrap();
+        let mut value = profile();
+        let p = &mut value["result"]["profile"];
+        p["protocol"] = json!("amneziawg");
+        p["transport"] = json!("udp");
+        p["security"] = json!("wireguard");
+        p["credentialHint"] = json!("••••");
+        p["experimental"] = json!(true);
+        p["compatibilityNote"] = json!("managed_ipv4_only");
+        app.finish_import(request.settle(Ok(value)));
+        let output = render(&app, now, 70, 24);
+        assert!(output.contains(match locale {
+            Locale::En => "Cannot connect: IPv4 is required.",
+            Locale::Ru => "Подключение недоступно: требуется IPv4.",
+        }));
+        assert!(!output.contains(PRIVATE));
+        press(&mut app, KeyCode::Enter, now);
+        let save = app.take_import_request().unwrap();
+        assert_eq!(save.method(), "plugin.action");
+        assert_eq!(save.params()["action"], "profile-import");
+        assert_eq!(save.params()["input"], PRIVATE);
+        assert_eq!(save.params()["expectedRevision"], 7);
+    }
+}
+
+#[test]
 fn native_profile_preview_uses_existing_confirmation_and_cancel_without_connecting() {
     for protocol in ["wireguard", "amneziawg"] {
         let now = Instant::now();

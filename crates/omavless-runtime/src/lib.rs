@@ -176,6 +176,7 @@ mod subscription_probe_work;
 pub mod subscription_read_protocol;
 pub mod subscription_refresh;
 pub mod subscription_refresh_protocol;
+mod subscription_schedule;
 pub mod subscription_transport;
 mod subscription_usage;
 mod support_diagnostics;
@@ -374,6 +375,7 @@ const NATIVE_MUTATION_METHODS: &[&str] = &[
     "plugin.action",
     "onboarding.complete",
     "startup.configure",
+    "subscriptions.schedule.configure",
     "profiles.replace",
     "profiles.import",
     "profiles.importBundle",
@@ -414,6 +416,7 @@ fn valid_mutation_shape(request: &Value, instance: &str) -> bool {
             custom_rule_protocol::parse(request).is_ok()
         }
         "startup.configure" => startup_protocol::parse_startup_request(request).is_ok(),
+        "subscriptions.schedule.configure" => subscription_schedule::parse(request).is_ok(),
         "onboarding.complete" => onboarding_protocol::parse(request).is_ok(),
         _ => false,
     }
@@ -650,6 +653,11 @@ trait NativeRuntimeOwner: Send {
     fn batch_finish(&mut self, job: native_coordinator::NativeSubscriptionBatch);
     fn batch_abort(&mut self, ticket: native_coordinator::NativeBatchTicket);
     fn batch_stop(&mut self);
+    fn batch_due(
+        &mut self,
+        instance: &str,
+        now: u64,
+    ) -> std::result::Result<Option<batch_scheduler::BatchWork>, native_coordinator::NativeOwnerError>;
     fn provider_preflight(
         &mut self,
         request: &Value,
@@ -1170,6 +1178,7 @@ where
             request["method"].as_str(),
             Some(
                 "subscriptions.refresh_all"
+                    | "subscriptions.refresh_selected"
                     | "subscriptions.probe"
                     | "subscriptions.probe_results"
                     | "profiles.probe"
@@ -1183,6 +1192,9 @@ where
         if !self.batch_initialized {
             coordinator.initialize_batch_operations(instance)?;
             self.batch_initialized = true;
+        }
+        if request["method"] == "subscriptions.schedule.get" {
+            return Ok((coordinator.subscription_schedule(request, instance)?, None));
         }
         if matches!(
             request["method"].as_str(),
@@ -1236,7 +1248,7 @@ where
             return Ok((projection, work));
         }
         let (job, accepted) = match request["method"].as_str() {
-            Some("subscriptions.refresh_all") => {
+            Some("subscriptions.refresh_all" | "subscriptions.refresh_selected") => {
                 (coordinator.start_subscription_batch(request)?, None)
             }
             Some("operations.cancel") => {
@@ -1359,6 +1371,29 @@ where
 
     fn batch_stop(&mut self) {
         let _ = self.owner.batch_coordinator().stop_batch_operations();
+    }
+
+    fn batch_due(
+        &mut self,
+        instance: &str,
+        now: u64,
+    ) -> std::result::Result<Option<batch_scheduler::BatchWork>, native_coordinator::NativeOwnerError>
+    {
+        if !self.owner.rust_ownership_available() {
+            return Ok(None);
+        }
+        let coordinator = self.owner.batch_coordinator();
+        if !self.batch_initialized {
+            coordinator.initialize_batch_operations(instance)?;
+            self.batch_initialized = true;
+        }
+        let operation = self.record_ids.next();
+        let job = coordinator.start_due_subscription_batch(instance, &operation, now)?;
+        Ok(job.map(|job| batch_scheduler::BatchWork::Subscription {
+            job,
+            transport: self.transport.clone(),
+            record_ids: RecordIdGenerator::new(&self.record_ids.next()),
+        }))
     }
 
     fn revision(&self) -> u64 {
@@ -1726,6 +1761,15 @@ impl RuntimeServer {
         let server = &self;
         thread::scope(|scope| {
             while !stop.load(Ordering::Relaxed) && !self.quit_requested.load(Ordering::Acquire) {
+                if let Ok(gate) = self.quit_gate.try_read()
+                    && !*gate
+                {
+                    self.batch_scheduler.reconcile_due(
+                        &self.instance_id,
+                        &self.dispatcher,
+                        &self.remote_fetches,
+                    );
+                }
                 match self.listener.accept() {
                     Ok((mut stream, _address)) => {
                         if let Some(slot) = claim_slot(&active, MAX_CONCURRENT_CLIENTS) {
@@ -8114,6 +8158,267 @@ mod tests {
     }
 
     #[test]
+    fn daily_schedule_real_http_socket_cancel_restart_and_no_duplicate() {
+        use std::io::{Read, Write};
+        const SUB: &str = "10000000-0000-4000-8000-000000000001";
+        for outcome in ["success", "cancel", "restart-active"] {
+            let base = temporary_base("daily-real-ipc");
+            let (owner, cutover, calls) = native_owner_fixture(&base);
+            let initial_calls = calls.load(Ordering::Relaxed);
+            let store_path = base.join("config/profiles.json");
+            let desired_path = base.join("state/omavless/desired.json");
+            let desired_before = fs::read(&desired_path).unwrap();
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let mut document: Value =
+                serde_json::from_slice(&fs::read(&store_path).unwrap()).unwrap();
+            document["subscriptions"][0]["url"] =
+                json!(format!("http://{}/daily", listener.local_addr().unwrap()));
+            fs::write(&store_path, document.to_string()).unwrap();
+            let feed_before = document["subscriptions"][0]["updatedAt"].clone();
+            let (arrived_tx, arrived_rx) = std::sync::mpsc::sync_channel(4);
+            let (release_tx, release_rx) = std::sync::mpsc::sync_channel(4);
+            let fixture_stop = Arc::new(AtomicBool::new(false));
+            let fixture_flag = Arc::clone(&fixture_stop);
+            let http = thread::spawn(move || {
+                let mut count = 0;
+                while !fixture_flag.load(Ordering::Acquire) {
+                    let mut stream = match listener.accept() {
+                        Ok((stream, _)) => stream,
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                            thread::sleep(Duration::from_millis(5));
+                            continue;
+                        }
+                        Err(_) => panic!("HTTP fixture accept failed"),
+                    };
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(3)))
+                        .unwrap();
+                    let mut headers = Vec::new();
+                    while !headers.ends_with(b"\r\n\r\n") {
+                        let mut byte = [0];
+                        stream.read_exact(&mut byte).unwrap();
+                        headers.push(byte[0]);
+                        assert!(headers.len() < 8192);
+                    }
+                    assert!(headers.starts_with(b"GET /daily "));
+                    count += 1;
+                    arrived_tx.send(count).unwrap();
+                    release_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+                    let body = "vless://22222222-2222-4222-8222-222222222222@192.0.2.2:443?security=none&type=tcp#Daily";
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                }
+                count
+            });
+            let paths = RuntimePaths::below(&base.join("runtime"));
+            let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+            let old_instance = server.instance_id.clone();
+            server.register_native_owner(
+                owner,
+                subscription_transport::HttpsSubscriptionTransport::new(),
+            );
+            let dispatcher = Arc::clone(&server.dispatcher);
+            let stop = Arc::new(AtomicBool::new(false));
+            let flag = Arc::clone(&stop);
+            let runtime = thread::spawn(move || server.serve_until(&flag).unwrap());
+            let read = call(
+                &paths,
+                "subscriptions.schedule.get",
+                json!({"subscriptionId":SUB}),
+            )
+            .unwrap();
+            assert_eq!(read["result"]["enabled"], false);
+            assert!(arrived_rx.try_recv().is_err());
+            let arguments: Vec<std::ffi::OsString> = [
+                "subscription",
+                "schedule",
+                SUB,
+                "daily",
+                "enable-daily",
+                "0",
+            ]
+            .into_iter()
+            .map(Into::into)
+            .collect();
+            let (method, params) = semantic_cli::parse_semantic_mutation(&arguments, None)
+                .unwrap()
+                .into_parts();
+            assert_eq!(call(&paths, method, params.clone()).unwrap()["ok"], true);
+            assert_eq!(arrived_rx.recv_timeout(Duration::from_secs(3)).unwrap(), 1);
+            // Exact configuration retry must not reset the consumed deadline.
+            assert_eq!(call(&paths, method, params).unwrap()["ok"], true);
+            let read = call(
+                &paths,
+                "subscriptions.schedule.get",
+                json!({"subscriptionId":SUB}),
+            )
+            .unwrap();
+            let handle = json!({"instanceId":old_instance,"operationId":read["result"]["lastAttempt"]["operationId"]});
+            assert_eq!(read["result"]["lastAttempt"]["disposition"], "admitted");
+            assert_eq!(
+                read["result"]["operation"]["method"],
+                "subscriptions.refresh_selected"
+            );
+            assert_eq!(
+                call(
+                    &paths,
+                    "subscriptions.refresh_all",
+                    json!({"instanceId":old_instance,"operationId":"manual-contender"})
+                )
+                .unwrap()["error"]["code"],
+                "busy"
+            );
+            if outcome == "cancel" {
+                assert_eq!(
+                    call(&paths, "operations.cancel", handle.clone()).unwrap()["result"]["accepted"],
+                    true
+                );
+            }
+            if outcome == "restart-active" {
+                stop.store(true, Ordering::Release);
+                let lookup =
+                    make_request("shutdown-observation", "operations.get", handle.clone()).unwrap();
+                let deadline = std::time::Instant::now() + Duration::from_secs(1);
+                loop {
+                    let stopped = {
+                        let mut guard = dispatcher.lock().unwrap();
+                        let RuntimeDispatcher::Native(owner) = &mut *guard else {
+                            panic!("missing original owner");
+                        };
+                        let (value, _) = owner.batch_control(&lookup, &old_instance).unwrap();
+                        value["operation"]["state"] == "failed"
+                            && value["operation"]["error"]["code"] == "daemon_restarting"
+                    };
+                    if stopped {
+                        break;
+                    }
+                    assert!(std::time::Instant::now() < deadline);
+                    thread::sleep(Duration::from_millis(1));
+                }
+            }
+            release_tx.send(()).unwrap();
+            if outcome != "restart-active" {
+                let deadline = std::time::Instant::now() + Duration::from_secs(3);
+                loop {
+                    let result = call(&paths, "operations.get", handle.clone()).unwrap();
+                    if matches!(
+                        result["result"]["operation"]["state"].as_str(),
+                        Some("succeeded" | "cancelled")
+                    ) {
+                        assert_eq!(
+                            result["result"]["operation"]["state"],
+                            if outcome == "success" {
+                                "succeeded"
+                            } else {
+                                "cancelled"
+                            }
+                        );
+                        break;
+                    }
+                    assert!(std::time::Instant::now() < deadline);
+                    thread::sleep(Duration::from_millis(5));
+                }
+                stop.store(true, Ordering::Release);
+            }
+            runtime.join().unwrap();
+            assert_eq!(calls.load(Ordering::Relaxed), initial_calls);
+            drop(dispatcher);
+            assert!(!paths.socket.exists());
+            let after: Value = serde_json::from_slice(&fs::read(&store_path).unwrap()).unwrap();
+            if outcome == "success" {
+                assert_ne!(after["subscriptions"][0]["updatedAt"], feed_before);
+            } else {
+                assert_eq!(after["subscriptions"][0]["updatedAt"], feed_before);
+            }
+            let effects = Arc::new(AtomicUsize::new(0));
+            let host = FakeHost {
+                #[cfg(feature = "product-image-witness")]
+                close_registration: lifecycle::CloseRegistration::Disabled,
+                auxiliary: None,
+                probe_paths: None,
+                lifecycle_effects: Arc::clone(&effects),
+                fresh_calls: Arc::new(AtomicUsize::new(0)),
+                fresh_result: Err(HostStepError::Observation),
+                connection_details_payload: None,
+                on_fresh: None,
+                route_config: None,
+                observation: OwnedObservation {
+                    service_active: false,
+                    controller_ready: false,
+                    core_count: 0,
+                    tun_count: 0,
+                    active_profile_matches: false,
+                },
+                calls: Arc::clone(&calls),
+            };
+            let uid = fs::metadata(&base).unwrap().uid();
+            // Reopen the SAME canonical store and owner namespace, without
+            // editing a receipt or rebuilding a fixture around the restart.
+            let owner = production_owner::ProductionNativeOwner::initialize(
+                host,
+                DesiredPaths::below(&base.join("state")),
+                &store_path,
+                cutover,
+                uid,
+            )
+            .unwrap();
+            let mut server = RuntimeServer::bind(paths.clone()).unwrap();
+            assert_ne!(server.instance_id, old_instance);
+            server.register_native_owner(
+                owner,
+                subscription_transport::HttpsSubscriptionTransport::new(),
+            );
+            let stop = Arc::new(AtomicBool::new(false));
+            let flag = Arc::clone(&stop);
+            let runtime = thread::spawn(move || server.serve_until(&flag).unwrap());
+            assert_eq!(
+                call(&paths, "operations.get", handle.clone()).unwrap()["error"]["code"],
+                "not_found"
+            );
+            assert_eq!(
+                call(&paths, "operations.cancel", handle).unwrap()["error"]["code"],
+                "not_found"
+            );
+            let read = call(
+                &paths,
+                "subscriptions.schedule.get",
+                json!({"subscriptionId":SUB}),
+            )
+            .unwrap();
+            assert_eq!(
+                read["result"]["lastAttempt"]["disposition"],
+                match outcome {
+                    "success" => "committed",
+                    "cancel" => "cancelled_before_commit",
+                    _ => "failed_before_commit",
+                }
+            );
+            assert!(
+                arrived_rx
+                    .recv_timeout(Duration::from_millis(1100))
+                    .is_err()
+            );
+            assert_eq!(fs::read(&desired_path).unwrap(), desired_before);
+            assert_eq!(effects.load(Ordering::Relaxed), 0);
+            let settings = json!({"subscriptionId":SUB,"enabled":false,"operationId":"daily-off","expectedRevision":read["revision"]});
+            assert_eq!(
+                call(&paths, "subscriptions.schedule.configure", settings).unwrap()["ok"],
+                true
+            );
+            stop.store(true, Ordering::Release);
+            runtime.join().unwrap();
+            fixture_stop.store(true, Ordering::Release);
+            assert_eq!(http.join().unwrap(), 1);
+            assert!(!paths.socket.exists());
+            fs::remove_dir_all(base).unwrap();
+        }
+    }
+
+    #[test]
     fn batch_scheduler_commits_once_and_rejects_unknown_poll_fields() {
         let base = temporary_base("batch-success");
         let (owner, _cutover, _calls) = native_owner_fixture(&base);
@@ -8162,7 +8467,17 @@ mod tests {
     fn batch_real_http_and_private_socket_preserve_success_cancel_and_error_boundaries() {
         use std::io::{Read, Write};
         use std::net::TcpListener;
-        for outcome in ["success", "cancel", "error", "revoked"] {
+        for (method, outcome) in [
+            ("subscriptions.refresh_all", "success"),
+            ("subscriptions.refresh_all", "cancel"),
+            ("subscriptions.refresh_all", "error"),
+            ("subscriptions.refresh_all", "revoked"),
+            ("subscriptions.refresh_selected", "success"),
+            ("subscriptions.refresh_selected", "cancel"),
+            ("subscriptions.refresh_selected", "error"),
+            ("subscriptions.refresh_selected", "revoked"),
+            ("subscriptions.refresh_selected", "rejected"),
+        ] {
             let base = temporary_base("batch-http-socket");
             let (owner, cutover, calls) = native_owner_fixture(&base);
             let host_calls = calls.load(Ordering::Relaxed);
@@ -8171,6 +8486,24 @@ mod tests {
             let address = listener.local_addr().unwrap();
             let mut content: Value = serde_json::from_slice(&fs::read(&store).unwrap()).unwrap();
             content["subscriptions"][0]["url"] = json!(format!("http://{address}/synthetic-feed"));
+            let selected = method == "subscriptions.refresh_selected";
+            let target = content["subscriptions"][0]["id"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            let sibling = if selected {
+                let mut sibling = content["subscriptions"][0].clone();
+                sibling["id"] = json!("10000000-0000-4000-8000-000000000099");
+                sibling["name"] = json!("Untouched sibling");
+                sibling["url"] = json!("https://sibling.invalid/private-not-fetched");
+                content["subscriptions"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(sibling.clone());
+                Some(sibling)
+            } else {
+                None
+            };
             fs::write(&store, content.to_string()).unwrap();
             let before = fs::read(&store).unwrap();
             let (arrived_tx, arrived_rx) = std::sync::mpsc::sync_channel(1);
@@ -8189,7 +8522,9 @@ mod tests {
                 }
                 arrived_tx.send(()).unwrap();
                 release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-                let body = if outcome == "error" {
+                let body = if outcome == "rejected" {
+                    "vless://22222222-2222-4222-8222-222222222222@192.0.2.2:443?security=none&type=tcp&fm=private-token#Managed"
+                } else if outcome == "error" {
                     "synthetic-private-error"
                 } else {
                     "vless://22222222-2222-4222-8222-222222222222@192.0.2.2:443?security=none&type=tcp#Managed"
@@ -8217,13 +8552,31 @@ mod tests {
             let worker_stop = Arc::clone(&stop);
             let worker = thread::spawn(move || server.serve_until(&worker_stop).unwrap());
             let params = json!({"instanceId":instance,"operationId":"http-batch"});
+            let mut start_params = params.clone();
+            if selected {
+                let (mapped_method, mapped_params) = semantic_cli::parse_semantic_mutation(
+                    &[
+                        "subscription".into(),
+                        "refresh-selected".into(),
+                        instance.clone().into(),
+                        "http-batch".into(),
+                        target.clone().into(),
+                        "0".into(),
+                    ],
+                    None,
+                )
+                .unwrap()
+                .into_parts();
+                assert_eq!(mapped_method, method);
+                start_params = mapped_params;
+            }
             assert_eq!(
-                call(&paths, "subscriptions.refresh_all", params.clone()).unwrap()["ok"],
+                call(&paths, method, start_params.clone()).unwrap()["ok"],
                 true
             );
             arrived_rx.recv_timeout(Duration::from_secs(3)).unwrap();
             assert_eq!(
-                call(&paths, "subscriptions.refresh_all", params.clone()).unwrap()["ok"],
+                call(&paths, method, start_params.clone()).unwrap()["ok"],
                 true
             );
             assert_eq!(call(&paths, "status.get", json!({})).unwrap()["ok"], true);
@@ -8254,6 +8607,33 @@ mod tests {
                 _ => "failed",
             };
             assert_eq!(terminal["result"]["operation"]["state"], expected);
+            assert_eq!(terminal["result"]["operation"]["method"], method);
+            assert_eq!(terminal["result"]["operation"]["progress"]["total"], 1);
+            if selected {
+                assert!(
+                    long_operation_protocol::selected_refresh_start_response_matches(
+                        &start_params,
+                        &terminal
+                    )
+                );
+            }
+            if outcome == "rejected" {
+                assert_eq!(
+                    terminal["result"]["operation"]["error"]["details"]["importReasons"],
+                    json!({"unsupported_field":1})
+                );
+            }
+            let replay = call(&paths, method, start_params).unwrap();
+            if outcome == "revoked" {
+                assert_eq!(replay["error"]["code"], "capability_unavailable");
+            } else {
+                assert_eq!(replay["result"], terminal["result"]);
+            }
+            if let Some(sibling) = sibling {
+                let after: Value = serde_json::from_slice(&fs::read(&store).unwrap()).unwrap();
+                assert_eq!(after["subscriptions"][1], sibling);
+                assert!(!terminal.to_string().contains(&target));
+            }
             for private in [
                 "synthetic-feed",
                 "synthetic-private-error",
@@ -8275,6 +8655,134 @@ mod tests {
             assert!(!paths.socket.exists());
             fs::remove_dir_all(base).unwrap();
         }
+    }
+
+    #[test]
+    fn selected_refresh_fences_target_replay_shared_admission_and_old_instance() {
+        let base = temporary_base("selected-fences");
+        let (owner, _, calls) = native_owner_fixture(&base);
+        let store = base.join("config/profiles.json");
+        let before = fs::read(&store).unwrap();
+        let before_calls = calls.load(Ordering::Relaxed);
+        let (tx, rx) = std::sync::mpsc::sync_channel(2);
+        let (release, wait) = std::sync::mpsc::sync_channel(1);
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        server.register_native_owner(
+            owner,
+            BlockingTransport {
+                started: tx,
+                release: Mutex::new(wait),
+            },
+        );
+        let params = json!({"instanceId":server.instance_id,"operationId":"selected-original",
+            "subscriptionId":"10000000-0000-4000-8000-000000000001","expectedRevision":0});
+        let start = |p| {
+            server
+                .dispatch(&make_request("selected", "subscriptions.refresh_selected", p).unwrap())
+                .unwrap()
+        };
+        let capabilities = server
+            .dispatch(&make_request("caps", "capabilities.get", json!({})).unwrap())
+            .unwrap();
+        assert!(
+            capabilities["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m == "subscriptions.refresh_selected")
+        );
+        for (field, value, error) in [
+            ("expectedRevision", json!(1), "conflict"),
+            ("instanceId", json!("previous-instance"), "not_found"),
+            (
+                "subscriptionId",
+                json!("10000000-0000-4000-8000-000000000099"),
+                "not_found",
+            ),
+            (
+                "url",
+                json!("https://private.invalid/password"),
+                "invalid_argument",
+            ),
+        ] {
+            let mut bad = params.clone();
+            bad[field] = value;
+            assert_eq!(start(bad)["error"]["code"], error);
+            assert!(rx.try_recv().is_err());
+        }
+        fs::set_permissions(&store, fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(start(params.clone())["ok"], false);
+        fs::set_permissions(&store, fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(fs::read(&store).unwrap(), before);
+        assert!(rx.try_recv().is_err());
+        let permits = (0..4)
+            .map(|_| server.remote_fetches.try_acquire().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(start(params.clone())["ok"], true);
+        assert!(rx.try_recv().is_err());
+        assert_eq!(
+            batch_call(&server, "subscriptions.refresh_all", "other")["error"]["code"],
+            "busy"
+        );
+        let mut conflict = params.clone();
+        conflict["subscriptionId"] = json!("10000000-0000-4000-8000-000000000099");
+        assert_eq!(start(conflict)["error"]["code"], "conflict");
+        drop(permits);
+        rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(
+            start(params.clone())["result"]["operation"]["method"],
+            "subscriptions.refresh_selected"
+        );
+        assert!(rx.try_recv().is_err());
+        assert_eq!(
+            batch_call(&server, "operations.cancel", "selected-original")["result"]["accepted"],
+            true
+        );
+        release.send(()).unwrap();
+        let terminal = wait_batch(&server, "selected-original");
+        assert_eq!(terminal["result"]["operation"]["state"], "cancelled");
+        assert_eq!(start(params.clone())["result"], terminal["result"]);
+        assert_eq!(
+            batch_call(&server, "operations.cancel", "selected-original")["result"]["accepted"],
+            false
+        );
+        assert_eq!(fs::read(&store).unwrap(), before);
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
+        let old_instance = server.instance_id.clone();
+        drop(server);
+        let second = temporary_base("selected-restart");
+        let (owner, _, _) = native_owner_fixture(&second);
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&second.join("runtime"))).unwrap();
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let (_release, wait) = std::sync::mpsc::sync_channel(1);
+        server.register_native_owner(
+            owner,
+            BlockingTransport {
+                started: tx,
+                release: Mutex::new(wait),
+            },
+        );
+        for method in ["operations.get", "operations.cancel"] {
+            let response = server
+                .dispatch(
+                    &make_request(
+                        "old",
+                        method,
+                        json!({"instanceId":old_instance,"operationId":"selected-original"}),
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+            assert_eq!(response["error"]["code"], "not_found");
+        }
+        let response = server
+            .dispatch(&make_request("old-start", "subscriptions.refresh_selected", params).unwrap())
+            .unwrap();
+        assert_eq!(response["error"]["code"], "not_found");
+        assert!(rx.try_recv().is_err());
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+        fs::remove_dir_all(second).unwrap();
     }
 
     #[test]
@@ -9226,6 +9734,83 @@ mod tests {
         assert_eq!(calls.load(Ordering::Relaxed), calls_before_rejection);
 
         worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "tui")]
+    fn managed_import_reason_socket_reaches_production_tui_without_effects() {
+        use base64::Engine as _;
+        use omavless_tui::{
+            app::App,
+            client,
+            i18n::Locale,
+            private_import::{State, Workspace},
+        };
+        let base = temporary_base("managed-reason-tui-socket");
+        let (mut owner, _, calls) = native_owner_fixture(&base);
+        owner.batch_coordinator().host_mut().fresh_result = Ok(fresh_empty_facts());
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let store_path = base.join("config/profiles.json");
+        let original = fs::read(&store_path).unwrap();
+        let calls_before = calls.load(Ordering::Relaxed);
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(6)).unwrap());
+        let snapshot = client::load(&mut |request| {
+            call(&paths, request.method(), request.params())
+                .map_err(|_| omavless_tui::model::ReadError::Unavailable)
+        })
+        .unwrap();
+        let instance = snapshot.metadata.instance_id.clone();
+        let revision = snapshot.revision;
+        let now = std::time::Instant::now();
+        let mut app = App::new(Locale::En);
+        app.actions_enabled = true;
+        app.import_enabled = true;
+        app.accept(Ok(snapshot), now);
+        assert!(app.import_available(now));
+        for (serial, awg) in [
+            (1, ""),
+            (
+                2,
+                "Jc = 4\nJmin = 10\nJmax = 30\nS1 = 20\nS2 = 25\nH1 = 100\nH2 = 200\nH3 = 300\nH4 = 400\n",
+            ),
+        ] {
+            let input = format!(
+                "[Interface]\nPrivateKey = {}\nAddress = 2001:db8::2/128\n{awg}[Peer]\nPublicKey = {}\nAllowedIPs = 0.0.0.0/0\nEndpoint = 192.0.2.2:51820\n",
+                base64::engine::general_purpose::STANDARD.encode([7_u8; 32]),
+                base64::engine::general_purpose::STANDARD.encode([9_u8; 32])
+            );
+            let mut workspace = Workspace::new(&instance, revision, serial).unwrap();
+            assert!(workspace.append(&input));
+            let request = workspace.classify(now).unwrap();
+            let response = call(&paths, request.method(), request.params()).unwrap();
+            assert_eq!(
+                response["result"]["profile"]["compatibilityNote"],
+                "managed_ipv4_only"
+            );
+            assert!(response.to_string().len() < 256 * 1024);
+            assert!(
+                !response
+                    .to_string()
+                    .contains(&base64::engine::general_purpose::STANDARD.encode([7_u8; 32]))
+            );
+            app.import = Some(workspace);
+            app.import_open = true;
+            app.finish_import(request.settle(Ok(response)));
+            let workspace = app.import.as_mut().unwrap();
+            assert_eq!(workspace.state(), State::Preview);
+            assert_eq!(
+                workspace.preview().unwrap().managed_note_key,
+                "import.managed_ipv4_only"
+            );
+            workspace.cancel();
+            assert_eq!(workspace.input_bytes(), 0);
+        }
+        worker.join().unwrap();
+        assert_eq!(fs::read(&store_path).unwrap(), original);
+        assert_eq!(calls.load(Ordering::Relaxed), calls_before);
         fs::remove_dir_all(base).unwrap();
     }
 

@@ -30,6 +30,19 @@ pub const MAX_SUBSCRIPTION_STDIN_BYTES: usize =
 pub const MAX_PROFILE_IMPORT_STDIN_BYTES: usize =
     MAX_PROFILE_NAME_INPUT_BYTES + 1 + crate::import_read_protocol::MAX_IMPORT_STDIN_BYTES;
 
+pub fn schedule_configure_response_matches(params: &Value, response: &Value) -> bool {
+    let Some(revision) = params["expectedRevision"].as_u64() else {
+        return false;
+    };
+    response["ok"] == true
+        && response["result"].as_object().is_some_and(|fields| {
+            fields.len() == 1 && fields.get("accepted") == Some(&Value::Bool(true))
+        })
+        && response["revision"]
+            .as_u64()
+            .is_some_and(|actual| actual == revision || revision.checked_add(1) == Some(actual))
+}
+
 impl fmt::Display for SemanticCliError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
@@ -104,6 +117,10 @@ pub fn parse_semantic_read(
             operation,
             None,
         )?),
+        ["subscription", "schedule", id] => Some(SemanticRequest {
+            method: "subscriptions.schedule.get",
+            params: json!({"subscriptionId": record_id(id)?}),
+        }),
         ["profile", "list"] => Some(SemanticRequest {
             method: "profiles.list",
             params: json!({}),
@@ -369,6 +386,53 @@ pub fn parse_semantic_mutation(
         }),
         ["subscription", "refresh-all", instance, operation] => {
             long_request("subscriptions.refresh_all", instance, operation, None)
+        }
+        [
+            "subscription",
+            "schedule",
+            id,
+            mode @ ("off" | "daily"),
+            operation,
+            revision,
+        ] => {
+            let params = json!({"subscriptionId": record_id(id)?, "enabled": *mode == "daily",
+                "operationId": operation, "expectedRevision": revision.parse::<u64>().map_err(|_| SemanticCliError::InvalidArgument)?});
+            let request = omavless_control_protocol::make_request(
+                "schedule-cli",
+                "subscriptions.schedule.configure",
+                params.clone(),
+            )
+            .map_err(|_| SemanticCliError::InvalidArgument)?;
+            crate::subscription_schedule::parse(&request)
+                .map_err(|_| SemanticCliError::InvalidArgument)?;
+            Ok(SemanticRequest {
+                method: "subscriptions.schedule.configure",
+                params,
+            })
+        }
+        [
+            "subscription",
+            "refresh-selected",
+            instance,
+            operation,
+            subscription,
+            revision,
+        ] => {
+            let params = json!({"instanceId":instance,"operationId":operation,
+                "subscriptionId":record_id(subscription)?,
+                "expectedRevision":revision.parse::<u64>().map_err(|_|SemanticCliError::InvalidArgument)?});
+            let request = omavless_control_protocol::make_request(
+                "semantic-cli",
+                "subscriptions.refresh_selected",
+                params.clone(),
+            )
+            .map_err(|_| SemanticCliError::InvalidArgument)?;
+            crate::long_operation_protocol::parse_selected_refresh_start(&request)
+                .map_err(|_| SemanticCliError::InvalidArgument)?;
+            Ok(SemanticRequest {
+                method: "subscriptions.refresh_selected",
+                params,
+            })
         }
         [
             "subscription",
@@ -1081,6 +1145,76 @@ mod long_operation_tests {
             parse_semantic_read(&args(&["subscription", "probe-results", "", "operation"]))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn selected_refresh_cli_is_exact_and_never_accepts_provider_input() {
+        let id = "10000000-0000-4000-8000-000000000001";
+        let parsed = parse_semantic_mutation(
+            &args(&[
+                "subscription",
+                "refresh-selected",
+                "instance",
+                "operation",
+                id,
+                "7",
+            ]),
+            None,
+        )
+        .unwrap()
+        .into_parts();
+        assert_eq!(parsed.0, "subscriptions.refresh_selected");
+        assert_eq!(
+            parsed.1,
+            json!({"instanceId":"instance","operationId":"operation",
+            "subscriptionId":id,"expectedRevision":7})
+        );
+        for values in [
+            vec![
+                "subscription",
+                "refresh-selected",
+                "instance",
+                "operation",
+                id,
+            ],
+            vec![
+                "subscription",
+                "refresh-selected",
+                "instance",
+                "operation",
+                id,
+                "-1",
+            ],
+            vec![
+                "subscription",
+                "refresh-selected",
+                "instance",
+                "operation",
+                id,
+                "9223372036854775808",
+            ],
+            vec![
+                "subscription",
+                "refresh-selected",
+                "instance",
+                "operation",
+                "https://private.invalid/password",
+                "7",
+            ],
+            vec![
+                "subscription",
+                "refresh-selected",
+                "instance",
+                "operation",
+                id,
+                "7",
+                "extra",
+            ],
+            vec!["subscriptions.refresh_selected", "{}"],
+        ] {
+            let error = parse_semantic_mutation(&args(&values), None).err().unwrap();
+            assert!(!format!("{error}").contains("private.invalid"));
+        }
     }
 
     #[test]

@@ -19,6 +19,7 @@ pub const MAX_INSTANCE_ID_BYTES: usize = 128;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LongOperationMethod {
     SubscriptionRefreshAll,
+    SubscriptionRefreshSelected,
     RuleProviderRefresh,
     SubscriptionProbe,
     ProfileProbe,
@@ -28,6 +29,7 @@ impl LongOperationMethod {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::SubscriptionRefreshAll => "subscriptions.refresh_all",
+            Self::SubscriptionRefreshSelected => "subscriptions.refresh_selected",
             Self::RuleProviderRefresh => "routing.refresh_providers",
             Self::SubscriptionProbe => "subscriptions.probe",
             Self::ProfileProbe => "profiles.probe",
@@ -37,12 +39,20 @@ impl LongOperationMethod {
     pub const fn maximum(self) -> usize {
         match self {
             Self::SubscriptionRefreshAll => MAX_REFRESH_ALL_SUBSCRIPTIONS,
+            Self::SubscriptionRefreshSelected => 1,
             Self::RuleProviderRefresh => omavless_mihomo::rule_provider::MAX_RULE_PROVIDERS,
             Self::SubscriptionProbe | Self::ProfileProbe => 256,
         }
     }
     pub const fn is_probe(self) -> bool {
         matches!(self, Self::SubscriptionProbe | Self::ProfileProbe)
+    }
+    #[must_use]
+    pub const fn is_subscription_refresh(self) -> bool {
+        matches!(
+            self,
+            Self::SubscriptionRefreshAll | Self::SubscriptionRefreshSelected
+        )
     }
 }
 
@@ -88,7 +98,9 @@ fn refresh_all_digest(
 }
 
 /// Private start intent. The correlation ID is deliberately not formattable
-/// or serializable and must not be copied to journals.
+/// or serializable. Do not journal requests; the fixed daily scheduler keeps
+/// only its own generated instance/operation identity in a private admission
+/// receipt, never this request or its provider material.
 pub struct RefreshAllStartRequest {
     instance_id: String,
     operation_id: String,
@@ -100,6 +112,59 @@ pub struct RefreshAllStartRequest {
 pub struct SubscriptionProbeStartRequest {
     pub(crate) metadata: RefreshAllStartRequest,
     pub(crate) subscription_id: String,
+}
+
+/// Selected refresh requires an exact current revision, unlike legacy all.
+pub(crate) struct SelectedRefreshStartRequest {
+    pub(crate) metadata: RefreshAllStartRequest,
+    pub(crate) subscription_id: String,
+}
+
+pub(crate) fn parse_selected_refresh_start(
+    request: &Value,
+) -> Result<SelectedRefreshStartRequest, MutationProtocolError> {
+    validate_request(request).map_err(|_| MutationProtocolError::InvalidRequest)?;
+    if request["method"] != LongOperationMethod::SubscriptionRefreshSelected.as_str() {
+        return Err(MutationProtocolError::UnknownMethod);
+    }
+    let params = request["params"]
+        .as_object()
+        .ok_or(MutationProtocolError::InvalidArgument)?;
+    let fields = &[
+        "instanceId",
+        "operationId",
+        "subscriptionId",
+        "expectedRevision",
+    ];
+    if !exact_fields(params, fields, fields) {
+        return Err(MutationProtocolError::InvalidArgument);
+    }
+    let subscription = params["subscriptionId"]
+        .as_str()
+        .filter(|id| omavless_domain::store::valid_record_id(id))
+        .ok_or(MutationProtocolError::InvalidArgument)?;
+    let meta = metadata(params)?;
+    let instance = instance_id(params.get("instanceId"))?;
+    let operation = operation_id(params.get("operationId"))?;
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"omavless.control/selected-refresh/v1\0");
+    append_field(&mut bytes, instance);
+    append_field(&mut bytes, subscription);
+    bytes.extend_from_slice(
+        &meta
+            .expected_revision
+            .ok_or(MutationProtocolError::InvalidArgument)?
+            .to_be_bytes(),
+    );
+    Ok(SelectedRefreshStartRequest {
+        metadata: RefreshAllStartRequest {
+            instance_id: instance.to_owned(),
+            operation_id: operation.to_owned(),
+            expected_revision: meta.expected_revision,
+            digest: MutationDigest::from_semantic_bytes(&bytes),
+        },
+        subscription_id: subscription.to_owned(),
+    })
 }
 
 /// Omitted profileId selects all current, non-missing profiles under the owner
@@ -387,14 +452,14 @@ pub struct LongOperationProjection<'a> {
 impl LongOperationProjection<'_> {
     pub fn validate(&self) -> Result<(), MutationProtocolError> {
         if self.import_reasons.is_some()
-            && (self.method != LongOperationMethod::SubscriptionRefreshAll
+            && (!self.method.is_subscription_refresh()
                 || self.state != LongOperationState::Failed
                 || self.error != Some(StableErrorCode::InvalidArgument))
         {
             return Err(MutationProtocolError::InvalidArgument);
         }
         if self.import_summary.is_some()
-            && (self.method != LongOperationMethod::SubscriptionRefreshAll
+            && (!self.method.is_subscription_refresh()
                 || self.state != LongOperationState::Succeeded)
         {
             return Err(MutationProtocolError::InvalidArgument);
@@ -489,6 +554,87 @@ impl LongOperationProjection<'_> {
     }
 }
 
+/// Validate a selected-start success against its original private request.
+/// Reconstruct through the canonical projection encoder rather than accepting
+/// an envelope-only acknowledgement or publishing unvalidated peer fields.
+#[must_use]
+pub fn selected_refresh_start_response_matches(params: &Value, response: &Value) -> bool {
+    let checked = || -> Option<bool> {
+        if response["ok"] != true {
+            return None;
+        }
+        let op = &response["result"]["operation"];
+        let state = match op["state"].as_str()? {
+            "queued" => LongOperationState::Queued,
+            "running" => LongOperationState::Running,
+            "succeeded" => LongOperationState::Succeeded,
+            "failed" => LongOperationState::Failed,
+            "cancelled" => LongOperationState::Cancelled,
+            _ => return None,
+        };
+        let outcome_revision = if op["outcomeRevision"].is_null() {
+            None
+        } else {
+            Some(op["outcomeRevision"].as_u64()?)
+        };
+        let base_revision = params["expectedRevision"].as_u64()?;
+        let envelope_revision = response["revision"].as_u64()?;
+        if envelope_revision < base_revision
+            || outcome_revision.is_some_and(|revision| revision > envelope_revision)
+        {
+            return None;
+        }
+        let error = if op["error"].is_null() {
+            None
+        } else {
+            Some(StableErrorCode::parse(op["error"]["code"].as_str()?)?)
+        };
+        let import_reasons = if let Some(details) = op["error"].get("details") {
+            let counts = details["importReasons"].as_object()?;
+            if counts.len() > omavless_domain::subscription_feed::ImportReason::ALL.len() {
+                return None;
+            }
+            let total = counts.values().try_fold(0usize, |sum, value| {
+                sum.checked_add(usize::try_from(value.as_u64()?).ok()?)
+            })?;
+            Some(
+                omavless_domain::subscription_feed::ImportReasons::from_value(
+                    &details["importReasons"],
+                    total,
+                )?,
+            )
+        } else {
+            None
+        };
+        let import_summary = if let Some(summary) = op.get("importSummary") {
+            Some(omavless_domain::subscription_feed::ImportSummary::from_value(summary)?)
+        } else {
+            None
+        };
+        let projection = LongOperationProjection {
+            method: LongOperationMethod::SubscriptionRefreshSelected,
+            instance_id: params["instanceId"].as_str()?,
+            operation_id: params["operationId"].as_str()?,
+            state,
+            base_revision,
+            outcome_revision,
+            progress: LongOperationProgress {
+                completed: usize::try_from(op["progress"]["completed"].as_u64()?).ok()?,
+                total: usize::try_from(op["progress"]["total"].as_u64()?).ok()?,
+            },
+            cancel_requested: op["cancelRequested"].as_bool()?,
+            cancellable: op["cancellable"].as_bool()?,
+            error,
+            import_reasons,
+            import_summary,
+        };
+        Some(
+            projection.progress.total == 1 && projection.result_value().ok()? == response["result"],
+        )
+    };
+    checked() == Some(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -547,6 +693,150 @@ mod tests {
             ))
             .is_ok()
         );
+    }
+
+    #[test]
+    fn selected_refresh_receipt_validation_preserves_bounded_failure_reasons() {
+        use omavless_domain::subscription_feed::{ImportReason, ImportSummary};
+        let params = json!({"instanceId":INSTANCE,"operationId":"selected","expectedRevision":7});
+        let result = LongOperationProjection {
+            method: LongOperationMethod::SubscriptionRefreshSelected,
+            instance_id: INSTANCE,
+            operation_id: "selected",
+            state: LongOperationState::Failed,
+            base_revision: 7,
+            outcome_revision: Some(7),
+            progress: LongOperationProgress {
+                completed: 0,
+                total: 1,
+            },
+            cancel_requested: false,
+            cancellable: false,
+            error: Some(StableErrorCode::InvalidArgument),
+            import_reasons: Some(ImportSummary::rejected(ImportReason::UnsupportedField).reasons),
+            import_summary: None,
+        }
+        .result_value()
+        .unwrap();
+        let response = omavless_control_protocol::success_response("selected", 7, result).unwrap();
+        assert!(selected_refresh_start_response_matches(&params, &response));
+        for reasons in [
+            json!({"unsupported_field":true}),
+            json!({"unsupported_field":0}),
+            json!({"unsupported_field":65537}),
+            json!({"unsupported_field":u64::MAX,"invalid_profile":1}),
+            json!({"private.invalid/password":1}),
+        ] {
+            let mut bad = response.clone();
+            bad["result"]["operation"]["error"]["details"]["importReasons"] = reasons;
+            assert!(!selected_refresh_start_response_matches(&params, &bad));
+        }
+    }
+
+    #[test]
+    fn selected_refresh_receipt_validation_accepts_canonical_live_and_terminal_replays() {
+        let params = json!({"instanceId":INSTANCE,"operationId":"selected","expectedRevision":7});
+        for state in [
+            LongOperationState::Queued,
+            LongOperationState::Running,
+            LongOperationState::Succeeded,
+            LongOperationState::Failed,
+            LongOperationState::Cancelled,
+        ] {
+            let revision = if state == LongOperationState::Succeeded {
+                8
+            } else {
+                7
+            };
+            let projection = LongOperationProjection {
+                method: LongOperationMethod::SubscriptionRefreshSelected,
+                instance_id: INSTANCE,
+                operation_id: "selected",
+                state,
+                base_revision: 7,
+                outcome_revision: state.terminal().then_some(revision),
+                progress: LongOperationProgress {
+                    completed: usize::from(state == LongOperationState::Succeeded),
+                    total: 1,
+                },
+                cancel_requested: state == LongOperationState::Cancelled,
+                cancellable: !state.terminal(),
+                error: (state == LongOperationState::Failed)
+                    .then_some(StableErrorCode::SubscriptionUnavailable),
+                import_reasons: None,
+                import_summary: (state == LongOperationState::Succeeded).then_some(
+                    omavless_domain::subscription_feed::ImportSummary {
+                        accepted: 1,
+                        ..Default::default()
+                    },
+                ),
+            };
+            let response = omavless_control_protocol::success_response(
+                "selected",
+                revision,
+                projection.result_value().unwrap(),
+            )
+            .unwrap();
+            assert!(selected_refresh_start_response_matches(&params, &response));
+        }
+    }
+
+    #[test]
+    fn selected_refresh_requires_exact_target_revision_and_separate_digest() {
+        let params = json!({"instanceId":INSTANCE,"operationId":"selected","expectedRevision":7,
+            "subscriptionId":"10000000-0000-4000-8000-000000000001"});
+        let parse = |p| parse_selected_refresh_start(&request("subscriptions.refresh_selected", p));
+        let parsed = parse(params.clone()).unwrap();
+        assert_eq!(parsed.metadata.expected_revision(), Some(7));
+        assert_eq!(
+            LongOperationMethod::SubscriptionRefreshSelected.maximum(),
+            1
+        );
+        for (field, value) in [
+            ("subscriptionId", json!("https://private.invalid/password")),
+            ("subscriptionId", Value::Null),
+            ("subscriptionId", json!([])),
+            ("expectedRevision", Value::Null),
+            ("expectedRevision", json!(true)),
+            ("expectedRevision", json!(MAX_REVISION + 1)),
+            ("expectedRevision", json!("7")),
+            ("instanceId", json!("")),
+            ("operationId", json!("")),
+            ("url", json!("private.invalid/password")),
+            ("timeout", json!(1)),
+            ("subscriptionIds", json!([])),
+        ] {
+            let mut bad = params.clone();
+            bad[field] = value;
+            let error = parse(bad).err().unwrap();
+            assert!(!format!("{error:?} {error}").contains("private.invalid"));
+        }
+        for key in [
+            "instanceId",
+            "operationId",
+            "subscriptionId",
+            "expectedRevision",
+        ] {
+            let mut missing = params.clone();
+            missing.as_object_mut().unwrap().remove(key);
+            assert!(parse(missing).is_err());
+        }
+        for (field, value) in [
+            (
+                "subscriptionId",
+                json!("10000000-0000-4000-8000-000000000002"),
+            ),
+            ("expectedRevision", json!(8)),
+            ("instanceId", json!("next-instance")),
+        ] {
+            let mut changed = params.clone();
+            changed[field] = value;
+            assert!(parse(changed).unwrap().metadata.digest() != parsed.metadata.digest());
+        }
+        let mut other_id = params.clone();
+        other_id["operationId"] = json!("other-id");
+        assert!(parse(other_id).unwrap().metadata.digest() == parsed.metadata.digest());
+        assert!(parse_refresh_all_start(&request("subscriptions.refresh_all", params)).is_err());
     }
 
     #[test]

@@ -14,6 +14,89 @@ function profile() { return {version:1,protocol:'vless',server:'192.0.2.1',port:
 function frame(result={version:1,kind:'profile',profile:profile()}) {
   return JSON.stringify({api:'omavless.control',version:1,id:'preview',ok:true,revision:4,result});
 }
+function importScrollHarness() {
+  const source=fs.readFileSync(path.join(__dirname,'../plugin/ImportPreviewPrompt.qml'),'utf8');
+  const start=source.indexOf('  function reveal(');
+  assert(start>=0);
+  const queued=[];
+  const context=vm.createContext({prompt:{visible:true},
+    reviewScroll:{contentItem:{},contentY:80,height:100,contentHeight:400},
+    Qt:{callLater:fn=>queued.push(fn)}});
+  vm.runInContext(source.slice(start,source.indexOf('\n  }',start)+4),context);
+  return {context,queued};
+}
+test('focused import controls scroll into the bounded viewport without overscroll',()=>{
+  for(const [top,height,expected] of [[20,20,20],[160,20,80],[210,30,140],[-10,20,0],[390,30,300]]) {
+    const {context,queued}=importScrollHarness();
+    context.reveal({activeFocus:true,height,mapToItem:()=>({y:top})});
+    assert.equal(context.reviewScroll.contentY,80,'layout is deferred');
+    assert.equal(queued.length,1);queued[0]();
+    assert.equal(context.reviewScroll.contentY,expected);
+  }
+});
+test('deferred import reveal cannot move a hidden or newly unfocused surface',()=>{
+  for(const hidden of [false,true]) {
+    const {context,queued}=importScrollHarness();
+    const control={activeFocus:true,height:30,mapToItem:()=>{throw Error('stale control used');}};
+    context.reveal(control);
+    if(hidden) context.prompt.visible=false;else control.activeFocus=false;
+    queued[0]();assert.equal(context.reviewScroll.contentY,80);
+  }
+});
+test('actual managed preview warning explains refusal before unchanged explicit Save',()=>{
+  const source=fs.readFileSync(path.join(__dirname,'../plugin/ImportPreviewPrompt.qml'),'utf8');
+  const binding=source.match(/text: (prompt.nativeCredential \? (?:prompt.textFor|prompt.managedWarning)[^\n]+)/);
+  assert(binding);
+  const i18n=vm.createContext({});
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../plugin/I18n.js'),'utf8'),i18n);
+  for(const locale of ['en','ru']) {
+    const p={...profile(),protocol:'wireguard',transport:'udp',security:'wireguard',
+      credentialHint:'••••',experimental:true,compatibilityNote:'managed_ipv4_only'};
+    const c=harness();sourced(c,'synthetic-unchanged-config');
+    c.nativeImportPreview.running=false;c.finishNativeImportPreview(0,frame({version:1,kind:'profile',profile:p}));
+    const prompt={nativeCredential:true,preview:c.importPreview,textFor:key=>i18n.translate(key,locale,{})};
+    const context=vm.createContext({prompt,NativeSnapshot:parser});
+    const start=source.indexOf('  function managedWarning(');
+    if(start>=0) vm.runInContext(source.slice(start,source.indexOf('\n  }',start)+4),context);
+    if(context.managedWarning) prompt.managedWarning=context.managedWarning;
+    const warning=vm.runInContext(binding[1],context);
+    assert(warning.includes(locale==='en'?'Cannot connect: IPv4 is required.':'Подключение недоступно: требуется IPv4.'));
+    assert(!warning.includes('synthetic-unchanged-config'));
+    assert(c.confirmNativeImport('Kept'));
+    assert.equal(c.nativePending.action,'profile-import');
+    assert.equal(c.nativePending.input,'Kept\nsynthetic-unchanged-config');
+  }
+});
+test('managed reasons are a finite localized projection, never raw backend text',()=>{
+  const i18n=vm.createContext({});
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../plugin/I18n.js'),'utf8'),i18n);
+  for(const code of ['managed_ipv4_only','managed_keepalive_range','managed_header_ranges',
+      'managed_legacy_headers','managed_padding','managed_legacy_padding','managed_junk_budget',
+      'managed_special_junk','managed_numeric_parameters']) {
+    assert.equal(parser.managedImportNoteKey(code),'import.'+code);
+    for(const locale of ['en','ru']) {
+      const text=i18n.translate(parser.managedImportNoteKey(code),locale,{});
+      assert(!text.includes('import.') && text.length<160);
+      assert(text.includes(locale==='en'?'You can still save':'можно сохранить'));
+    }
+  }
+  for(const note of ['private-sentinel\nsecret','import.managed_ipv4_only','__proto__',
+      '<script>private-sentinel</script>',null,[],{},true,7]) {
+    assert.equal(parser.managedImportNoteKey(note),'import.managed_unavailable');
+    assert(!i18n.translate(parser.managedImportNoteKey(note),'en',{}).includes('private-sentinel'));
+  }
+  for(const note of ['',undefined]) assert.equal(parser.managedImportNoteKey(note),'import.managed_scope');
+  const p={...profile(),protocol:'amneziawg',transport:'udp',security:'wireguard',credentialHint:'••••',
+    experimental:true,compatibilityNote:'managed_ipv4_only'};
+  assert.equal(parser.parseImportPreview(frame({version:1,kind:'profile',profile:p}),5),null);
+  for(const note of ['x'.repeat(1001),false,{},null])
+    assert.equal(parser.parseImportPreview(frame({version:1,kind:'profile',profile:{...p,compatibilityNote:note}}),4),null);
+  const c=harness();sourced(c);c.nativeImportPreview.running=false;
+  c.finishNativeImportPreview(0,frame({version:1,kind:'profile',profile:p}));
+  c.cancelNativeImport();
+  assert.equal(c.nativePending,null);
+  assert.equal(c._nativePreviewContext,null);
+});
 test('bundle review bounds details while preserving fixed actions and readable controls',()=>{
   const source=fs.readFileSync(path.join(__dirname,'../plugin/BundleImportPrompt.qml'),'utf8');
   assert(source.includes('height: Math.min('));
@@ -70,7 +153,7 @@ test('native Preview and saved rows disclose managed scope without mislabeling W
   const prompt=fs.readFileSync(path.join(__dirname,'../plugin/ImportPreviewPrompt.qml'),'utf8');
   const panel=fs.readFileSync(path.join(__dirname,'../plugin/Panel.qml'),'utf8');
   assert(prompt.includes('prompt.nativeCredential ? prompt.textFor("import.not_tls")'));
-  assert(prompt.includes('prompt.nativeCredential ? prompt.textFor("import.managed_scope")'));
+  assert(prompt.includes('prompt.nativeCredential ? prompt.managedWarning()'));
   assert(panel.includes('["wireguard", "amneziawg"].indexOf(nativeRow.profile.protocol) >= 0'));
   assert(panel.includes('root.textFor("import.managed_scope")'));
 });

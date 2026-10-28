@@ -495,8 +495,7 @@ impl LongOperationRegistry {
         {
             return Err(LongOperationError::InvalidState);
         }
-        if import_summary.is_some() && record.method != LongOperationMethod::SubscriptionRefreshAll
-        {
+        if import_summary.is_some() && !record.method.is_subscription_refresh() {
             return Err(LongOperationError::InvalidState);
         }
         // Validate the terminal transition before storing any successful facts.
@@ -530,7 +529,7 @@ impl LongOperationRegistry {
     ) -> Result<LongOperationState, LongOperationError> {
         let record = self.active_mut(token)?;
         if import_reasons.is_some()
-            && (record.method != LongOperationMethod::SubscriptionRefreshAll
+            && (!record.method.is_subscription_refresh()
                 || error != StableErrorCode::InvalidArgument)
         {
             return Err(LongOperationError::InvalidState);

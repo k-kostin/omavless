@@ -513,6 +513,12 @@ fn run() -> Result<(), CliError> {
         println!("  routing rule-add KIND ACTION     read private rule value from stdin");
         println!("  routing rule-delete RULE_ID       remove one custom rule");
         println!("  routing refresh-providers INSTANCE_ID OPERATION_ID [REVISION]");
+        println!(
+            "  subscription refresh-selected INSTANCE_ID OPERATION_ID SUBSCRIPTION_ID REVISION"
+        );
+        println!("  subscription schedule SUBSCRIPTION_ID");
+        println!("  subscription schedule SUBSCRIPTION_ID off|daily OPERATION_ID REVISION");
+        println!("    poll/cancel the same handle; transport loss or restart must not resubmit");
         println!("  routing check                    read private domain/IP query from stdin");
         println!(
             "  runtime ping                     read one ASCII DNS/IP target from stdin; TUN-bound ICMP"
@@ -963,6 +969,32 @@ fn run() -> Result<(), CliError> {
             .map_err(|_| CliError::ActionOutcomeUnknown)?
     } else if is_semantic_lifecycle_method(method) {
         call_semantic_lifecycle(&paths, method, params).map_err(semantic_lifecycle_error)?
+    } else if method == "subscriptions.schedule.configure" {
+        let response = call(&paths, method, params.clone()).map_err(|error| match error {
+            RuntimeError::Io | RuntimeError::Protocol => CliError::ActionOutcomeUnknown,
+            _ => CliError::Message(error.to_string()),
+        })?;
+        if response["ok"] == true
+            && !omavless_runtime::semantic_cli::schedule_configure_response_matches(
+                &params, &response,
+            )
+        {
+            return Err(CliError::ActionOutcomeUnknown);
+        }
+        response
+    } else if method == "subscriptions.refresh_selected" {
+        let response = call(&paths, method, params.clone()).map_err(|error| match error {
+            RuntimeError::Io | RuntimeError::Protocol => CliError::ActionOutcomeUnknown,
+            _ => CliError::Message(error.to_string()),
+        })?;
+        if response["ok"] == true
+            && !omavless_runtime::long_operation_protocol::selected_refresh_start_response_matches(
+                &params, &response,
+            )
+        {
+            return Err(CliError::ActionOutcomeUnknown);
+        }
+        response
     } else {
         call(&paths, method, params).map_err(|error| error.to_string())?
     };

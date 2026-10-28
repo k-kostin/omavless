@@ -569,10 +569,11 @@ fn parse_keepalive(
             _ => Err(WireGuardError::InvalidKeepalive),
         };
     }
+    // Scalar zero explicitly disables persistent keepalive. Omission remains
+    // distinct private data; zero-containing ranges are still not admitted.
     value
         .parse::<u16>()
         .ok()
-        .filter(|value| *value != 0)
         .map(Keepalive::Fixed)
         .map(Some)
         .ok_or(WireGuardError::InvalidKeepalive)
@@ -1348,7 +1349,13 @@ impl WireGuardProfile {
                         .expect("AWG booleans were validated")
                         .to_string()
                 } else if ["jc", "jmin", "jmax", "s1", "s2", "s3", "s4"].contains(&field.as_str()) {
-                    value.clone()
+                    // Native values are decimal. An unquoted leading-zero
+                    // spelling is octal to the pinned YAML decoder, so project
+                    // the validated number, not its private source spelling.
+                    value
+                        .parse::<u32>()
+                        .expect("AWG numeric fields were validated")
+                        .to_string()
                 } else {
                     yaml_string(value)
                 };
@@ -1944,6 +1951,31 @@ mod tests {
             parse_amnezia_vpn_link(&vpn_link(&root.to_string())).unwrap_err(),
             WireGuardError::UnsupportedVpnContainer
         );
+    }
+
+    #[test]
+    fn structured_guest_preserves_explicit_zero_keepalive_and_rejects_sibling_conflicts() {
+        let native = standard().replace("PersistentKeepalive = 25", "PersistentKeepalive = 0");
+        let mut root: serde_json::Value =
+            serde_json::from_str(&guest("amnezia-wireguard", "wireguard", &native)).unwrap();
+        let last = serde_json::json!({"config":native,"persistent_keep_alive":"0"});
+        root["containers"][0]["wireguard"]["last_config"] = serde_json::json!(last.to_string());
+        let profile = parse_amnezia_vpn_link(&vpn_link(&root.to_string())).unwrap();
+        assert!(
+            std::str::from_utf8(profile.private_config().unwrap().expose_private_bytes())
+                .unwrap()
+                .contains("PersistentKeepalive = 0\n")
+        );
+        for value in ["25", "0-0", "false"] {
+            let mut conflicting = last.clone();
+            conflicting["persistent_keep_alive"] = serde_json::json!(value);
+            root["containers"][0]["wireguard"]["last_config"] =
+                serde_json::json!(conflicting.to_string());
+            assert_eq!(
+                parse_amnezia_vpn_link(&vpn_link(&root.to_string())).unwrap_err(),
+                WireGuardError::UnsupportedVpnContainer
+            );
+        }
     }
 
     #[test]

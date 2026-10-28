@@ -122,6 +122,364 @@ fn normal_selected_set_cli_does_not_arm_reply_loss_from_environment() {
 }
 
 #[test]
+fn daily_schedule_cli_fixed_settings_read_and_unknown_reply_do_not_resend() {
+    use omavless_control_protocol::{
+        FrameKind, decode_request, encode_response, read_unary_frame, success_response,
+    };
+    use std::os::unix::net::UnixListener;
+    let base = runtime_base();
+    prepare_isolated_daemon_environment(&base);
+    let paths = omavless_runtime::RuntimePaths::below(&base);
+    fs::create_dir(&paths.directory).unwrap();
+    fs::set_permissions(&paths.directory, fs::Permissions::from_mode(0o700)).unwrap();
+    let listener = UnixListener::bind(&paths.socket).unwrap();
+    fs::set_permissions(&paths.socket, fs::Permissions::from_mode(0o600)).unwrap();
+    let id = "10000000-0000-4000-8000-000000000001";
+    let peer = thread::spawn(move || {
+        for mode in ["read", "ok", "lost", "malformed"] {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let request =
+                decode_request(&read_unary_frame(&mut stream, FrameKind::Request).unwrap())
+                    .unwrap();
+            assert_eq!(
+                request["method"],
+                if mode == "read" {
+                    "subscriptions.schedule.get"
+                } else {
+                    "subscriptions.schedule.configure"
+                }
+            );
+            assert_eq!(
+                request["params"],
+                if mode == "read" {
+                    serde_json::json!({"subscriptionId":id})
+                } else {
+                    serde_json::json!({"subscriptionId":id,"enabled":true,"operationId":mode,"expectedRevision":7})
+                }
+            );
+            if mode == "lost" {
+                continue;
+            }
+            let result = match mode {
+                "read" => serde_json::json!({"enabled":false}),
+                "malformed" => serde_json::json!({"accepted":"true"}),
+                _ => serde_json::json!({"accepted":true}),
+            };
+            let response = success_response(request["id"].as_str().unwrap(), 8, result).unwrap();
+            stream
+                .write_all(&encode_response(&response).unwrap())
+                .unwrap();
+        }
+        listener
+    });
+    assert!(
+        isolated_command(&base)
+            .args(["subscription", "schedule", id])
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    for mode in ["ok", "lost", "malformed"] {
+        let output = isolated_command(&base)
+            .args(["subscription", "schedule", id, "daily", mode, "7"])
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(if mode == "ok" { 0 } else { 73 })
+        );
+        if mode != "ok" {
+            assert!(output.stdout.is_empty());
+            assert!(String::from_utf8_lossy(&output.stderr).contains("outcome is unknown"));
+        }
+    }
+    let listener = peer.join().unwrap();
+    listener.set_nonblocking(true).unwrap();
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn selected_refresh_cli_uses_original_handles_and_never_resends_after_lost_reply() {
+    use omavless_control_protocol::{
+        FrameKind, decode_request, encode_response, read_unary_frame, success_response,
+    };
+    use omavless_runtime::long_operation_protocol::{
+        LongOperationMethod, LongOperationProgress, LongOperationProjection, LongOperationState,
+    };
+    use std::os::unix::net::UnixListener;
+    let base = runtime_base();
+    prepare_isolated_daemon_environment(&base);
+    let paths = omavless_runtime::RuntimePaths::below(&base);
+    fs::create_dir(&paths.directory).unwrap();
+    fs::set_permissions(&paths.directory, fs::Permissions::from_mode(0o700)).unwrap();
+    let listener = UnixListener::bind(&paths.socket).unwrap();
+    fs::set_permissions(&paths.socket, fs::Permissions::from_mode(0o600)).unwrap();
+    let id = "10000000-0000-4000-8000-000000000001";
+    let worker = thread::spawn(move || {
+        for method in [
+            "subscriptions.refresh_selected",
+            "operations.get",
+            "operations.cancel",
+            "subscriptions.refresh_selected",
+        ] {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let request =
+                decode_request(&read_unary_frame(&mut stream, FrameKind::Request).unwrap())
+                    .unwrap();
+            assert_eq!(request["method"], method);
+            let lost = request["params"]["operationId"] == "lost";
+            let mut expected = serde_json::json!({"instanceId":"instance-1","operationId":if lost {"lost"} else {"original"}});
+            if method == "subscriptions.refresh_selected" {
+                expected["subscriptionId"] = serde_json::json!(id);
+                expected["expectedRevision"] = serde_json::json!(7);
+            }
+            assert_eq!(request["params"], expected);
+            if lost {
+                continue;
+            }
+            let mut result = LongOperationProjection {
+                method: LongOperationMethod::SubscriptionRefreshSelected,
+                instance_id: "instance-1",
+                operation_id: "original",
+                state: LongOperationState::Running,
+                base_revision: 7,
+                outcome_revision: None,
+                progress: LongOperationProgress {
+                    completed: 0,
+                    total: 1,
+                },
+                cancel_requested: method == "operations.cancel",
+                cancellable: true,
+                error: None,
+                import_summary: None,
+                import_reasons: None,
+            }
+            .result_value()
+            .unwrap();
+            if method == "operations.cancel" {
+                result["accepted"] = serde_json::json!(true);
+            }
+            let response = success_response(request["id"].as_str().unwrap(), 7, result).unwrap();
+            stream
+                .write_all(&encode_response(&response).unwrap())
+                .unwrap();
+        }
+        listener
+    });
+    for args in [
+        vec![
+            "subscription",
+            "refresh-selected",
+            "instance-1",
+            "original",
+            id,
+            "7",
+        ],
+        vec!["operation", "get", "instance-1", "original"],
+        vec!["operation", "cancel", "instance-1", "original"],
+    ] {
+        let output = isolated_command(&base).args(args).output().unwrap();
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty());
+        assert_eq!(
+            serde_json::from_slice::<Value>(&output.stdout).unwrap()["result"]["operation"]["method"],
+            "subscriptions.refresh_selected"
+        );
+    }
+    let lost = isolated_command(&base)
+        .args([
+            "subscription",
+            "refresh-selected",
+            "instance-1",
+            "lost",
+            id,
+            "7",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(lost.status.code(), Some(73));
+    assert!(lost.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&lost.stderr).contains("outcome is unknown"));
+    let listener = worker.join().unwrap();
+    listener.set_nonblocking(true).unwrap();
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn selected_refresh_cli_refuses_malformed_or_unbound_success_without_resend() {
+    use omavless_control_protocol::{
+        FrameKind, decode_request, encode_response, read_unary_frame, success_response,
+    };
+    use omavless_runtime::long_operation_protocol::{
+        LongOperationMethod, LongOperationProgress, LongOperationProjection, LongOperationState,
+    };
+    use std::os::unix::net::UnixListener;
+    for fault in [
+        "empty",
+        "method",
+        "instance",
+        "operation",
+        "base",
+        "total",
+        "bool",
+        "extra",
+        "missing",
+        "state",
+        "outcome",
+        "error",
+        "summary",
+        "envelope-revision",
+        "valid-reasons",
+        "reason-bool",
+        "reason-huge",
+        "reason-unknown",
+        "reason-zero",
+    ] {
+        let base = runtime_base();
+        prepare_isolated_daemon_environment(&base);
+        let paths = omavless_runtime::RuntimePaths::below(&base);
+        fs::create_dir(&paths.directory).unwrap();
+        fs::set_permissions(&paths.directory, fs::Permissions::from_mode(0o700)).unwrap();
+        let listener = UnixListener::bind(&paths.socket).unwrap();
+        fs::set_permissions(&paths.socket, fs::Permissions::from_mode(0o600)).unwrap();
+        let worker = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let request =
+                decode_request(&read_unary_frame(&mut stream, FrameKind::Request).unwrap())
+                    .unwrap();
+            let mut projection = LongOperationProjection {
+                method: LongOperationMethod::SubscriptionRefreshSelected,
+                instance_id: "instance-1",
+                operation_id: "original",
+                state: LongOperationState::Running,
+                base_revision: 7,
+                outcome_revision: None,
+                progress: LongOperationProgress {
+                    completed: 0,
+                    total: 1,
+                },
+                cancel_requested: false,
+                cancellable: true,
+                error: None,
+                import_summary: None,
+                import_reasons: None,
+            };
+            if fault == "valid-reasons" || fault.starts_with("reason-") {
+                projection.state = LongOperationState::Failed;
+                projection.outcome_revision = Some(7);
+                projection.cancellable = false;
+                projection.error =
+                    Some(omavless_control_protocol::StableErrorCode::InvalidArgument);
+                projection.import_reasons = Some(
+                    omavless_domain::subscription_feed::ImportSummary::rejected(
+                        omavless_domain::subscription_feed::ImportReason::UnsupportedField,
+                    )
+                    .reasons,
+                );
+            }
+            let mut result = projection.result_value().unwrap();
+            match fault {
+                "empty" => result = serde_json::json!({}),
+                "method" => {
+                    result["operation"]["method"] = serde_json::json!("subscriptions.refresh_all")
+                }
+                "instance" => result["operation"]["instanceId"] = serde_json::json!("other"),
+                "operation" => result["operation"]["operationId"] = serde_json::json!("other"),
+                "base" => result["operation"]["baseRevision"] = serde_json::json!(6),
+                "total" => result["operation"]["progress"]["total"] = serde_json::json!(2),
+                "bool" => result["operation"]["progress"]["total"] = serde_json::json!(true),
+                "extra" => result["private"] = serde_json::json!("private.invalid/password"),
+                "missing" => {
+                    result["operation"].as_object_mut().unwrap().remove("error");
+                }
+                "state" => result["operation"]["state"] = serde_json::json!("succeeded"),
+                "outcome" => result["operation"]["outcomeRevision"] = serde_json::json!(8),
+                "error" => {
+                    result["operation"]["error"] =
+                        serde_json::json!({"code":"private.invalid/password"})
+                }
+                "summary" => result["operation"]["importSummary"] = serde_json::json!({}),
+                "reason-bool" => {
+                    result["operation"]["error"]["details"]["importReasons"]["unsupported_field"] =
+                        serde_json::json!(true)
+                }
+                "reason-huge" => {
+                    result["operation"]["error"]["details"]["importReasons"]["unsupported_field"] =
+                        serde_json::json!(65537)
+                }
+                "reason-zero" => {
+                    result["operation"]["error"]["details"]["importReasons"]["unsupported_field"] =
+                        serde_json::json!(0)
+                }
+                "reason-unknown" => {
+                    result["operation"]["error"]["details"]["importReasons"] =
+                        serde_json::json!({"private.invalid/password":1})
+                }
+                _ => {}
+            }
+            let response = success_response(
+                request["id"].as_str().unwrap(),
+                if fault == "envelope-revision" { 6 } else { 7 },
+                result,
+            )
+            .unwrap();
+            stream
+                .write_all(&encode_response(&response).unwrap())
+                .unwrap();
+            listener
+        });
+        let output = isolated_command(&base)
+            .args([
+                "subscription",
+                "refresh-selected",
+                "instance-1",
+                "original",
+                "10000000-0000-4000-8000-000000000001",
+                "7",
+            ])
+            .output()
+            .unwrap();
+        if fault == "valid-reasons" {
+            assert!(output.status.success());
+            assert_eq!(
+                serde_json::from_slice::<Value>(&output.stdout).unwrap()["result"]["operation"]["error"]
+                    ["details"]["importReasons"],
+                serde_json::json!({"unsupported_field":1})
+            );
+        } else {
+            assert_eq!(output.status.code(), Some(73), "fault {fault}");
+            assert!(output.stdout.is_empty());
+        }
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("private.invalid"));
+        let listener = worker.join().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+        fs::remove_dir_all(base).unwrap();
+    }
+}
+
+#[test]
 fn first_abort_cli_refuses_unconfirmed_private_input_and_missing_runtime_without_effects() {
     let base = file_base();
     for args in [
@@ -1287,6 +1645,7 @@ fn help_exposes_only_fixed_semantic_commands() {
         "subscription update SUBSCRIPTION_ID",
         "subscription delete SUBSCRIPTION_ID",
         "subscription refresh SUBSCRIPTION_ID",
+        "subscription refresh-selected INSTANCE_ID OPERATION_ID SUBSCRIPTION_ID REVISION",
         "import preview",
         "restore abort --confirm-rollback",
     ] {

@@ -123,6 +123,25 @@ def require_import_trace(calls, foreground, *, partial_read=False):
                 for operation, read in states), "native import/read transaction incomplete")
 
 
+
+def require_import_completion(calls, foreground):
+    """The original client may cancel ONE final read cycle on normal exit.
+
+    Consume every recorded method using the existing ordered transaction
+    grammar. Only its read-cycle suffix may be unfinished; the foreground
+    classify/Save guards must still be complete, with no dropped/retried action.
+    """
+    require_import_trace(calls, foreground, partial_read=True)
+    cycles = calls.count("runtime.observation")
+    prefix = (len(calls) - len(foreground)) % 4
+    guards = foreground.count("system.hello")
+    require(calls.count("system.hello") == cycles + guards + int(prefix > 0)
+            and calls.count("capabilities.get") == cycles + int(prefix >= 2)
+            and calls.count("ui.snapshot") == cycles + int(prefix >= 3),
+            "complete cycles or one cancelled read prefix and exact import guards")
+    return cycles, prefix
+
+
 def exact_object(pairs):
     obj = {}
     for key, value in pairs:
@@ -530,12 +549,8 @@ def check(binary, locale, kind, fault, force_save_interleave=False):
             # Import has a guarded pre-Hello; the existing ordinary action
             # adapter dispatches its fenced plugin.action without that guard.
             guards = (2 if classifications else 1) + int(saves or fault.startswith("save-"))
-            cycles = calls.count("capabilities.get")
             require(calls.count("imports.classify") == classifications and
                     calls.count("plugin.action") == saves + connect_control, "final exact classify/action counts")
-            require(calls.count("ui.snapshot") == cycles == calls.count("runtime.observation") and
-                    calls.count("system.hello") == cycles + guards,
-                    "exact native read cycles and import Hello guards")
             foreground = ["system.hello"]
             if classifications:
                 foreground += ["imports.classify", "system.hello"]
@@ -543,10 +558,11 @@ def check(binary, locale, kind, fault, force_save_interleave=False):
                 foreground += ["system.hello"]
             if saves or connect_control:
                 foreground += ["plugin.action"]
-            require_import_trace(calls, foreground)
+            require(foreground.count("system.hello") == guards, "fixed foreground Hello guards")
+            cycles, prefix = require_import_completion(calls, foreground)
             return {"classify": calls.count("imports.classify"),
                     "Save": saves, "ConnectControl": connect_control,
-                    "HelloGuards": guards, "readCycles": cycles}
+                    "HelloGuards": guards, "readCycles": cycles, "cancelledReadPrefix": prefix}
         finally:
             if child.poll() is None:
                 # Only this original known synthetic client, never daemon/core.
@@ -578,6 +594,22 @@ if __name__ == "__main__":
         pass
     else:
         require(False, "unexpected CSI must not silently pass")
+    foreground = ["system.hello", "imports.classify", "system.hello", "system.hello", "plugin.action"]
+    complete = METHODS[:4] + foreground
+    for prefix in range(4):
+        require(require_import_completion(complete + METHODS[:prefix], foreground) == (1, prefix),
+                "normal exit may retain only the ordered read prefix")
+    invalid = [complete + ["ui.snapshot"], complete + ["plugin.action"],
+               complete + ["imports.classify"], complete + ["unknown.method"],
+               METHODS[:4] + foreground[:-1],
+               ["system.hello", "ui.snapshot", "capabilities.get", "runtime.observation"] + foreground]
+    for calls in invalid:
+        try:
+            require_import_completion(calls, foreground)
+        except AssertionError:
+            pass
+        else:
+            require(False, "invalid/incomplete foreground or extra action must refuse")
     binary = args.binary.resolve(strict=True)
     metadata = binary.stat()
     require(stat.S_ISREG(metadata.st_mode) and metadata.st_uid == os.getuid() and

@@ -73,6 +73,7 @@ fn fixed_requests_and_capability_gates_cover_exact_selected_and_all_shapes() {
     }
     for kind in [
         Kind::RefreshAll,
+        Kind::RefreshSelected,
         Kind::SubscriptionProbe,
         Kind::ProfileProbe,
     ] {
@@ -144,6 +145,57 @@ fn fixed_requests_and_capability_gates_cover_exact_selected_and_all_shapes() {
     ] {
         assert!(Request::new(Kind::ProfileProbe, instance, revision, operation, target).is_none());
     }
+}
+
+#[test]
+fn selected_refresh_needs_all_three_advertised_methods_and_an_exact_target() {
+    use omavless_tui::inspection::Capabilities;
+    let methods = [
+        json!("subscriptions.refresh_selected"),
+        json!("operations.get"),
+        json!("operations.cancel"),
+    ];
+    assert!(Capabilities::parse(&methods).refresh_selected);
+    assert!(Kind::RefreshSelected.supported(&methods));
+    for missing in 0..methods.len() {
+        let subset: Vec<_> = methods
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != missing)
+            .map(|(_, v)| v.clone())
+            .collect();
+        assert!(!Capabilities::parse(&subset).refresh_selected);
+        assert!(!Kind::RefreshSelected.supported(&subset));
+    }
+    for target in [
+        None,
+        Some(String::new()),
+        Some("not-an-id".into()),
+        Some("https://private.invalid/secret".into()),
+    ] {
+        assert!(
+            Request::new(
+                Kind::RefreshSelected,
+                "owner".into(),
+                7,
+                "operation".into(),
+                target
+            )
+            .is_none()
+        );
+    }
+    let req = request(Kind::RefreshSelected);
+    assert_eq!(
+        req.start().params(),
+        json!({"instanceId":"owner","operationId":"operation","expectedRevision":7,"subscriptionId":TARGET})
+    );
+    assert_eq!(
+        req.cancel().params(),
+        json!({"instanceId":"owner","operationId":"operation"})
+    );
+    assert_eq!(req.poll().params(), req.cancel().params());
+    assert_eq!(Kind::RefreshSelected.maximum(), 1);
+    assert!(req.results_call().is_none());
 }
 
 #[test]
