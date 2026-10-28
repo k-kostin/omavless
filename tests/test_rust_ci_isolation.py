@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CANONICAL_STAGE_TEST = "manager_actor_service::transfer::tests::failed_canonical_stage_keeps_auth_and_normalized_private_returns"
 AUXILIARY_TEARDOWN_TEST = "auxiliary_core::tests::finish_inventory_refusal_retains_owned_child_and_first_failure_evidence"
 STARTUP_CAPABILITY_TEST = "startup_validation::tests::startup_capability_probe_is_fixed_bounded_and_checks_effective_flags"
+DISCONNECT_CANCEL_TEST = "native_coordinator::connection_close::tests::actual_owner_disconnect_cancels_stalled_read_or_reply_before_lifecycle_effects"
 ARGON2_TEST_PROFILE = [
     "--config", "profile.test.package.argon2.opt-level=3",
     "--config", "profile.test.package.argon2.debug-assertions=true",
@@ -21,9 +22,9 @@ ARGON2_TEST_PROFILE = [
 
 
 class RustCiIsolationTests(unittest.TestCase):
-    def without_startup_scheduling(self, commands):
+    def without_startup_scheduling(self, commands, selected_test=STARTUP_CAPABILITY_TEST):
         """Undo only the two independently asserted skip/exact pairs."""
-        selected = [c for c in commands if STARTUP_CAPABILITY_TEST in c]
+        selected = [c for c in commands if selected_test in c]
         self.assertEqual(len(selected), 4)
         for features in (None, "product-image-witness,t4-manager-actor-service"):
             same = [c for c in selected if
@@ -32,12 +33,16 @@ class RustCiIsolationTests(unittest.TestCase):
             isolated = next(c for c in same if "--exact" in c)
             skipped = next(c for c in same if "--skip" in c)
             self.assertEqual(isolated[-4:],
-                             [STARTUP_CAPABILITY_TEST, "--", "--exact", "--test-threads=1"])
+                             [selected_test, "--", "--exact", "--test-threads=1"])
             self.assertIn("--lib", isolated)
             self.assertIn("--locked", isolated)
             self.assertEqual(isolated[isolated.index("-p") + 1], "omavless-runtime")
             self.assertNotIn("--ignored", isolated)
-            self.assertLess(commands.index(isolated), commands.index(skipped))
+            if selected_test == STARTUP_CAPABILITY_TEST:
+                self.assertLess(commands.index(isolated), commands.index(skipped))
+            else:
+                self.assertEqual(selected_test, DISCONNECT_CANCEL_TEST)
+                self.assertGreater(commands.index(isolated), commands.index(skipped))
             expected = ["cargo", "test"]
             if isolated[2:3] == ["--config"]:
                 expected += [
@@ -48,15 +53,15 @@ class RustCiIsolationTests(unittest.TestCase):
             expected += ["--locked", "-p", "omavless-runtime", "--lib"]
             if features is not None:
                 expected += ["--features", features]
-            expected += [STARTUP_CAPABILITY_TEST, "--", "--exact", "--test-threads=1"]
+            expected += [selected_test, "--", "--exact", "--test-threads=1"]
             self.assertEqual(isolated, expected)
         restored = []
         for row in commands:
             command = row[:]
-            if STARTUP_CAPABILITY_TEST in command:
+            if selected_test in command:
                 if "--exact" in command:
                     continue
-                index = command.index(STARTUP_CAPABILITY_TEST)
+                index = command.index(selected_test)
                 self.assertEqual(command[index - 1], "--skip")
                 del command[index - 1:index + 1]
             restored.append(command)
@@ -365,6 +370,7 @@ class RustCiIsolationTests(unittest.TestCase):
         # each group, exact arguments/configurations/skips and multiplicities.
         # Remove ONLY the exact new Argon2 argv before comparing the original
         # recipe. Do not regenerate the baseline digest to conceal other changes.
+        execution = self.without_startup_scheduling(execution, DISCONNECT_CANCEL_TEST)
         legacy_execution = []
         for command in self.without_startup_scheduling(self.without_terminal_return_cli(self.without_reply_loss_cli(self.without_auxiliary_scheduling(self.without_product_image_upgrade(self.without_close_acceptance(execution)))))):
             if command[:2] == ["cargo", "test"]:
@@ -403,6 +409,7 @@ class RustCiIsolationTests(unittest.TestCase):
                 command = command[:2] + command[2 + len(profile):]
             self.assertFalse(any("profile." in arg for arg in command))
             normalized.append(command)
+        normalized = self.without_startup_scheduling(normalized, DISCONNECT_CANCEL_TEST)
         normalized = self.without_startup_scheduling(normalized)
         normalized = self.without_close_acceptance(normalized)
         normalized = self.without_auxiliary_scheduling(self.without_product_image_upgrade(normalized))
@@ -588,9 +595,17 @@ class RustCiIsolationTests(unittest.TestCase):
         self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", source)
         self.assertIn("persist-credentials: false", source)
 
+    def test_disconnect_cancel_executes_once_per_configuration(self):
+        result, commands = self.runner_trace()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        restored = self.without_startup_scheduling(commands, DISCONNECT_CANCEL_TEST)
+        self.assertEqual(len(commands) - len(restored), 2)
+        self.assertFalse(any(DISCONNECT_CANCEL_TEST in c for c in restored))
+
     def test_exact_proof_drain_is_isolated_not_disabled(self):
         source = (ROOT / "tests/run-rust.sh").read_text()
         names = [
+            "native_coordinator::connection_close::tests::actual_owner_disconnect_cancels_stalled_read_or_reply_before_lifecycle_effects",
             "conditional_close_candidate::tests::cancel_and_drain_held_exact_lease_times_out_and_permanently_cancels",
             "conditional_close_candidate::tests::cancel_and_drain_released_exact_lease_acknowledges_only_after_unlock",
             "native_coordinator::connection_close::tests::actual_owner_disconnect_drains_exact_proof_lease_or_returns_bounded_busy",

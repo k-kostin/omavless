@@ -80,6 +80,7 @@ startup_capability_test='startup_validation::tests::startup_capability_probe_is_
 # process-heavy tests; keep its fault, quarantine and first-failure assertions.
 # Isolated success does not establish the cause of a previous concurrent failure.
 close_drain_tests=(
+  'native_coordinator::connection_close::tests::actual_owner_disconnect_cancels_stalled_read_or_reply_before_lifecycle_effects'
   'conditional_close_candidate::tests::cancel_and_drain_held_exact_lease_times_out_and_permanently_cancels'
   'conditional_close_candidate::tests::cancel_and_drain_released_exact_lease_acknowledges_only_after_unlock'
   'native_coordinator::connection_close::tests::actual_owner_disconnect_drains_exact_proof_lease_or_returns_bounded_busy'
