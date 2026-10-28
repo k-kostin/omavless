@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 //! Explicit acceptance-image scenarios, absent from ordinary builds.
-//! One arm per owner; only the first set authorization can claim it.
+//! One arm per owner; effect and terminal-retirement claims are disjoint.
 use std::io::{self, Read};
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
@@ -12,6 +12,8 @@ pub enum Scenario {
     BeforeAttempt,
     FinalProof,
     BetweenMembers,
+    LateFinish,
+    LatePreviewPublication,
 }
 
 #[derive(Clone, Copy)]
@@ -20,6 +22,10 @@ pub(crate) enum Marker {
     FinalProof,
     BarrierEntered,
     BarrierReleased,
+    LatePublicationReady,
+    LatePublicationDelivered,
+    LatePublicationRefused,
+    LateFinishRefused,
 }
 // No Rust stderr lock and no shared-FD flag change. Journald's stream socket
 // supports MSG_DONTWAIT; unsupported/full outputs drop the marker. Installed
@@ -46,6 +52,18 @@ fn emit_marker_to(fd: impl std::os::fd::AsFd, marker: Marker) -> bool {
     let line: &[u8] = match marker {
         Marker::BeforeAttempt => b"omavless.close-cut.v1 stage=before_attempt channel=closed\n",
         Marker::FinalProof => b"omavless.close-cut.v1 stage=final_proof channel=closed\n",
+        Marker::LatePublicationReady => {
+            b"omavless.close-cut.v1 stage=late_publication retired=ready\n"
+        }
+        Marker::LatePublicationDelivered => {
+            b"omavless.close-cut.v1 stage=late_publication result=late\n"
+        }
+        Marker::LatePublicationRefused => {
+            b"omavless.close-cut.v1 stage=late_publication owner=refused\n"
+        }
+        Marker::LateFinishRefused => {
+            b"omavless.close-cut.v1 stage=late_finish retirement=refused\n"
+        }
         Marker::BarrierEntered => b"omavless.close-cut.v1 stage=between_members barrier=entered\n",
         Marker::BarrierReleased => {
             b"omavless.close-cut.v1 stage=between_members barrier=released\n"
@@ -90,6 +108,12 @@ impl Arm {
         self.release.as_ref().unwrap().clone()
     }
     pub(crate) fn claim(&self) -> Option<Claim> {
+        if matches!(
+            self.scenario,
+            Scenario::LateFinish | Scenario::LatePreviewPublication
+        ) {
+            return None;
+        }
         self.claimed
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .ok()
@@ -97,6 +121,39 @@ impl Arm {
                 scenario: self.scenario,
                 release: self.release.clone(),
             })
+    }
+    pub(crate) fn claim_retirement(&self) -> Option<RetirementClaim> {
+        let kind = match self.scenario {
+            Scenario::LateFinish => RetirementKind::LateFinish,
+            Scenario::LatePreviewPublication => RetirementKind::LatePublication,
+            _ => return None,
+        };
+        self.claimed
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .ok()
+            .map(|_| RetirementClaim { kind })
+    }
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RetirementKind {
+    LateFinish,
+    LatePublication,
+}
+// Noncloneable owner claim. No caller can create it or select a duration.
+pub(crate) struct RetirementClaim {
+    kind: RetirementKind,
+}
+impl RetirementClaim {
+    pub(crate) fn kind(&self) -> RetirementKind {
+        self.kind
+    }
+}
+pub(crate) fn wait_past_original(deadline: Instant) {
+    while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+        if left.is_zero() {
+            break;
+        }
+        std::thread::sleep(left);
     }
 }
 
@@ -176,6 +233,39 @@ impl Drop for Release {
 mod tests {
     use super::*;
     use std::time::Duration;
+    #[test]
+    fn acceptance_retirement_claims_are_disjoint_one_shot_and_deadline_preserving() {
+        for scenario in [Scenario::LateFinish, Scenario::LatePreviewPublication] {
+            let arm = Arc::new(Arm::new(scenario).unwrap());
+            assert!(arm.claim().is_none());
+            assert!(!arm.is_claimed());
+            let joins: Vec<_> = (0..8)
+                .map(|_| {
+                    let a = arm.clone();
+                    std::thread::spawn(move || a.claim_retirement().is_some())
+                })
+                .collect();
+            assert_eq!(
+                joins
+                    .into_iter()
+                    .filter_map(|j| j.join().ok())
+                    .filter(|v| *v)
+                    .count(),
+                1
+            );
+            assert!(arm.claim_retirement().is_none());
+            assert!(arm.claim().is_none());
+        }
+        for scenario in [Scenario::BeforeAttempt, Scenario::FinalProof] {
+            let arm = Arm::new(scenario).unwrap();
+            assert!(arm.claim_retirement().is_none());
+            assert!(!arm.is_claimed());
+            assert!(arm.claim().is_some());
+        }
+        let deadline = Instant::now() + Duration::from_millis(5);
+        wait_past_original(deadline);
+        assert!(Instant::now() >= deadline);
+    }
     #[test]
     fn acceptance_arm_has_one_winner_across_concurrent_captures() {
         for scenario in [Scenario::BeforeAttempt, Scenario::FinalProof] {

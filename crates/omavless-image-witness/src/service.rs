@@ -565,6 +565,17 @@ impl Client {
     }
     /// Terminal read-only session completion, not current-image or effect proof.
     pub fn finish(&mut self, caller: Instant) -> Result<()> {
+        self.finish_timed(caller, FinishTiming::Normal)
+    }
+    /// Fixed acceptance-only late terminal return. No new frame or authority.
+    #[cfg(feature = "acceptance-channel-cut")]
+    pub fn finish_late_for_acceptance(&mut self, caller: Instant) -> Result<()> {
+        if !self.class.product() {
+            return Err(Error::Refused);
+        }
+        self.finish_timed(caller, FinishTiming::LateAcceptance)
+    }
+    fn finish_timed(&mut self, caller: Instant, timing: FinishTiming) -> Result<()> {
         if self.terminal {
             return Err(Error::Refused);
         }
@@ -574,13 +585,49 @@ impl Client {
         access(self.class, self.uid, self.node)?;
         self.endpoint
             .send(&protocol::frame(Kind::Finish, self.next), None, deadline)?;
-        let (raw, fd) = self.endpoint.receive(false, deadline)?;
-        if protocol::decode(raw)? != (Kind::Ack, self.next) || fd.is_some() {
-            return Err(Error::Refused);
-        }
-        // Helper may exit after this ACK. No live authority follows from it.
-        kernel::tick(deadline)
+        finish_ack(&self.endpoint, self.next, deadline, timing)
     }
+}
+#[derive(Clone, Copy)]
+enum FinishTiming {
+    Normal,
+    #[cfg(feature = "acceptance-channel-cut")]
+    LateAcceptance,
+}
+fn finish_ack(
+    endpoint: &Endpoint,
+    next: u32,
+    deadline: Instant,
+    timing: FinishTiming,
+) -> Result<()> {
+    let (raw, fd) = endpoint.receive(false, deadline)?;
+    if protocol::decode(raw)? != (Kind::Ack, next) || fd.is_some() {
+        return Err(Error::Refused);
+    }
+    #[cfg(not(feature = "acceptance-channel-cut"))]
+    let _ = timing;
+    #[cfg(feature = "acceptance-channel-cut")]
+    if matches!(timing, FinishTiming::LateAcceptance) {
+        acceptance_finish_marker(b"omavless.close-cut.v1 stage=late_finish ack=decoded\n");
+        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            if left.is_zero() {
+                break;
+            }
+            std::thread::sleep(left);
+        }
+        acceptance_finish_marker(b"omavless.close-cut.v1 stage=late_finish deadline=expired\n");
+    }
+    // Helper may exit after this ACK. No live authority follows from it.
+    kernel::tick(deadline)
+}
+#[cfg(feature = "acceptance-channel-cut")]
+fn acceptance_finish_marker(line: &'static [u8]) {
+    // Same closed nonblocking journald surface as the runtime acceptance marks.
+    let _ = net::send(
+        std::io::stderr(),
+        line,
+        net::SendFlags::DONTWAIT | net::SendFlags::NOSIGNAL,
+    );
 }
 
 #[cfg(feature = "acceptance-channel-cut")]
@@ -596,6 +643,103 @@ mod acceptance_channel_tests {
     use nix::sys::socket::{AddressFamily, SockFlag, SockType, socketpair};
     use std::io::{Read, Write};
 
+    fn endpoints() -> (Endpoint, Endpoint) {
+        let (a, b) = socketpair(
+            AddressFamily::Unix,
+            SockType::SeqPacket,
+            None,
+            SockFlag::SOCK_CLOEXEC | SockFlag::SOCK_NONBLOCK,
+        )
+        .unwrap();
+        let until = Instant::now() + Duration::from_secs(1);
+        let uid = rustix::process::getuid().as_raw();
+        (
+            Endpoint::new(a, uid, until).unwrap(),
+            Endpoint::new(b, uid, until).unwrap(),
+        )
+    }
+    #[test]
+    fn acceptance_late_finish_decodes_original_seqpacket_ack_then_refuses_without_renewal() {
+        let (a, b) = endpoints();
+        let deadline = Instant::now() + Duration::from_millis(30);
+        b.send(&protocol::frame(Kind::Ack, 1), None, deadline)
+            .unwrap();
+        assert_eq!(
+            finish_ack(&a, 1, deadline, FinishTiming::LateAcceptance),
+            Err(Error::Expired)
+        );
+        assert!(Instant::now() >= deadline);
+        // The original message was consumed, not replaced with a synthetic ACK.
+        assert!(
+            a.receive(false, Instant::now() + Duration::from_millis(5))
+                .is_err()
+        );
+    }
+    #[test]
+    fn acceptance_late_finish_rejects_missing_ack_and_attached_fd() {
+        let (a, _b) = endpoints();
+        let deadline = Instant::now() + Duration::from_millis(10);
+        assert_eq!(
+            finish_ack(&a, 1, deadline, FinishTiming::LateAcceptance),
+            Err(Error::Expired)
+        );
+        let (a, b) = endpoints();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let fd = std::fs::File::open("/dev/null").unwrap();
+        b.send(&protocol::frame(Kind::Ack, 1), Some(fd.as_fd()), deadline)
+            .unwrap();
+        assert!(finish_ack(&a, 1, deadline, FinishTiming::LateAcceptance).is_err());
+        assert!(Instant::now() < deadline);
+    }
+    #[test]
+    fn acceptance_late_finish_refuses_nonproduct_and_already_terminal_before_send() {
+        let (endpoint, peer) = endpoints();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let child = endpoint.original_peer(deadline).unwrap();
+        let mut client = Client {
+            endpoint,
+            child,
+            node: (0, 0),
+            next: 1,
+            terminal: false,
+            class: Class::InstalledRuntime,
+            uid: rustix::process::getuid().as_raw(),
+        };
+        assert_eq!(
+            client.finish_late_for_acceptance(deadline),
+            Err(Error::Refused)
+        );
+        client.terminal = true;
+        assert_eq!(
+            client.finish_timed(deadline, FinishTiming::LateAcceptance),
+            Err(Error::Refused)
+        );
+        assert!(
+            peer.receive(false, Instant::now() + Duration::from_millis(5))
+                .is_err()
+        );
+    }
+    #[test]
+    fn acceptance_late_finish_preserves_normal_ack_and_rejects_wrong_sequence_or_eof() {
+        for (kind, seq) in [(Kind::Ack, 2), (Kind::Finish, 1)] {
+            let (a, b) = endpoints();
+            let deadline = Instant::now() + Duration::from_secs(1);
+            b.send(&protocol::frame(kind, seq), None, deadline).unwrap();
+            assert_eq!(
+                finish_ack(&a, 1, deadline, FinishTiming::LateAcceptance),
+                Err(Error::Refused)
+            );
+            assert!(Instant::now() < deadline);
+        }
+        let (a, b) = endpoints();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        b.send(&protocol::frame(Kind::Ack, 1), None, deadline)
+            .unwrap();
+        assert_eq!(finish_ack(&a, 1, deadline, FinishTiming::Normal), Ok(()));
+        assert!(Instant::now() < deadline);
+        drop(b);
+        assert!(finish_ack(&a, 1, deadline, FinishTiming::LateAcceptance).is_err());
+    }
     #[test]
     fn actual_seqpacket_cut_ends_only_original_peer_and_prevents_next_send() {
         let (client, helper) = socketpair(

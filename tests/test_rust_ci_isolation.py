@@ -318,6 +318,29 @@ class RustCiIsolationTests(unittest.TestCase):
         original = self.without_close_acceptance(commands)
         self.assertEqual(len(commands) - len(original), 7)
 
+    def test_late_product_source_cases_are_discovered_without_running_ignored_native_probe(self):
+        result, commands = self.runner_trace()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        channel = [c for c in commands if c[-1:] == ["acceptance_channel_tests"]]
+        owner = [c for c in commands if c[-1:] == ["acceptance_"]]
+        self.assertEqual(len(channel), 1)
+        self.assertEqual(len(owner), 1)
+        for command in channel + owner:
+            self.assertIn("--lib", command)
+            self.assertIn("--locked", command)
+            self.assertNotIn("--ignored", command)
+            self.assertEqual(command[command.index("--config")+1], "profile.test.package.sha2.opt-level=3")
+        service = (ROOT / "crates/omavless-image-witness/src/service.rs").read_text()
+        for name in ("acceptance_late_finish_decodes_original_seqpacket_ack_then_refuses_without_renewal",
+                     "acceptance_late_finish_rejects_missing_ack_and_attached_fd",
+                     "acceptance_late_finish_refuses_nonproduct_and_already_terminal_before_send"):
+            self.assertIn("fn " + name + "(", service)
+        owner_source = (ROOT / "crates/omavless-runtime/src/native_coordinator/connection_close_preview_tests.rs").read_text()
+        self.assertIn("fn acceptance_late_publication_uses_real_retirement_object_and_actual_owner_refusal(", owner_source)
+        product = (ROOT / "crates/omavless-image-witness/src/kernel_product_tests.rs").read_text()
+        self.assertIn('fn installed_product_same_binding_refuses_original_core_death(', product)
+        self.assertFalse(any("installed_product_same_binding_refuses_original_core_death" in c for c in commands))
+
     def without_product_image_upgrade(self, commands):
         added = [row for row in commands if "omavless-image-witness" in row and "product-epochs" in row]
         self.assertEqual(len(added), 1)

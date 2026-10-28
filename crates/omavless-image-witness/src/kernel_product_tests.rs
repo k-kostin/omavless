@@ -212,3 +212,80 @@ fn installed_product_retained_objects_refuse_managed_upgrade() {
         "omavless.product-object.v1 stage=inspected runtime_refused=true enrollment_refused=true core_changed={changed}"
     );
 }
+
+#[test]
+#[ignore = "actual Product original daemon/core; parent owns ONE normal Disconnect after READY; root CAP_SYS_PTRACE only"]
+fn installed_product_same_binding_refuses_original_core_death() {
+    use rustix::event::{PollFd, PollFlags, Timespec, poll};
+    root_profile();
+    let roots = Roots::capture(Class::Product, deadline()).unwrap();
+    let until = deadline();
+    let mut cores = vec![];
+    let mut seen = 0;
+    for entry in std::fs::read_dir("/proc").unwrap() {
+        tick(until).unwrap();
+        let entry = entry.unwrap();
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|s| s.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        seen += 1;
+        assert!(seen <= 4096, "bounded discovery exceeded");
+        let Ok(row) = Row::open(pid, until) else {
+            continue;
+        };
+        let Ok(facts) = row.facts(until) else {
+            continue;
+        };
+        if facts.uids == [roots.uid; 4] && same_image(&row, &roots.core, until) {
+            cores.push(pid);
+        }
+    }
+    assert_eq!(cores.len(), 1, "unique original enrolled core required");
+    let core = Row::open(cores[0], deadline()).unwrap();
+    let facts = core.facts(deadline()).unwrap();
+    let daemon = Row::open(facts.parent, deadline()).unwrap();
+    let daemon_facts = daemon.facts(deadline()).unwrap();
+    let core_fd = pidfd(cores[0]);
+    let daemon_fd = pidfd(facts.parent);
+    let held = rustix::io::fcntl_dupfd_cloexec(&core_fd, 0).unwrap();
+    let peer = rustix::io::fcntl_dupfd_cloexec(&daemon_fd, 0).unwrap();
+    let mut original = Binding::bind(&roots, daemon_fd, core_fd, deadline()).unwrap();
+    drop(original.observe(deadline()).unwrap());
+    assert!(!original.poisoned);
+    println!("omavless.product-death.v1 stage=ready");
+    std::io::stdout().flush().unwrap();
+    // Test rendezvous only, never a Session/Finish/effect deadline renewal.
+    let bound = Instant::now() + Duration::from_secs(20);
+    loop {
+        let left = bound
+            .checked_duration_since(Instant::now())
+            .expect("original death timeout");
+        let timeout = Timespec {
+            tv_sec: left.as_secs().try_into().unwrap(),
+            tv_nsec: left.subsec_nanos().into(),
+        };
+        let mut fds = [PollFd::new(&held, PollFlags::IN)];
+        match poll(&mut fds, Some(&timeout)) {
+            Err(rustix::io::Errno::INTR) => continue,
+            Ok(1) if fds[0].revents().contains(PollFlags::IN) => break,
+            _ => panic!("original core death not observed"),
+        }
+    }
+    let until = deadline();
+    roots.check(until).unwrap();
+    assert_eq!(kernel_pid(&peer, until).unwrap(), facts.parent);
+    assert!(daemon.facts(until).unwrap() == daemon_facts);
+    assert!(same_image(&daemon, &roots.client, until));
+    assert_eq!(alive(&held, until), Err(Error::Refused));
+    assert!(matches!(original.observe(until), Err(Error::Refused)));
+    assert!(original.poisoned);
+    assert!(matches!(original.observe(until), Err(Error::Refused)));
+    tick(until).unwrap();
+    drop(original);
+    drop((held, peer, daemon, core, roots));
+    println!("omavless.product-death.v1 stage=complete same_binding_refused=true");
+}

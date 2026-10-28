@@ -11,7 +11,7 @@ expected_sha=$3
 product_helper=${5-}
 acceptance_cut=${6-}
 case "$acceptance_cut" in
-  ""|--acceptance-close-before-attempt|--acceptance-close-final-proof|--acceptance-close-between-members) ;;
+  ""|--acceptance-close-before-attempt|--acceptance-close-final-proof|--acceptance-close-between-members|--acceptance-close-late-finish|--acceptance-close-late-publication) ;;
   *) fail ;;
 esac
 [[ $expected_sha =~ ^[0-9a-f]{40}$ ]] || fail

@@ -13,6 +13,8 @@ pub(crate) struct ClosePreviewReady {
     origin: PreviewOrigin,
     rows: Vec<PreviewRow>,
     retired: crate::conditional_close_candidate::CloseEpochRetirement,
+    #[cfg(feature = "acceptance-connection-close")]
+    acceptance_late_publication: bool,
 }
 impl CloseDiscovery {
     pub(crate) fn product_preview(&self) -> bool {
@@ -30,17 +32,22 @@ impl CloseDiscovery {
             .into_iter()
             .map(ObservedRow::into_preview)
             .collect();
-        let retired = discovered
+        #[allow(unused_mut)]
+        let mut retired = discovered
             .observation
             .into_session()
             .retire_before_effect()
             .map_err(|_| NativeOwnerError::OwnershipUnavailable)?;
+        #[cfg(feature = "acceptance-connection-close")]
+        let acceptance_late_publication = retired.acceptance_delay_publication();
         Ok(ClosePreviewReady {
             identity: discovered.identity,
             context: discovered.context,
             origin,
             rows,
             retired,
+            #[cfg(feature = "acceptance-connection-close")]
+            acceptance_late_publication,
         })
     }
 }
@@ -118,6 +125,8 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
     ) -> Result<Vec<CloseDisplayRow>, NativeOwnerError> {
         let result = (|| {
             let ready = result?;
+            #[cfg(feature = "acceptance-connection-close")]
+            let acceptance_late = ready.acceptance_late_publication;
             if !self
                 .connection_close
                 .discovery
@@ -130,6 +139,12 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
                     .is_some_and(|id| Arc::ptr_eq(id, &ready.identity))
                 || Instant::now() >= ready.retired.retirement_deadline()
             {
+                #[cfg(feature = "acceptance-connection-close")]
+                if acceptance_late && Instant::now() >= ready.retired.retirement_deadline() {
+                    let _ = crate::close_acceptance::marker(
+                        crate::close_acceptance::Marker::LatePublicationRefused,
+                    );
+                }
                 return Err(NativeOwnerError::OwnershipUnavailable);
             }
             let _lease = self.batch_lock()?;
@@ -138,6 +153,12 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
             if self.host().close_epoch_admission() != crate::lifecycle::CloseEpochAdmission::Ready
                 || Instant::now() >= ready.retired.retirement_deadline()
             {
+                #[cfg(feature = "acceptance-connection-close")]
+                if acceptance_late && Instant::now() >= ready.retired.retirement_deadline() {
+                    let _ = crate::close_acceptance::marker(
+                        crate::close_acceptance::Marker::LatePublicationRefused,
+                    );
+                }
                 return Err(NativeOwnerError::OwnershipUnavailable);
             }
             let mut rows = Vec::with_capacity(ready.rows.len());

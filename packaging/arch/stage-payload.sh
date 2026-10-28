@@ -18,7 +18,7 @@ binary=$2
 product_helper=${4-}
 acceptance_cut=${5-}
 case "$acceptance_cut" in
-  ""|--acceptance-close-before-attempt|--acceptance-close-final-proof|--acceptance-close-between-members) ;;
+  ""|--acceptance-close-before-attempt|--acceptance-close-final-proof|--acceptance-close-between-members|--acceptance-close-late-finish|--acceptance-close-late-publication) ;;
   *) fail ;;
 esac
 
@@ -63,6 +63,8 @@ if [[ -n $product_helper ]]; then
   case "$acceptance_cut" in
     --acceptance-close-between-members) unit_source="$repo_root/packaging/systemd/omavless-runtime-acceptance-between-members.service" ;;
     --acceptance-close-before-attempt) unit_source="$repo_root/packaging/systemd/omavless-runtime-acceptance-before-attempt.service" ;;
+    --acceptance-close-late-finish) unit_source="$repo_root/packaging/systemd/omavless-runtime-acceptance-late-finish.service" ;;
+    --acceptance-close-late-publication) unit_source="$repo_root/packaging/systemd/omavless-runtime-acceptance-late-publication.service" ;;
     --acceptance-close-final-proof) unit_source="$repo_root/packaging/systemd/omavless-runtime-acceptance-final-proof.service" ;;
   esac
 fi

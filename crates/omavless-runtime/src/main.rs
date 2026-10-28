@@ -161,6 +161,22 @@ fn close_acceptance_entry(
         ]
     {
         Some(Scenario::BetweenMembers)
+    } else if arguments
+        == [
+            "daemon",
+            "--product-image-witness",
+            "--acceptance-close-late-finish",
+        ]
+    {
+        Some(Scenario::LateFinish)
+    } else if arguments
+        == [
+            "daemon",
+            "--product-image-witness",
+            "--acceptance-close-late-publication",
+        ]
+    {
+        Some(Scenario::LatePreviewPublication)
     } else {
         None
     }
@@ -1174,6 +1190,11 @@ mod close_acceptance_selector_tests {
         for (flag, cut) in [
             ("--acceptance-close-before-attempt", Scenario::BeforeAttempt),
             ("--acceptance-close-final-proof", Scenario::FinalProof),
+            ("--acceptance-close-late-finish", Scenario::LateFinish),
+            (
+                "--acceptance-close-late-publication",
+                Scenario::LatePreviewPublication,
+            ),
             (
                 "--acceptance-close-between-members",
                 Scenario::BetweenMembers,
