@@ -70,6 +70,11 @@ run_check lint-close-acceptance cargo clippy --locked -p omavless-runtime --all-
 # Keep semantic assertions and the short held-proof bound. Successful complete
 # Disconnect also includes an independently budgeted real owned-child stop.
 auxiliary_inventory_test='auxiliary_core::tests::finish_inventory_refusal_retains_owned_child_and_first_failure_evidence'
+# This fixed child probe retains its one-second bound and every assertion.
+# Isolate it from unrelated process/crypto-heavy tests in both broad suites.
+# The prior false positive-case result has no recorded internal cause; this
+# scheduling choice is not a causal diagnosis or a retry of that original.
+startup_capability_test='startup_validation::tests::startup_capability_probe_is_fixed_bounded_and_checks_effective_flags'
 # This reject-only inventory fixture retains the original Child and then proves
 # real group teardown. Run that bounded procfs observation without unrelated
 # process-heavy tests; keep its fault, quarantine and first-failure assertions.
@@ -87,9 +92,12 @@ for close_drain_test in "${close_drain_tests[@]}"; do
 done
 run_check test-auxiliary-inventory cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --lib \
   "$auxiliary_inventory_test" -- --exact --test-threads=1
+run_check test-startup-capability cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --lib \
+  "$startup_capability_test" -- --exact --test-threads=1
 run_check test-default-workspace cargo test "${crypto_test_profile[@]}" --workspace --locked --exclude omavless-dns-broker --exclude omavless-dns-resolved -- \
   --skip core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn \
   --skip "$auxiliary_inventory_test" \
+  --skip "$startup_capability_test" \
   "${close_drain_skips[@]}"
 run_check test-helper-drain cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --lib \
   core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn -- \
@@ -173,9 +181,12 @@ run_check test-image-pair cargo test "${crypto_test_profile[@]}" --locked -p oma
 canonical_stage_retention_test='manager_actor_service::transfer::tests::failed_canonical_stage_keeps_auth_and_normalized_private_returns'
 run_check test-image-auxiliary-inventory cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --lib --features product-image-witness,t4-manager-actor-service \
   "$auxiliary_inventory_test" -- --exact --test-threads=1
+run_check test-image-startup-capability cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --lib --features product-image-witness,t4-manager-actor-service \
+  "$startup_capability_test" -- --exact --test-threads=1
 run_check test-image-t4 cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --lib --features product-image-witness,t4-manager-actor-service -- \
   --skip core::tests::helper_resources_are_drained_even_after_leader_exit_or_term_spawn \
   --skip "$auxiliary_inventory_test" \
+  --skip "$startup_capability_test" \
   --skip "$canonical_stage_retention_test" \
   "${close_drain_skips[@]}"
 for close_drain_test in "${close_drain_tests[@]}"; do
