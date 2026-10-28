@@ -29,6 +29,51 @@ physical-human acceptance. Guest authority does not include the physical host.
 
 ## 2. Keep one current plan
 
+### Value and release scope
+
+Before commissioning research, implementation or a harness, identify the smallest
+safe user outcome for the selected release. Classify the feature as core,
+supporting or optional by its contribution to that outcome, not its technical
+interest. Record what already works, the minimum remaining delivery and what can
+wait. Use the cumulative budget below; implementation, acceptance infrastructure
+and waiting all count. A feature's inclusion in a roadmap is not a reason to
+develop its broadest possible version.
+
+At every retrospective, the primary must review value as well as technical
+failures: what useful behavior was delivered, what remains, its expected cost,
+and which more valuable release work it blocks. Evaluate the next investment
+on its future benefit; already-spent effort is accounting, not a reason to finish.
+Do not wait for the owner to notice disproportionate spending.
+
+For a supporting or optional feature, review scope BEFORE another expensive
+batch when its cumulative budget is exhausted or infeasible, two end-to-end or
+harness attempts fail without a usable increment, or another tooling approach
+is needed after a batch delivered no usable behavior. It must not roll into a
+second working day without this explicit value and scope decision. These are
+planning checkpoints, not product deadlines or permission to kill an operation.
+
+Present concrete alternatives and recommend one: finish a smaller safe MVP,
+split delivery across versions, defer the feature, or drop it. Compare the
+remaining user value, cost and release impact. Routine implementation choices
+within the approved outcome remain the primary's responsibility; changing an
+agreed feature or target version requires the owner's concrete scope decision.
+Until that decision, settle owned work safely and preserve evidence rather than
+launching another costly batch for that feature. Continue independent authorized
+work where the approved dependency order permits it.
+
+Apply the selected decision to the current plan and release dependencies.
+Preserve useful code and original results; a deferred feature is not PASS.
+Keep unfinished functionality disabled or excluded from the release through its
+existing trusted selection boundary. Reduce feature scope, not required safety,
+privacy, correctness or recovery guarantees. Bugs that threaten the shipped
+core or user data still require correction or a safe release exclusion.
+
+The retrospective is complete only when it records the chosen scope/version,
+the disposition of the unfinished work, the next valuable outcome and its finite
+remaining budget. Renaming a harness, adding agents or renewing a timebox does
+not replace this decision. The owner's October28 T3 split is the first applied
+case: read-only Connections in0.9.9, new Single/Set Close retained for1.0.0.
+
 ### Research before feature implementation
 
 Before implementing each new feature, follow [Feature research](FEATURE_RESEARCH.md).
