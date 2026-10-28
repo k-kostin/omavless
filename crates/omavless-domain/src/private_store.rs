@@ -405,11 +405,12 @@ pub struct SubscriptionRefreshSnapshot {
     updated_at: u64,
 }
 
-/// Ordered private snapshot for an all-or-nothing refresh of every current
-/// subscription. IDs and URLs remain private and this type deliberately has
+/// Ordered private snapshot for an all-or-nothing refresh of the complete set
+/// or exactly one selected subscription. IDs and URLs remain private; this type has
 /// no formatting, cloning or serialization implementation.
 pub struct SubscriptionRefreshBatchSnapshot {
     subscriptions: Vec<SubscriptionRefreshSnapshot>,
+    complete_set: bool,
 }
 
 impl SubscriptionRefreshBatchSnapshot {
@@ -575,6 +576,7 @@ pub fn prepare_subscription_refresh_batch(
 ) -> Result<SubscriptionRefreshBatchSnapshot, PrivateStoreError> {
     let store = parse_private_store(input)?;
     Ok(SubscriptionRefreshBatchSnapshot {
+        complete_set: true,
         subscriptions: store
             .subscriptions
             .into_iter()
@@ -584,6 +586,18 @@ pub fn prepare_subscription_refresh_batch(
                 updated_at: subscription.updated_at,
             })
             .collect(),
+    })
+}
+
+/// Capture exactly one existing feed for the same supervised transaction.
+/// The target stays private; an absent target is never an empty success.
+pub fn prepare_selected_subscription_refresh_batch(
+    input: &str,
+    subscription_id: &str,
+) -> Result<SubscriptionRefreshBatchSnapshot, PrivateStoreError> {
+    Ok(SubscriptionRefreshBatchSnapshot {
+        subscriptions: vec![prepare_subscription_refresh(input, subscription_id)?],
+        complete_set: false,
     })
 }
 
@@ -652,9 +666,9 @@ pub fn apply_subscription_refresh(
     ))
 }
 
-/// Apply every already-fetched feed to one latest complete store. The entire
-/// ordered subscription identity is revalidated before the first in-memory
-/// change. All subscriptions receive one monotonic refresh timestamp, and no
+/// Apply the captured feeds to one latest complete store. For refresh-all the
+/// entire ordered set is revalidated; selected refresh validates its exact
+/// captured identity. Captured feeds receive one monotonic timestamp, and no
 /// partial payload is returned if any feed or aggregate count is invalid.
 pub fn apply_subscription_refresh_batch(
     input: &str,
@@ -666,17 +680,28 @@ pub fn apply_subscription_refresh_batch(
         return Err(PrivateStoreError::SubscriptionChanged);
     }
     let mut store = parse_private_store(input)?;
-    if store.subscriptions.len() != snapshot.subscriptions.len()
-        || store
-            .subscriptions
-            .iter()
-            .zip(&snapshot.subscriptions)
-            .any(|(current, captured)| {
-                current.id != captured.subscription_id
-                    || current.url != captured.url
-                    || current.updated_at != captured.updated_at
-            })
-    {
+    let identity_matches = |current: &PrivateSubscription,
+                            captured: &SubscriptionRefreshSnapshot| {
+        current.id == captured.subscription_id
+            && current.url == captured.url
+            && current.updated_at == captured.updated_at
+    };
+    let matches = if snapshot.complete_set {
+        store.subscriptions.len() == snapshot.subscriptions.len()
+            && store
+                .subscriptions
+                .iter()
+                .zip(&snapshot.subscriptions)
+                .all(|(current, captured)| identity_matches(current, captured))
+    } else {
+        snapshot.subscriptions.iter().all(|captured| {
+            store
+                .subscriptions
+                .iter()
+                .any(|current| identity_matches(current, captured))
+        })
+    };
+    if !matches {
         return Err(PrivateStoreError::SubscriptionChanged);
     }
 
@@ -2877,6 +2902,85 @@ mod tests {
                 .unwrap(),
             PrivateStoreError::InvalidTimestamp
         );
+    }
+
+    #[test]
+    fn selected_refresh_updates_only_target_and_preserves_sibling_profiles() {
+        let mut value: Value = serde_json::from_str(&batch_store()).unwrap();
+        let mut sibling = value["profiles"][0].clone();
+        sibling["id"] = json!("00000000-0000-4000-8000-000000000002");
+        sibling["subscriptionId"] = json!(SECOND_SUBSCRIPTION_ID);
+        sibling["name"] = json!("Sibling profile");
+        sibling["uri"] = json!(SECOND_PRIVATE_URI);
+        value["profiles"].as_array_mut().unwrap().push(sibling);
+        let input = value.to_string();
+        let before = parse_private_store(&input).unwrap().document;
+        let snapshot =
+            prepare_selected_subscription_refresh_batch(&input, SECOND_SUBSCRIPTION_ID).unwrap();
+        assert_eq!(snapshot.len(), 1);
+        assert_eq!(
+            snapshot.private_urls().collect::<Vec<_>>(),
+            ["https://second.invalid/private"]
+        );
+        let (result, _) = apply_subscription_refresh_batch(
+            &input,
+            snapshot,
+            vec![SubscriptionRefreshBatchEntries {
+                entries: vec![IncomingSubscriptionProfile {
+                    uri: SECOND_PRIVATE_URI.to_owned(),
+                    new_id: "00000000-0000-4000-8000-000000000003".to_owned(),
+                }],
+                skipped: 0,
+            }],
+            20,
+        )
+        .unwrap();
+        let after: Value = serde_json::from_slice(result.payload()).unwrap();
+        assert_eq!(after["subscriptions"][0], before["subscriptions"][0]);
+        assert_eq!(after["profiles"][0], before["profiles"][0]);
+        assert_eq!(after["subscriptions"][1]["updatedAt"], 20);
+        assert_eq!(after["profiles"].as_array().unwrap().len(), 2);
+        assert_eq!(after["startup"], before["startup"]);
+        assert_eq!(after["activeId"], before["activeId"]);
+    }
+
+    #[test]
+    fn selected_refresh_refuses_missing_target_and_changed_identity_without_partial_payload() {
+        let input = batch_store();
+        assert!(
+            prepare_selected_subscription_refresh_batch(
+                &input,
+                "10000000-0000-0000-0000-000000000003"
+            )
+            .is_err()
+        );
+        for change in ["remove", "url", "timestamp"] {
+            let snapshot =
+                prepare_selected_subscription_refresh_batch(&input, SECOND_SUBSCRIPTION_ID)
+                    .unwrap();
+            let mut changed: Value = serde_json::from_str(&input).unwrap();
+            match change {
+                "remove" => {
+                    changed["subscriptions"].as_array_mut().unwrap().pop();
+                }
+                "url" => {
+                    changed["subscriptions"][1]["url"] = json!("https://changed.invalid/private")
+                }
+                _ => changed["subscriptions"][1]["updatedAt"] = json!(99),
+            }
+            assert!(matches!(
+                apply_subscription_refresh_batch(
+                    &changed.to_string(),
+                    snapshot,
+                    vec![SubscriptionRefreshBatchEntries {
+                        entries: Vec::new(),
+                        skipped: 0
+                    }],
+                    20
+                ),
+                Err(PrivateStoreError::SubscriptionChanged)
+            ));
+        }
     }
 
     #[test]

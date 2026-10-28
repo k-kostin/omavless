@@ -21,6 +21,7 @@ pub struct Capabilities {
     pub profile_probe: bool,
     pub subscription_probe: bool,
     pub refresh_all: bool,
+    pub refresh_selected: bool,
     pub connection_count: bool,
     pub connection_overview: bool,
     pub connection_rows: bool,
@@ -52,6 +53,9 @@ impl Capabilities {
                 && has("operations.get")
                 && has("operations.cancel"),
             refresh_all: has("subscriptions.refresh_all")
+                && has("operations.get")
+                && has("operations.cancel"),
+            refresh_selected: has("subscriptions.refresh_selected")
                 && has("operations.get")
                 && has("operations.cancel"),
             connection_count: has("runtime.connections"),

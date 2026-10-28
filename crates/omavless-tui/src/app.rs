@@ -1452,6 +1452,19 @@ impl App {
     }
 
     fn prepare_subscription(&mut self, now: Instant) {
+        if self.jobs_enabled
+            && self
+                .snapshot
+                .as_ref()
+                .is_some_and(|s| s.capabilities.refresh_selected)
+        {
+            self.prepare_job(
+                crate::jobs::Kind::RefreshSelected,
+                self.selected_subscription.clone(),
+                now,
+            );
+            return;
+        }
         if !self.eligible(Kind::RefreshSubscription, now) {
             self.notice = "tui.action_blocked";
             return;
@@ -1490,7 +1503,15 @@ impl App {
         let Some(s) = &self.snapshot else {
             return;
         };
-        if target.as_ref().is_some_and(|id| {
+        if kind == crate::jobs::Kind::RefreshSelected {
+            if self.page != crate::inspection::Page::Subscriptions
+                || target.is_none()
+                || target != self.selected_subscription
+            {
+                self.notice = "tui.select_subscription";
+                return;
+            }
+        } else if target.as_ref().is_some_and(|id| {
             !self
                 .visible()
                 .iter()
@@ -1520,7 +1541,12 @@ impl App {
                 if !self.jobs_enabled
                     || !self.eligible(Kind::RefreshSubscription, now)
                     || !self.snapshot.as_ref().is_some_and(|s| intent.matches(s))
-                    || (intent.target.is_some() && intent.target != self.selected)
+                    || if intent.kind == crate::jobs::Kind::RefreshSelected {
+                        self.page != crate::inspection::Page::Subscriptions
+                            || intent.target != self.selected_subscription
+                    } else {
+                        intent.target.is_some() && intent.target != self.selected
+                    }
                 {
                     self.notice = "tui.action_changed";
                     return Action::None;

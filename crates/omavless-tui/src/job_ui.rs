@@ -19,6 +19,14 @@ pub struct Intent {
 impl Intent {
     pub fn new(s: &Snapshot, kind: Kind, target: Option<String>) -> Option<Self> {
         let (label, count) = match kind {
+            Kind::RefreshSelected if s.capabilities.refresh_selected => {
+                let sub = s
+                    .metadata
+                    .subscriptions
+                    .iter()
+                    .find(|sub| Some(&sub.id) == target.as_ref())?;
+                (sub.name.clone(), 1)
+            }
             Kind::RefreshAll
                 if s.capabilities.refresh_all && !s.metadata.subscriptions.is_empty() =>
             {
@@ -69,6 +77,7 @@ impl Intent {
     pub fn key(&self) -> &'static str {
         match self.kind {
             Kind::RefreshAll => "tui.refresh_all",
+            Kind::RefreshSelected => "tui.refresh_subscription",
             _ if self.target.is_some() => "tui.probe_selected",
             _ => "tui.probe_all",
         }
@@ -161,7 +170,15 @@ impl Session {
             }
             return;
         }
-        let update = self.request.progress(value);
+        let update = if self.request.kind == Kind::RefreshSelected
+            && value.as_ref().is_ok_and(|v| {
+                v["ok"] == true
+                    && (v["result"].get("accepted").is_some() != (phase == Phase::Cancel))
+            }) {
+            Update::Unknown
+        } else {
+            self.request.progress(value)
+        };
         // Only a rejection of the initial start is known not to have run.
         if let Update::Rejected(key) = update
             && phase == Phase::Start

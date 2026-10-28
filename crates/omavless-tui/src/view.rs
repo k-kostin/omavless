@@ -277,13 +277,11 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
                 },
                 intent.count
             )));
-            lines.push(Line::from(tr(
-                if intent.kind == crate::jobs::Kind::RefreshAll {
-                    "tui.confirm_refresh_all"
-                } else {
-                    "tui.probe_scope"
-                },
-            )));
+            lines.push(Line::from(tr(match intent.kind {
+                crate::jobs::Kind::RefreshAll => "tui.confirm_refresh_all",
+                crate::jobs::Kind::RefreshSelected => "tui.confirm_subscription_refresh",
+                _ => "tui.probe_scope",
+            })));
         }
         if let Some(command) = command {
             lines.push(Line::from(tr(command.kind.key())));
@@ -837,7 +835,10 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
             }
         }
         lines.push(Line::from(tr("tui.job_close")));
-        if job.intent.kind != crate::jobs::Kind::RefreshAll {
+        if matches!(
+            job.intent.kind,
+            crate::jobs::Kind::ProfileProbe | crate::jobs::Kind::SubscriptionProbe
+        ) {
             lines.push(Line::from(tr("tui.probe_scope")));
         }
         if let Some(rows) = &job.rows {

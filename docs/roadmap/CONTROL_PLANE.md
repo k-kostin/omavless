@@ -658,6 +658,26 @@ These are registered native prerequisites, not activation of the installed
 frontend or a production ownership transition. The exact boundary and local
 acceptance are in [R5_BATCH_SCHEDULER.md](../testing/R5_BATCH_SCHEDULER.md).
 
+### Selected-subscription supervised refresh (T4 source candidate)
+
+The independently advertised `subscriptions.refresh_selected` uses the same
+start/get/cancel registry and worker. Its exact required start fields are
+`instanceId`, `operationId`, `subscriptionId` and `expectedRevision`; the target
+must already exist in the private store. It accepts no URL or target list.
+Only that feed is fetched/committed, with total1 and fixed projection method
+`subscriptions.refresh_selected`. Its digest includes the target and revision;
+changing either under the same operation ID conflicts. Import summary/reasons
+retain the existing bounded representation. Poll/cancel still accept only the
+original instance and operation, never the subscription ID.
+
+The existing ownership, global revision, commit/cancel, uncertain-I/O, shared
+pool, operation retention and restart/no-resume rules above apply unchanged.
+Legacy refresh-all never accepts subscriptionId. No timer, schedule persistence,
+connection action, QML or TUI activation follows. The ordinary fixed CLI and
+source completion boundary are in
+[T4_SELECTED_SUBSCRIPTION_REFRESH.md](../development/T4_SELECTED_SUBSCRIPTION_REFRESH.md).
+Installed integration remains separately ordered/gated.
+
 ### Native frontend action bridge
 
 `plugin.action` is a fixed lifecycle facade carrying required `instanceId`,

@@ -1170,6 +1170,7 @@ where
             request["method"].as_str(),
             Some(
                 "subscriptions.refresh_all"
+                    | "subscriptions.refresh_selected"
                     | "subscriptions.probe"
                     | "subscriptions.probe_results"
                     | "profiles.probe"
@@ -1236,7 +1237,7 @@ where
             return Ok((projection, work));
         }
         let (job, accepted) = match request["method"].as_str() {
-            Some("subscriptions.refresh_all") => {
+            Some("subscriptions.refresh_all" | "subscriptions.refresh_selected") => {
                 (coordinator.start_subscription_batch(request)?, None)
             }
             Some("operations.cancel") => {
@@ -8162,7 +8163,17 @@ mod tests {
     fn batch_real_http_and_private_socket_preserve_success_cancel_and_error_boundaries() {
         use std::io::{Read, Write};
         use std::net::TcpListener;
-        for outcome in ["success", "cancel", "error", "revoked"] {
+        for (method, outcome) in [
+            ("subscriptions.refresh_all", "success"),
+            ("subscriptions.refresh_all", "cancel"),
+            ("subscriptions.refresh_all", "error"),
+            ("subscriptions.refresh_all", "revoked"),
+            ("subscriptions.refresh_selected", "success"),
+            ("subscriptions.refresh_selected", "cancel"),
+            ("subscriptions.refresh_selected", "error"),
+            ("subscriptions.refresh_selected", "revoked"),
+            ("subscriptions.refresh_selected", "rejected"),
+        ] {
             let base = temporary_base("batch-http-socket");
             let (owner, cutover, calls) = native_owner_fixture(&base);
             let host_calls = calls.load(Ordering::Relaxed);
@@ -8171,6 +8182,24 @@ mod tests {
             let address = listener.local_addr().unwrap();
             let mut content: Value = serde_json::from_slice(&fs::read(&store).unwrap()).unwrap();
             content["subscriptions"][0]["url"] = json!(format!("http://{address}/synthetic-feed"));
+            let selected = method == "subscriptions.refresh_selected";
+            let target = content["subscriptions"][0]["id"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            let sibling = if selected {
+                let mut sibling = content["subscriptions"][0].clone();
+                sibling["id"] = json!("10000000-0000-4000-8000-000000000099");
+                sibling["name"] = json!("Untouched sibling");
+                sibling["url"] = json!("https://sibling.invalid/private-not-fetched");
+                content["subscriptions"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(sibling.clone());
+                Some(sibling)
+            } else {
+                None
+            };
             fs::write(&store, content.to_string()).unwrap();
             let before = fs::read(&store).unwrap();
             let (arrived_tx, arrived_rx) = std::sync::mpsc::sync_channel(1);
@@ -8189,7 +8218,9 @@ mod tests {
                 }
                 arrived_tx.send(()).unwrap();
                 release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-                let body = if outcome == "error" {
+                let body = if outcome == "rejected" {
+                    "vless://22222222-2222-4222-8222-222222222222@192.0.2.2:443?security=none&type=tcp&fm=private-token#Managed"
+                } else if outcome == "error" {
                     "synthetic-private-error"
                 } else {
                     "vless://22222222-2222-4222-8222-222222222222@192.0.2.2:443?security=none&type=tcp#Managed"
@@ -8217,13 +8248,31 @@ mod tests {
             let worker_stop = Arc::clone(&stop);
             let worker = thread::spawn(move || server.serve_until(&worker_stop).unwrap());
             let params = json!({"instanceId":instance,"operationId":"http-batch"});
+            let mut start_params = params.clone();
+            if selected {
+                let (mapped_method, mapped_params) = semantic_cli::parse_semantic_mutation(
+                    &[
+                        "subscription".into(),
+                        "refresh-selected".into(),
+                        instance.clone().into(),
+                        "http-batch".into(),
+                        target.clone().into(),
+                        "0".into(),
+                    ],
+                    None,
+                )
+                .unwrap()
+                .into_parts();
+                assert_eq!(mapped_method, method);
+                start_params = mapped_params;
+            }
             assert_eq!(
-                call(&paths, "subscriptions.refresh_all", params.clone()).unwrap()["ok"],
+                call(&paths, method, start_params.clone()).unwrap()["ok"],
                 true
             );
             arrived_rx.recv_timeout(Duration::from_secs(3)).unwrap();
             assert_eq!(
-                call(&paths, "subscriptions.refresh_all", params.clone()).unwrap()["ok"],
+                call(&paths, method, start_params.clone()).unwrap()["ok"],
                 true
             );
             assert_eq!(call(&paths, "status.get", json!({})).unwrap()["ok"], true);
@@ -8254,6 +8303,33 @@ mod tests {
                 _ => "failed",
             };
             assert_eq!(terminal["result"]["operation"]["state"], expected);
+            assert_eq!(terminal["result"]["operation"]["method"], method);
+            assert_eq!(terminal["result"]["operation"]["progress"]["total"], 1);
+            if selected {
+                assert!(
+                    long_operation_protocol::selected_refresh_start_response_matches(
+                        &start_params,
+                        &terminal
+                    )
+                );
+            }
+            if outcome == "rejected" {
+                assert_eq!(
+                    terminal["result"]["operation"]["error"]["details"]["importReasons"],
+                    json!({"unsupported_field":1})
+                );
+            }
+            let replay = call(&paths, method, start_params).unwrap();
+            if outcome == "revoked" {
+                assert_eq!(replay["error"]["code"], "capability_unavailable");
+            } else {
+                assert_eq!(replay["result"], terminal["result"]);
+            }
+            if let Some(sibling) = sibling {
+                let after: Value = serde_json::from_slice(&fs::read(&store).unwrap()).unwrap();
+                assert_eq!(after["subscriptions"][1], sibling);
+                assert!(!terminal.to_string().contains(&target));
+            }
             for private in [
                 "synthetic-feed",
                 "synthetic-private-error",
@@ -8275,6 +8351,134 @@ mod tests {
             assert!(!paths.socket.exists());
             fs::remove_dir_all(base).unwrap();
         }
+    }
+
+    #[test]
+    fn selected_refresh_fences_target_replay_shared_admission_and_old_instance() {
+        let base = temporary_base("selected-fences");
+        let (owner, _, calls) = native_owner_fixture(&base);
+        let store = base.join("config/profiles.json");
+        let before = fs::read(&store).unwrap();
+        let before_calls = calls.load(Ordering::Relaxed);
+        let (tx, rx) = std::sync::mpsc::sync_channel(2);
+        let (release, wait) = std::sync::mpsc::sync_channel(1);
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&base.join("runtime"))).unwrap();
+        server.register_native_owner(
+            owner,
+            BlockingTransport {
+                started: tx,
+                release: Mutex::new(wait),
+            },
+        );
+        let params = json!({"instanceId":server.instance_id,"operationId":"selected-original",
+            "subscriptionId":"10000000-0000-4000-8000-000000000001","expectedRevision":0});
+        let start = |p| {
+            server
+                .dispatch(&make_request("selected", "subscriptions.refresh_selected", p).unwrap())
+                .unwrap()
+        };
+        let capabilities = server
+            .dispatch(&make_request("caps", "capabilities.get", json!({})).unwrap())
+            .unwrap();
+        assert!(
+            capabilities["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m == "subscriptions.refresh_selected")
+        );
+        for (field, value, error) in [
+            ("expectedRevision", json!(1), "conflict"),
+            ("instanceId", json!("previous-instance"), "not_found"),
+            (
+                "subscriptionId",
+                json!("10000000-0000-4000-8000-000000000099"),
+                "not_found",
+            ),
+            (
+                "url",
+                json!("https://private.invalid/password"),
+                "invalid_argument",
+            ),
+        ] {
+            let mut bad = params.clone();
+            bad[field] = value;
+            assert_eq!(start(bad)["error"]["code"], error);
+            assert!(rx.try_recv().is_err());
+        }
+        fs::set_permissions(&store, fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(start(params.clone())["ok"], false);
+        fs::set_permissions(&store, fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(fs::read(&store).unwrap(), before);
+        assert!(rx.try_recv().is_err());
+        let permits = (0..4)
+            .map(|_| server.remote_fetches.try_acquire().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(start(params.clone())["ok"], true);
+        assert!(rx.try_recv().is_err());
+        assert_eq!(
+            batch_call(&server, "subscriptions.refresh_all", "other")["error"]["code"],
+            "busy"
+        );
+        let mut conflict = params.clone();
+        conflict["subscriptionId"] = json!("10000000-0000-4000-8000-000000000099");
+        assert_eq!(start(conflict)["error"]["code"], "conflict");
+        drop(permits);
+        rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(
+            start(params.clone())["result"]["operation"]["method"],
+            "subscriptions.refresh_selected"
+        );
+        assert!(rx.try_recv().is_err());
+        assert_eq!(
+            batch_call(&server, "operations.cancel", "selected-original")["result"]["accepted"],
+            true
+        );
+        release.send(()).unwrap();
+        let terminal = wait_batch(&server, "selected-original");
+        assert_eq!(terminal["result"]["operation"]["state"], "cancelled");
+        assert_eq!(start(params.clone())["result"], terminal["result"]);
+        assert_eq!(
+            batch_call(&server, "operations.cancel", "selected-original")["result"]["accepted"],
+            false
+        );
+        assert_eq!(fs::read(&store).unwrap(), before);
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
+        let old_instance = server.instance_id.clone();
+        drop(server);
+        let second = temporary_base("selected-restart");
+        let (owner, _, _) = native_owner_fixture(&second);
+        let mut server = RuntimeServer::bind(RuntimePaths::below(&second.join("runtime"))).unwrap();
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let (_release, wait) = std::sync::mpsc::sync_channel(1);
+        server.register_native_owner(
+            owner,
+            BlockingTransport {
+                started: tx,
+                release: Mutex::new(wait),
+            },
+        );
+        for method in ["operations.get", "operations.cancel"] {
+            let response = server
+                .dispatch(
+                    &make_request(
+                        "old",
+                        method,
+                        json!({"instanceId":old_instance,"operationId":"selected-original"}),
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+            assert_eq!(response["error"]["code"], "not_found");
+        }
+        let response = server
+            .dispatch(&make_request("old-start", "subscriptions.refresh_selected", params).unwrap())
+            .unwrap();
+        assert_eq!(response["error"]["code"], "not_found");
+        assert!(rx.try_recv().is_err());
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+        fs::remove_dir_all(second).unwrap();
     }
 
     #[test]
