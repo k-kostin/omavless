@@ -6,6 +6,8 @@ const source = fs.readFileSync(__dirname+'/../plugin/Service.qml','utf8');
 const panel = fs.readFileSync(__dirname+'/../plugin/Panel.qml','utf8');
 const parser = vm.createContext({});
 vm.runInContext(fs.readFileSync(__dirname+'/../plugin/NativeSnapshot.js','utf8'),parser);
+const presentation=vm.createContext({});
+vm.runInContext(fs.readFileSync(__dirname+'/../plugin/NativePresentation.js','utf8'),presentation);
 function property(name) {
   const start=source.indexOf('  readonly property bool '+name+':');
   assert(start>=0);
@@ -15,10 +17,10 @@ function property(name) {
   return expr;
 }
 function context() {
-  const c=vm.createContext({NativeSnapshot:parser, nativeFactsCurrent:true,nativePending:null,nativeQuitting:false,
-    nativeObservation:{manualRecoveryRequired:false},nativeActionRunning:false,nativeOutcomeUnknown:false,nativeBatchBusy:false,
-    nativeSnapshot:{instanceId:'fixture-runtime',revision:7,lastKnownActual:'disconnected',
-      desired:{connected:false},dns:{preset:'preset-default',source:'bundled'}},
+  const c=vm.createContext({NativeSnapshot:parser, NativePresentation:presentation, nativeSnapshotFailed:false, nativeFactsCurrent:true,nativePending:null,nativeQuitting:false,
+    nativeObservation:{manualRecoveryRequired:false,availability:'observed',instanceId:'fixture-runtime',revision:7,lastKnownActual:'disconnected',desired:{connected:false,generation:0,mode:'rule'},facts:{ownedCoreRunning:false,visibleMihomoCount:0,ownedAuxiliaryMihomoCount:0,visibleTunCount:0,managedTunCount:0}},nativeActionRunning:false,nativeOutcomeUnknown:false,nativeBatchBusy:false,
+    nativeSnapshot:{instanceId:'fixture-runtime',revision:7,lastKnownActual:'disconnected',profiles:[],subscriptions:[],lastProfileId:'',
+      desired:{connected:false,generation:0,mode:'rule'},dns:{preset:'preset-default',source:'bundled'}},
     _nativeOperationSerial:0,backendPath:'/fixture/backend.sh',nativeActionProcess:{}});
   for(const name of ['nativeCanAct','nativeCanSaveDns'])
     vm.runInContext('Object.defineProperty(this,"'+name+'",{get:function(){return '+property(name)+'}})',c);
@@ -45,6 +47,9 @@ for(const preset of ['google','cloudflare']) {
 for(const change of [c=>c.nativeFactsCurrent=false,c=>c.nativeSnapshot.desired.connected=true,
   c=>c.nativeSnapshot.lastKnownActual='starting',c=>c.nativeSnapshot.lastKnownActual='manualRecoveryRequired',
   c=>c.nativeSnapshot.dns=null,c=>c.nativeSnapshot.dns.source='custom',
+  c=>c.nativeObservation.facts.ownedCoreRunning=true,
+  c=>{c.nativeObservation.facts.managedTunCount=1;c.nativeObservation.facts.visibleTunCount=1},
+  c=>c.nativeObservation.facts.visibleMihomoCount=1,
   c=>c.nativeOutcomeUnknown=true,c=>c.nativeActionRunning=true,c=>c.nativeBatchBusy=true,c=>c.nativeQuitting=true]) {
   const c=context();change(c);assert(!c.requestNativeDns('google'));assert.equal(c.nativePending,null);
 }

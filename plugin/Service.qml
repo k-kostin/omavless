@@ -340,6 +340,7 @@ Item {
   readonly property bool nativeCanSaveDns: nativeCanAct && !nativeActionRunning && !nativeOutcomeUnknown
     && !nativeBatchBusy && nativeSnapshot.dns && nativeSnapshot.dns.source === "bundled"
     && !nativeSnapshot.desired.connected && nativeSnapshot.lastKnownActual === "disconnected"
+    && NativePresentation.project(nativeSnapshot, nativeObservation, nativeSnapshotFailed, nativePending, nativeOutcomeUnknown).state === "disconnected"
   function requestNativeDns(preset) {
     if (!nativeCanSaveDns || ["preset-default", "google", "cloudflare"].indexOf(preset) < 0
         || preset === nativeSnapshot.dns.preset) return false
