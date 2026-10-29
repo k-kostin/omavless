@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
 //! One subordinate writer. Neither its mailbox nor its cache is a lifecycle
 //! mutex. Dropping this handle never waits for controller/filesystem I/O.
-use super::{State, file};
+use super::{State, admission::Preflight, file};
 use crate::traffic::TrafficCounters;
-use serde_json::{Value, json};
+use serde_json::Value;
+#[cfg(test)]
+use serde_json::json;
 use std::sync::{Arc, Mutex, mpsc};
 
 #[derive(Clone, Copy)]
@@ -17,15 +19,21 @@ pub(crate) enum Error {
     Conflict,
     Unavailable,
     Unknown,
+    Restarting,
 }
 
 enum Command {
     Tick,
+    Read {
+        preflight: Preflight,
+        reply: mpsc::SyncSender<Result<Value, Error>>,
+    },
     Control {
         expected: u64,
         operation: Option<(String, crate::mutation::MutationDigest)>,
         action: Control,
         utc: u64,
+        preflight: Preflight,
         reply: mpsc::SyncSender<Result<Value, Error>>,
     },
 }
@@ -122,6 +130,13 @@ impl Worker {
                     let mut operation = None;
                     let mut candidate = snapshot.state().clone();
                     let reply = match command {
+                        Command::Read { preflight, reply } => {
+                            let result = preflight().and_then(|admission| {
+                                admission.run(|| Ok(snapshot.state().projection()))
+                            });
+                            let _ = reply.send(result);
+                            continue;
+                        }
                         Command::Tick => {
                             if !candidate.enabled || candidate.overflowed {
                                 continue;
@@ -140,6 +155,7 @@ impl Worker {
                             operation: supplied,
                             action,
                             utc,
+                            preflight,
                             reply,
                         } => {
                             operation = supplied;
@@ -148,13 +164,20 @@ impl Worker {
                                 let _ = reply.send(Err(Error::Conflict));
                                 continue;
                             }
-                            let change = match action {
-                                Control::Configure(enabled) => candidate.configure(enabled, utc),
-                                Control::Reset => candidate.reset(utc),
-                            };
-                            if change.is_err() {
-                                remember(&retained, operation.take(), Err(Error::Unavailable));
-                                let _ = reply.send(Err(Error::Unavailable));
+                            let change = preflight().and_then(|admission| {
+                                admission.run(|| {
+                                    match action {
+                                        Control::Configure(enabled) => {
+                                            candidate.configure(enabled, utc)
+                                        }
+                                        Control::Reset => candidate.reset(utc),
+                                    }
+                                    .map_err(|_| Error::Unavailable)
+                                })
+                            });
+                            if let Err(error) = change {
+                                remember(&retained, operation.take(), Err(error));
+                                let _ = reply.send(Err(error));
                                 continue;
                             }
                             Some(reply)
@@ -216,6 +239,7 @@ impl Worker {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn view(&self) -> Value {
         let result = self
             .cache
@@ -254,8 +278,8 @@ impl Worker {
         let _ = self.sender.try_send(Command::Tick);
     }
 
-    /// Off/revision admission is performed by the existing native owner before
-    /// enqueue. Caller waits for the reply only AFTER dropping that owner lock.
+    /// Slow admission runs on this same worker; unary waits hold no owner or
+    /// quit guard. Candidate selection has its own short seal/owner fence.
     /// Effect-free retained lookup precedes all NEW-operation Off/revision
     /// preconditions. Pending/unknown remains unknown, never resend-eligible.
     pub(crate) fn lookup(
@@ -276,13 +300,29 @@ impl Worker {
         &self,
         request: &super::protocol::Request,
         utc: u64,
+        preflight: Preflight,
     ) -> Result<mpsc::Receiver<Result<Value, Error>>, Error> {
         self.enqueue(
             request.stats_revision,
             Some((request.operation.clone(), request.digest)),
             request.action,
             utc,
+            preflight,
         )
+    }
+
+    pub(crate) fn read(
+        &self,
+        preflight: Preflight,
+    ) -> Result<mpsc::Receiver<Result<Value, Error>>, Error> {
+        let (reply, receive) = mpsc::sync_channel(1);
+        self.sender
+            .try_send(Command::Read { preflight, reply })
+            .map_err(|error| match error {
+                mpsc::TrySendError::Full(_) => Error::Busy,
+                mpsc::TrySendError::Disconnected(_) => Error::Unavailable,
+            })?;
+        Ok(receive)
     }
 
     #[cfg(test)]
@@ -292,7 +332,13 @@ impl Worker {
         action: Control,
         utc: u64,
     ) -> Result<mpsc::Receiver<Result<Value, Error>>, Error> {
-        self.enqueue(expected, None, action, utc)
+        self.enqueue(
+            expected,
+            None,
+            action,
+            utc,
+            super::admission::Admission::test_preflight(),
+        )
     }
 
     fn enqueue(
@@ -301,6 +347,7 @@ impl Worker {
         operation: Option<(String, crate::mutation::MutationDigest)>,
         action: Control,
         utc: u64,
+        preflight: Preflight,
     ) -> Result<mpsc::Receiver<Result<Value, Error>>, Error> {
         let (reply, receive) = mpsc::sync_channel(1);
         let mut receipts = self.receipts.lock().map_err(|_| Error::Unavailable)?;
@@ -335,6 +382,7 @@ impl Worker {
             operation,
             action,
             utc,
+            preflight,
             reply,
         }) {
             if let Some(original) = original {

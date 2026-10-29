@@ -18,7 +18,7 @@ function context(){
  nativeObservation:{manualRecoveryRequired:false,availability:'observed',instanceId:'runtime',revision:7,lastKnownActual:'disconnected',desired:{connected:false,generation:0,mode:'rule'},facts:{ownedCoreRunning:false,visibleMihomoCount:0,ownedAuxiliaryMihomoCount:0,visibleTunCount:0,managedTunCount:0}},
  nativeStatisticsComponent:{createObject:(_,p)=>({...p,running:false})}});
  for(const name of ['nativeCanAct','nativeStatisticsCurrent','nativeCanSaveStatistics'])vm.runInContext('Object.defineProperty(this,"'+name+'",{get:function(){return '+expression(name)+'}})',c);
- for(const name of ['statisticsContextCurrent','readNativeStatistics','requestNativeStatistics','finishNativeStatistics']){const a=service.indexOf('  function '+name+'('),b=service.indexOf('\n  }',a)+4;assert(a>=0);vm.runInContext(service.slice(a,b),c);}
+ for(const name of ['statisticsContextCurrent','readNativeStatistics','requestNativeStatistics','statisticsMutationMatches','finishNativeStatistics']){const a=service.indexOf('  function '+name+'('),b=service.indexOf('\n  }',a)+4;assert(a>=0);vm.runInContext(service.slice(a,b),c);}
  c.root=c;return c;
 }
 let count=0;function test(name,f){try{f();count++}catch(e){e.message=name+': '+e.message;throw e;}}
@@ -62,6 +62,21 @@ test('wrong reset period or restarted runtime cannot apply an old completion',()
  assert(!c.finishNativeStatistics(p,0,frame({...result,operationId:p.context.operationId})));
  assert.equal(c.nativeStatisticsFact,null);
  assert(panel.includes('vless.nativeSnapshot.instanceId === root.statisticsResetInstance'));assert(panel.includes('vless.nativeStatisticsFact.since === root.statisticsResetSince'));
+});
+test('mutation receipt proves the requested configure or reset postcondition',()=>{
+ for(const change of [r=>r.enabled=false,r=>r.controlRevision=0,r=>r.controlRevision=2]) {
+  const c=context();assert(c.requestNativeStatistics('on',0));const p=c.nativeStatisticsPending;
+  const r={...result,operationId:p.context.operationId,receivedBytes:'0',sentBytes:'0',controlRevision:1};change(r);
+  assert(!c.finishNativeStatistics(p,0,frame(r)));assert.equal(c.nativeStatisticsError,'stats.unconfirmed');assert.equal(c.nativeStatisticsFact,null);
+ }
+ for(const change of [r=>r.receivedBytes='1',r=>r.sentBytes='1',r=>r.partial=true,r=>r.enabled=true,r=>r.controlRevision=2,r=>r.periodStartedAtUtc=0]) {
+  const c=context();c.nativeStatisticsFact.since=100;assert(c.requestNativeStatistics('reset',0));const p=c.nativeStatisticsPending;
+  const r={...result,operationId:p.context.operationId,enabled:false,receivedBytes:'0',sentBytes:'0',partial:false,controlRevision:1};change(r);
+  assert(!c.finishNativeStatistics(p,0,frame(r)));assert.equal(c.nativeStatisticsError,'stats.unconfirmed');assert.equal(c.nativeStatisticsFact,null);
+ }
+ const c=context();c.nativeStatisticsFact.since=100;assert(c.requestNativeStatistics('reset',0));const p=c.nativeStatisticsPending;
+ // A reset within the same UTC second is still a new revision, not a new clock claim.
+ assert(c.finishNativeStatistics(p,0,frame({...result,operationId:p.context.operationId,enabled:false,receivedBytes:'0',sentBytes:'0',partial:false,controlRevision:1})));
 });
 test('actual panel traversal includes visible statistics controls and reset confirmation in order',()=>{
  const from=panel.indexOf('  function panelTabTargets()'),to=panel.indexOf('\n  function scrollPanelControlIntoView(',from);

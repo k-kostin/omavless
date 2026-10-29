@@ -1655,7 +1655,8 @@ Item {
     if (!nativeCanSaveStatistics || ["on", "off", "reset"].indexOf(action) < 0
         || reviewedRevision !== nativeStatisticsFact.revision) return false
     var operation = "qml-stats-" + Date.now().toString(36) + "-" + (++_nativeOperationSerial).toString(36)
-    var context = {instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision, operationId:operation}
+    var context = {instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision, operationId:operation,
+      action:action, statisticsRevision:reviewedRevision, enabled:nativeStatisticsFact.enabled}
     var command = ["bash", backendPath, action === "reset" ? "native-statistics-reset" : "native-statistics-configure",
       context.instanceId, String(context.revision), String(reviewedRevision), operation]
     if (action !== "reset") command.push(action)
@@ -1668,12 +1669,21 @@ Item {
     process.running = true
     return true
   }
+  function statisticsMutationMatches(value, context) {
+    if (!value || !value.available) return false
+    if (context.action === "reset")
+      return value.revision === context.statisticsRevision + 1 && value.enabled === context.enabled
+        && value.since > 0 && value.received === "0" && value.sent === "0" && !value.partial
+    var enabled = context.action === "on"
+    return ["on", "off"].indexOf(context.action) >= 0 && value.enabled === enabled
+      && value.revision === context.statisticsRevision + (context.enabled === enabled ? 0 : 1)
+  }
   function finishNativeStatistics(process, code, output) {
     if (process.mutation) {
       if (nativeStatisticsPending !== process) return false
       nativeStatisticsPending = null
       var parsed = code === 0 && statisticsContextCurrent(process.context) ? NativeSnapshot.parseStatistics(output, process.context) : null
-      if (parsed && parsed.available && (!nativeStatisticsFact || !nativeStatisticsFact.available || nativeStatisticsFact.instanceId !== parsed.instanceId || parsed.revision >= nativeStatisticsFact.revision)) {
+      if (statisticsMutationMatches(parsed, process.context) && (!nativeStatisticsFact || !nativeStatisticsFact.available || nativeStatisticsFact.instanceId !== parsed.instanceId || parsed.revision >= nativeStatisticsFact.revision)) {
         nativeStatisticsFact = parsed; nativeStatisticsError = ""; return true
       }
       nativeStatisticsFact = null

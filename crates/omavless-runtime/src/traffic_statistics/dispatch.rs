@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-use super::{protocol, worker};
+use super::{admission, protocol, worker};
 use crate::{RuntimeDispatcher, RuntimeServer, error_response, success_response};
 use omavless_control_protocol::{ProtocolError, StableErrorCode};
 use serde_json::Value;
@@ -10,43 +10,56 @@ fn code(error: worker::Error) -> StableErrorCode {
         worker::Error::Conflict => StableErrorCode::Conflict,
         worker::Error::Unavailable => StableErrorCode::CapabilityUnavailable,
         worker::Error::Unknown => StableErrorCode::ManualRecoveryRequired,
+        worker::Error::Restarting => StableErrorCode::DaemonRestarting,
     }
 }
 
 impl RuntimeServer {
     pub(crate) fn dispatch_statistics(&self, request: &Value) -> Result<Value, ProtocolError> {
         let id = request["id"].as_str().unwrap_or("invalid");
-        if crate::product_scope::backup_only() {
-            return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
-        }
         let fail = |revision, code| error_response(id, revision, code, false, None);
+        if crate::product_scope::backup_only() {
+            return fail(0, StableErrorCode::CapabilityUnavailable);
+        }
         let Some(Some(worker)) = self.statistics.get() else {
             return fail(0, StableErrorCode::CapabilityUnavailable);
         };
-        let parsed = if request["method"] == "stats.get" {
+        let read = request["method"] == "stats.get";
+        if read && !request["params"].as_object().is_some_and(|p| p.is_empty()) {
+            return fail(0, StableErrorCode::InvalidArgument);
+        }
+        let parsed = if read {
             None
         } else {
-            let parsed = match protocol::parse(request) {
-                Ok(parsed) => parsed,
+            match protocol::parse(request) {
+                Ok(parsed) => Some(parsed),
                 Err(error) => return fail(0, error.stable_code()),
-            };
-            if parsed.instance != self.instance_id {
-                return fail(parsed.owner_revision, StableErrorCode::DaemonRestarting);
             }
-            match worker.lookup(&parsed) {
-                Ok(Some(Ok(mut value))) => {
-                    value["instanceId"] = self.instance_id.clone().into();
-                    value["operationId"] = parsed.operation.into();
-                    return success_response(id, parsed.owner_revision, value);
-                }
-                Ok(Some(Err(error))) | Err(error) => {
-                    return fail(parsed.owner_revision, code(error));
-                }
-                Ok(None) => {}
-            }
-            Some(parsed)
         };
         let capture = {
+            // Only memory reads and retained-result lookup under this gate.
+            let Ok(gate) = self.quit_gate.try_read() else {
+                return fail(0, StableErrorCode::Busy);
+            };
+            if *gate {
+                return fail(0, StableErrorCode::DaemonRestarting);
+            }
+            if let Some(parsed) = &parsed {
+                if parsed.instance != self.instance_id {
+                    return fail(parsed.owner_revision, StableErrorCode::DaemonRestarting);
+                }
+                match worker.lookup(parsed) {
+                    Ok(Some(Ok(mut value))) => {
+                        value["instanceId"] = self.instance_id.clone().into();
+                        value["operationId"] = parsed.operation.clone().into();
+                        return success_response(id, parsed.owner_revision, value);
+                    }
+                    Ok(Some(Err(error))) | Err(error) => {
+                        return fail(parsed.owner_revision, code(error));
+                    }
+                    Ok(None) => {}
+                }
+            }
             let Ok(dispatcher) = self.dispatcher.try_lock() else {
                 return fail(0, StableErrorCode::Busy);
             };
@@ -58,70 +71,92 @@ impl RuntimeServer {
             };
             capture
         };
-        let Some(desired) = capture.desired() else {
-            return fail(capture.revision, StableErrorCode::CapabilityUnavailable);
-        };
-        if request["method"] == "stats.get" {
-            if !request["params"].as_object().is_some_and(|p| p.is_empty()) {
-                return fail(capture.revision, StableErrorCode::InvalidArgument);
-            }
-            let mut value = worker.view();
-            value["instanceId"] = self.instance_id.clone().into();
-            return success_response(id, capture.revision, value);
-        }
-        let parsed = parsed.expect("non-read request parsed before new-operation admission");
-        if parsed.owner_revision != capture.revision {
+        if parsed
+            .as_ref()
+            .is_some_and(|p| p.owner_revision != capture.revision)
+        {
             return fail(capture.revision, StableErrorCode::Conflict);
         }
-        // The metadata operation is admitted while independently settled Off.
-        // Later Connect is not blocked by its disk write. This is not a promise
-        // that the VPN remains Off throughout an asynchronous metadata commit.
-        if desired.connected {
-            return fail(capture.revision, StableErrorCode::Busy);
-        }
-        let off = {
-            let Ok(dispatcher) = self.dispatcher.try_lock() else {
-                return fail(capture.revision, StableErrorCode::Busy);
-            };
-            let RuntimeDispatcher::Native(owner) = &*dispatcher else {
-                return fail(capture.revision, StableErrorCode::CapabilityUnavailable);
-            };
-            let Some(off) = owner.stats_off_context(&capture) else {
-                return fail(capture.revision, StableErrorCode::Busy);
-            };
-            off
-        };
-        if !off.settled() || capture.desired().as_ref() != Some(&desired) {
-            return fail(capture.revision, StableErrorCode::CapabilityUnavailable);
-        }
-        let utc = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        let receive = {
-            let Ok(dispatcher) = self.dispatcher.try_lock() else {
-                return fail(capture.revision, StableErrorCode::Busy);
-            };
-            let RuntimeDispatcher::Native(owner) = &*dispatcher else {
-                return fail(capture.revision, StableErrorCode::CapabilityUnavailable);
-            };
-            if !owner.stats_off_current(&capture) {
-                return fail(capture.revision, StableErrorCode::Conflict);
+        let revision = capture.revision;
+        let dispatcher = std::sync::Arc::downgrade(&self.dispatcher);
+        let gate = std::sync::Arc::clone(&self.quit_gate);
+        let preflight: admission::Preflight = Box::new(move || {
+            // No RuntimeServer or strong lifecycle-owner reference crosses I/O.
+            let desired = capture.desired().ok_or(worker::Error::Unavailable)?;
+            if !read {
+                if desired.connected {
+                    return Err(worker::Error::Busy);
+                }
+                let off = {
+                    let owner = dispatcher.upgrade().ok_or(worker::Error::Restarting)?;
+                    let dispatcher = owner.try_lock().map_err(|_| worker::Error::Busy)?;
+                    let RuntimeDispatcher::Native(owner) = &*dispatcher else {
+                        return Err(worker::Error::Unavailable);
+                    };
+                    owner
+                        .stats_off_context(&capture)
+                        .ok_or(worker::Error::Busy)?
+                };
+                if !off.settled() || capture.desired().as_ref() != Some(&desired) {
+                    return Err(worker::Error::Unavailable);
+                }
             }
-            match worker.submit(&parsed, utc) {
-                Ok(receive) => receive,
-                Err(error) => return fail(capture.revision, code(error)),
-            }
+            Ok(admission::Admission {
+                gate,
+                verify: Box::new(move || {
+                    let owner = dispatcher.upgrade().ok_or(worker::Error::Restarting)?;
+                    let dispatcher = owner.try_lock().map_err(|_| worker::Error::Busy)?;
+                    let RuntimeDispatcher::Native(owner) = &*dispatcher else {
+                        return Err(worker::Error::Unavailable);
+                    };
+                    let current = if read {
+                        owner.stats_capture().is_some_and(|c| {
+                            c.revision == capture.revision
+                                && c.owner_generation == capture.owner_generation
+                        })
+                    } else {
+                        owner.stats_off_current(&capture)
+                    };
+                    if current {
+                        Ok(())
+                    } else {
+                        Err(worker::Error::Conflict)
+                    }
+                }),
+            })
+        });
+        let receive = if let Some(parsed) = &parsed {
+            let utc = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            worker.submit(parsed, utc, preflight)
+        } else {
+            worker.read(preflight)
         };
-        // No dispatcher, lifecycle or migration lease survives this wait.
+        let receive = match receive {
+            Ok(receive) => receive,
+            Err(error) => return fail(revision, code(error)),
+        };
+        // The ordinary unary worker is bounded even if statistics preflight or
+        // storage stalls. There is no quit, dispatcher or migration lease here.
         match receive.recv_timeout(std::time::Duration::from_secs(2)) {
             Ok(Ok(mut value)) => {
                 value["instanceId"] = self.instance_id.clone().into();
-                value["operationId"] = parsed.operation.into();
-                success_response(id, capture.revision, value)
+                if let Some(parsed) = parsed {
+                    value["operationId"] = parsed.operation.into();
+                }
+                success_response(id, revision, value)
             }
-            Ok(Err(error)) => fail(capture.revision, code(error)),
-            Err(_) => fail(capture.revision, StableErrorCode::ManualRecoveryRequired),
+            Ok(Err(error)) => fail(revision, code(error)),
+            Err(_) => fail(
+                revision,
+                if read {
+                    StableErrorCode::CapabilityUnavailable
+                } else {
+                    StableErrorCode::ManualRecoveryRequired
+                },
+            ),
         }
     }
 }

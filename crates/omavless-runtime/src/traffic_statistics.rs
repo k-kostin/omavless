@@ -7,6 +7,7 @@ use crate::traffic::TrafficCounters;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+pub(crate) mod admission;
 pub(crate) mod collection;
 mod dispatch;
 pub mod file;

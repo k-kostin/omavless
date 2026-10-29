@@ -39,8 +39,13 @@ A normal shutdown does not establish completeness. Repeated samples add zero;
 late samples cannot move the baseline backward. An uncertain atomic commit is
 resolved from actual disk state without reissuing the old delta.
 
-Statistics must not hold the general dispatcher/lifecycle lock during controller,
-sysfs or disk I/O. A single subordinate runtime worker may use the existing
+Statistics must not hold the general dispatcher/lifecycle or whole-quit admission
+lock during controller, sysfs or disk I/O. Read/control preflight is queued on the
+same detached statistics worker; the unary caller waits at most two seconds.
+The short quit-seal plus owner fence covers candidate selection itself, after
+slow preflight and before disk I/O. A queued, not-yet-admitted operation refuses
+without writing after a quit seal; an already admitted metadata commit may settle
+later under its directory lease. A single subordinate runtime worker may use the existing
 capture / unlocked collect / revalidate pattern, with an owner-issued context
 for the current retained child, generation, runtime incarnation and control
 epoch. It receives no caller PID/device/path and owns no lifecycle command.

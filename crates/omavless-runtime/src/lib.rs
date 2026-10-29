@@ -338,7 +338,7 @@ pub struct RuntimeServer {
     statistics: std::sync::OnceLock<Option<traffic_statistics::worker::Worker>>,
     // Full Quit excludes every admitted unary handler, including detached
     // remote completion, before disconnecting and sealing new admission.
-    quit_gate: RwLock<bool>,
+    quit_gate: Arc<RwLock<bool>>,
     quit_requested: AtomicBool,
     _owner: OwnerLock,
 }
@@ -1685,7 +1685,7 @@ impl RuntimeServer {
             remote_fetches: remote_fetch::RemoteFetchPool::default(),
             ping_read: Mutex::new(()),
             statistics: std::sync::OnceLock::new(),
-            quit_gate: RwLock::new(false),
+            quit_gate: Arc::new(RwLock::new(false)),
             quit_requested: AtomicBool::new(false),
             _owner: owner,
         })
@@ -1945,6 +1945,12 @@ impl RuntimeServer {
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         if request["method"] == "runtime.quit" {
             return self.dispatch_quit(request);
+        }
+        // Statistics performs slow preflight on its existing detached worker.
+        // It owns a separate short seal/admission fence, never this unary gate.
+        if traffic_statistics::protocol::METHODS.contains(&request["method"].as_str().unwrap_or(""))
+        {
+            return self.dispatch_statistics(request);
         }
         let Ok(gate) = self.quit_gate.try_read() else {
             return error_response(
@@ -2429,10 +2435,6 @@ impl RuntimeServer {
         &self,
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
-        if traffic_statistics::protocol::METHODS.contains(&request["method"].as_str().unwrap_or(""))
-        {
-            return self.dispatch_statistics(request);
-        }
         #[cfg(feature = "developer-conditional-close")]
         if developer_connection_close::METHODS
             .contains(&request["method"].as_str().unwrap_or_default())
@@ -4334,6 +4336,89 @@ mod tests {
             assert!(std::time::Instant::now() < deadline);
             thread::yield_now();
         }
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn traffic_statistics_blocked_preflight_does_not_retain_server_or_write_after_quit_seal() {
+        use traffic_statistics::{
+            admission::Admission,
+            worker::{Error, Worker},
+        };
+        let base = temporary_base("stats-quit-preflight");
+        let (mut owner, _, _) = native_owner_fixture(&base);
+        owner.batch_coordinator().host_mut().fresh_result = Ok(fresh_empty_facts());
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let stats_path = base.join("state/omavless/traffic-statistics.json");
+        let store =
+            traffic_statistics::file::Store::new(&base.join("state/omavless"), server.uid).unwrap();
+        let stats = Worker::start(store, || None).unwrap();
+        let finished = stats.completion();
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while stats.view()["availability"] == "unavailable" {
+            assert!(std::time::Instant::now() < deadline);
+            thread::yield_now();
+        }
+        let request = make_request("enable", "stats.configure", json!({
+            "instanceId":server.instance_id,"operationId":"blocked-preflight", "expectedRevision":0,
+            "statisticsRevision":0,"enabled":true
+        })).unwrap();
+        let parsed = traffic_statistics::protocol::parse(&request).unwrap();
+        let gate = Arc::clone(&server.quit_gate);
+        let (entered, blocked) = std::sync::mpsc::sync_channel(1);
+        let (release, waiting) = std::sync::mpsc::sync_channel(1);
+        let result = stats
+            .submit(
+                &parsed,
+                100,
+                Box::new(move || {
+                    entered.send(()).unwrap();
+                    waiting.recv_timeout(Duration::from_secs(8)).unwrap();
+                    Ok(Admission {
+                        gate,
+                        verify: Box::new(|| Ok(())),
+                    })
+                }),
+            )
+            .unwrap();
+        blocked.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(server.statistics.set(Some(stats)).is_ok());
+        let instance = server.instance_id.clone();
+        let serving = RunningSocketFixture::start(server);
+        // The ordinary unary response remains bounded while the same statistics
+        // worker is blocked before admission; no second observer/worker is made.
+        let unavailable =
+            call_with_timeout(&paths, "stats.get", json!({}), Duration::from_secs(4)).unwrap();
+        assert_eq!(unavailable["error"]["code"], "capability_unavailable");
+        let quit = call(
+            &paths,
+            "runtime.quit",
+            json!({"instanceId":instance,"expectedRevision":0,"operationId":"quit-preflight"}),
+        )
+        .unwrap();
+        assert_eq!(quit["ok"], true, "{quit}");
+        serving.finish();
+        assert!(
+            !finished.load(Ordering::Acquire),
+            "original preflight is still blocked after server return"
+        );
+        assert!(!stats_path.exists());
+        release.send(()).unwrap();
+        assert_eq!(
+            result.recv_timeout(Duration::from_secs(2)).unwrap(),
+            Err(Error::Restarting)
+        );
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while !finished.load(Ordering::Acquire) {
+            assert!(std::time::Instant::now() < deadline);
+            thread::yield_now();
+        }
+        assert!(
+            !stats_path.exists(),
+            "pre-seal queued operation was never admitted"
+        );
         fs::remove_dir_all(base).unwrap();
     }
 
