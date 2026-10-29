@@ -7,6 +7,14 @@ var MAX_TEXT_LENGTH = 512
 var MAX_VALUE_LENGTH = 160
 
 var CATALOG = {
+  "dns.title": {"en":"DNS","ru":"DNS"},
+  "dns.preset-default": {"en":"Preset default","ru":"По умолчанию"},
+  "dns.google": {"en":"Google","ru":"Google"},
+  "dns.cloudflare": {"en":"Cloudflare","ru":"Cloudflare"},
+  "dns.next_connection": {"en":"Choose DNS for the next connection. Preset default uses your routing preset's DNS.","ru":"Выберите DNS для следующего подключения. По умолчанию используется DNS выбранного набора маршрутизации."},
+  "dns.disconnect_first": {"en":"Disconnect before changing DNS. The choice applies next connection.","ru":"Для изменения DNS сначала отключитесь. Выбор применится при следующем подключении."},
+  "dns.custom": {"en":"DNS comes from your custom configuration.","ru":"DNS задан в пользовательской конфигурации."},
+  "dns.unavailable": {"en":"DNS settings are unavailable. Refresh application state.","ru":"Настройки DNS недоступны. Обновите состояние приложения."},
   "remove.entry": {"en":"Remove OmaVLESS…","ru":"Удалить OmaVLESS…"},
   "remove.description": {"en":"Review what will be removed before opening a terminal.","ru":"Проверьте, что будет удалено, перед открытием терминала."},
   "remove.title": {"en":"Remove OmaVLESS","ru":"Удаление OmaVLESS"},

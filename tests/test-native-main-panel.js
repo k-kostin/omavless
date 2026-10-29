@@ -768,9 +768,10 @@ test('native Settings Tab order follows visual action order without hidden Test'
   for(const name of names)c[name]={focusTarget:name,count:0};
   c.nativeSupportSetting.exportFocusTarget='nativeSupportSave';
   c.nativeSettingsBack='back';c.nativeRefresh='refresh';c.nativeGlobal='global';c.nativeRule='rule';c.nativeDirect='direct';
+  c.nativeDnsDefault='dns-default';c.nativeDnsGoogle='dns-google';c.nativeDnsCloudflare='dns-cloudflare';
   vm.runInContext(source.slice(from,to),c);
   const result=Array.from(c.panelTabTargets());
-  assert.deepEqual(result.slice(0,25),['back','refresh','nativeLanguageRow','nativeThroughputSetting','global','rule','direct','nativeRoutingPresetSetting','nativeRoutingToolsSetting','nativeProvidersRefresh','nativeSubscriptionsSetting','nativeCoreSetupRow','nativeOnboardingSetting','nativeAppStartupRow','nativeStartupSummaryRow','nativeHelpersRefresh','nativeFileImportRow','nativeProfileEditorRow','nativeQrExportRow','nativeDiagnosticsSetting','nativeHelpSetting','nativeSupportSetting','nativeSupportSave','nativeExitIpSetting','nativeQuitSetting']);
+  assert.deepEqual(result.slice(0,28),['back','refresh','nativeLanguageRow','nativeThroughputSetting','global','rule','direct','nativeRoutingPresetSetting','dns-default','dns-google','dns-cloudflare','nativeRoutingToolsSetting','nativeProvidersRefresh','nativeSubscriptionsSetting','nativeCoreSetupRow','nativeOnboardingSetting','nativeAppStartupRow','nativeStartupSummaryRow','nativeHelpersRefresh','nativeFileImportRow','nativeProfileEditorRow','nativeQrExportRow','nativeDiagnosticsSetting','nativeHelpSetting','nativeSupportSetting','nativeSupportSave','nativeExitIpSetting','nativeQuitSetting']);
   assert(!result.includes(c.nativeOpenAppButton));
   assert(!result.includes(c.nativeTestButton));
 });

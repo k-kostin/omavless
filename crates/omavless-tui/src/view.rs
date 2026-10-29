@@ -288,7 +288,16 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
             lines.push(Line::from(format!(
                 "{}: {}",
                 tr("tui.target"),
-                if command.name.is_empty() {
+                if let crate::actions::Kind::Dns(preset) = command.kind {
+                    tr(match preset {
+                        omavless_domain::private_store::DnsPreset::PresetDefault => {
+                            "dns.preset-default"
+                        }
+                        omavless_domain::private_store::DnsPreset::Google => "dns.google",
+                        omavless_domain::private_store::DnsPreset::Cloudflare => "dns.cloudflare",
+                    })
+                    .into()
+                } else if command.name.is_empty() {
                     tr("tui.current_session").into()
                 } else {
                     display(&command.name, 80)
@@ -316,6 +325,9 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
             }
         }
         lines.push(Line::from(tr(match confirmation {
+            Confirmation::New(command) if matches!(command.kind, crate::actions::Kind::Dns(_)) => {
+                "tui.dns_confirm"
+            }
             Confirmation::New(command)
                 if command.kind == crate::actions::Kind::RefreshSubscription =>
             {
@@ -897,6 +909,41 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
             Line::from(""),
             Line::from(tr("tui.settings_reset")),
         ];
+        settings.push(Line::from(""));
+        settings.push(Line::from(tr("dns.title")));
+        let dns = app
+            .snapshot
+            .as_ref()
+            .filter(|_| app.fresh(now))
+            .and_then(|snapshot| snapshot.metadata.dns.as_ref());
+        if let Some(dns) = dns {
+            if dns.source == crate::model::DnsSource::Unavailable {
+                settings.push(Line::from(tr("dns.unavailable")));
+            } else if dns.source == crate::model::DnsSource::Custom {
+                settings.push(Line::from(tr("dns.custom")));
+            } else {
+                let key = match dns.preset.as_str() {
+                    "google" => "dns.google",
+                    "cloudflare" => "dns.cloudflare",
+                    _ => "dns.preset-default",
+                };
+                settings.push(Line::from(tr(key)));
+                settings.push(Line::from(tr(
+                    if app
+                        .snapshot
+                        .as_ref()
+                        .is_some_and(|s| s.status() == crate::model::Status::Disconnected)
+                    {
+                        "dns.next_connection"
+                    } else {
+                        "dns.disconnect_first"
+                    },
+                )));
+                settings.push(Line::from(tr("tui.dns_keys")));
+            }
+        } else {
+            settings.push(Line::from(tr("dns.unavailable")));
+        }
         #[cfg(feature = "private-backup")]
         if app.restore_enabled {
             settings.push(Line::from(""));

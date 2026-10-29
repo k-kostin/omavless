@@ -13,12 +13,6 @@ use std::time::{Duration, Instant};
 const RESOURCE_LIMIT: usize = 8 * 1024 * 1024;
 const TOTAL_LIMIT: usize = 64 * 1024 * 1024;
 const CORE_LIMIT: usize = 128 * 1024 * 1024;
-const BUNDLES: [&str; 3] = [
-    include_str!("../../../templates/default.yaml"),
-    include_str!("../../../templates/china.yaml"),
-    include_str!("../../../templates/iran.yaml"),
-];
-
 /// Fixed classifications only: never retain a path, parser fragment or stderr.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ValidationError {
@@ -39,13 +33,7 @@ pub struct ValidationSnapshot {
 
 fn manifest(template: &str) -> Result<Vec<String>, ValidationError> {
     // This is exact trusted-source recognition, NOT a YAML security parser.
-    let bundle = BUNDLES
-        .iter()
-        .find(|bundle| {
-            ["rule", "global", "direct"].iter().any(|mode| {
-                template == bundle.replace("\nmode: rule\n", &format!("\nmode: {mode}\n"))
-            })
-        })
+    let bundle = crate::managed_template::bundled_dns_source(template)
         .ok_or(ValidationError::UnsupportedTemplate)?;
     let mut paths = Vec::new();
     for line in bundle.lines() {
@@ -168,10 +156,12 @@ impl ValidationSnapshot {
             }
             resources.push((name, bytes));
         }
+        let template = crate::managed_template::with_dns(template, store.dns_preset())
+            .ok_or(ValidationError::UnsafeInput)?;
         let config = store
             .prepare_config_mode(
                 &desired.profile_id,
-                template,
+                &template,
                 "/work/mihomo.sock",
                 desired.mode.as_str(),
             )

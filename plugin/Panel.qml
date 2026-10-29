@@ -1044,7 +1044,7 @@ Panel {
     if (root.bootstrapRequired) return setupPage.focusTargets
     if (page === "diagnostics") return advancedDiagnosticsPage.focusTargets
     if (vless.nativeOwner) {
-      var targets = page === "settings" ? [nativeSettingsBack, nativeRefresh, nativeLanguageRow.focusTarget, nativeThroughputSetting.focusTarget, nativeGlobal, nativeRule, nativeDirect, nativeRoutingPresetSetting.focusTarget, nativeRoutingToolsSetting.focusTarget, nativeProvidersRefresh.focusTarget, nativeSubscriptionsSetting.focusTarget, nativeCoreSetupRow.focusTarget, nativeOnboardingSetting.focusTarget, nativeAppStartupRow.focusTarget, nativeStartupSummaryRow.focusTarget, nativeHelpersRefresh.focusTarget, nativeFileImportRow.focusTarget, nativeProfileEditorRow.focusTarget, nativeQrExportRow.focusTarget, nativeDiagnosticsSetting.focusTarget, nativeHelpSetting.focusTarget, nativeSupportSetting.focusTarget, nativeSupportSetting.exportFocusTarget, nativeExitIpSetting.focusTarget, nativeQuitSetting.focusTarget]
+      var targets = page === "settings" ? [nativeSettingsBack, nativeRefresh, nativeLanguageRow.focusTarget, nativeThroughputSetting.focusTarget, nativeGlobal, nativeRule, nativeDirect, nativeRoutingPresetSetting.focusTarget, nativeDnsDefault, nativeDnsGoogle, nativeDnsCloudflare, nativeRoutingToolsSetting.focusTarget, nativeProvidersRefresh.focusTarget, nativeSubscriptionsSetting.focusTarget, nativeCoreSetupRow.focusTarget, nativeOnboardingSetting.focusTarget, nativeAppStartupRow.focusTarget, nativeStartupSummaryRow.focusTarget, nativeHelpersRefresh.focusTarget, nativeFileImportRow.focusTarget, nativeProfileEditorRow.focusTarget, nativeQrExportRow.focusTarget, nativeDiagnosticsSetting.focusTarget, nativeHelpSetting.focusTarget, nativeSupportSetting.focusTarget, nativeSupportSetting.exportFocusTarget, nativeExitIpSetting.focusTarget, nativeQuitSetting.focusTarget]
         : page === "subscriptions" ? [nativeSettingsBack, nativeRefresh, nativeRecoveryDisconnect, nativeSubscriptionAdd, nativeSubscriptionRefreshAll]
         : page === "subscription" ? [nativeSettingsBack, nativeSubscriptionTest, nativeSubscriptionSort, nativeSubscriptionRefresh, nativeSubscriptionUsage, nativeSubscriptionEdit, nativeSubscriptionDelete, nativeSearch]
         : [nativeSettingsControl, nativePowerControl, nativeGlobal, nativeRule, nativeDirect, nativeSubscriptionsButton, nativeImportEntry, nativeImportClipboard, nativeImportFile, nativeSearch]
@@ -2577,6 +2577,27 @@ Panel {
             actionText: root.textFor("common.configure")
             actionEnabled: vless.nativeCanAct
             onAction: routingPresetPrompt.openWith(vless.nativeSnapshot ? vless.nativeSnapshot.routing.storedPreset : "")
+          }
+          ColumnLayout {
+            Layout.fillWidth: true
+            visible: root.page === "settings"
+            spacing: Style.space(6)
+            PlainText { Layout.fillWidth: true; text: root.textFor("dns.title"); color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
+            PlainText {
+              Layout.fillWidth: true
+              text: !vless.nativeFactsCurrent || !vless.nativeSnapshot.dns || vless.nativeSnapshot.dns.source === "unavailable" ? root.textFor("dns.unavailable")
+                : vless.nativeSnapshot.dns.source === "custom" ? root.textFor("dns.custom")
+                : vless.nativeSnapshot.desired.connected || vless.nativeSnapshot.lastKnownActual !== "disconnected"
+                  ? root.textFor("dns.disconnect_first") : root.textFor("dns.next_connection")
+              color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap
+            }
+            RowLayout {
+              Layout.fillWidth: true
+              spacing: Style.space(6)
+              Button { id: nativeDnsDefault; Layout.fillWidth: true; Layout.preferredWidth: 1; text: root.textFor("dns.preset-default"); foreground: vless.nativeFactsCurrent && vless.nativeSnapshot.dns && vless.nativeSnapshot.dns.source === "bundled" && vless.nativeSnapshot.dns.preset === "preset-default" ? Commons.Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanSaveDns && vless.nativeSnapshot.dns.preset !== "preset-default"; onClicked: vless.requestNativeDns("preset-default") }
+              Button { id: nativeDnsGoogle; Layout.fillWidth: true; Layout.preferredWidth: 1; text: root.textFor("dns.google"); foreground: vless.nativeFactsCurrent && vless.nativeSnapshot.dns && vless.nativeSnapshot.dns.source === "bundled" && vless.nativeSnapshot.dns.preset === "google" ? Commons.Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanSaveDns && vless.nativeSnapshot.dns.preset !== "google"; onClicked: vless.requestNativeDns("google") }
+              Button { id: nativeDnsCloudflare; Layout.fillWidth: true; Layout.preferredWidth: 1; text: root.textFor("dns.cloudflare"); foreground: vless.nativeFactsCurrent && vless.nativeSnapshot.dns && vless.nativeSnapshot.dns.source === "bundled" && vless.nativeSnapshot.dns.preset === "cloudflare" ? Commons.Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanSaveDns && vless.nativeSnapshot.dns.preset !== "cloudflare"; onClicked: vless.requestNativeDns("cloudflare") }
+            }
           }
           SettingsActionRow {
             id: nativeRoutingToolsSetting

@@ -75,6 +75,23 @@ pub struct Metadata {
     pub live_health: String,
     pub profiles: Vec<Profile>,
     pub subscriptions: Vec<Subscription>,
+    #[serde(default)]
+    pub dns: Option<DnsSettings>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DnsSettings {
+    pub preset: String,
+    pub source: DnsSource,
+}
+
+#[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DnsSource {
+    Bundled,
+    Custom,
+    Unavailable,
 }
 
 #[derive(Clone, Deserialize)]
@@ -164,6 +181,9 @@ impl Snapshot {
         let observation: Observation =
             serde_json::from_value(observed["result"].clone()).map_err(|_| ReadError::Invalid)?;
         if metadata.schema_version != 1
+            || metadata.dns.as_ref().is_some_and(|dns| {
+                omavless_domain::private_store::DnsPreset::parse(&dns.preset).is_none()
+            })
             || metadata.scope != "private_ui_metadata"
             || observation.schema_version != 1
             || observation.scope != "local_runtime_observation"

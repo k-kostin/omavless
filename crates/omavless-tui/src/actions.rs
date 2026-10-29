@@ -11,6 +11,7 @@ pub enum Kind {
     Disconnect,
     Mode,
     RefreshSubscription,
+    Dns(omavless_domain::private_store::DnsPreset),
 }
 impl Kind {
     pub fn wire(self) -> &'static str {
@@ -19,6 +20,7 @@ impl Kind {
             Self::Disconnect => "disconnect",
             Self::Mode => "mode",
             Self::RefreshSubscription => "subscription-refresh",
+            Self::Dns(_) => "dns-configure",
         }
     }
     pub fn key(self) -> &'static str {
@@ -27,6 +29,7 @@ impl Kind {
             Self::Disconnect => "tui.disconnect",
             Self::Mode => "tui.set_mode",
             Self::RefreshSubscription => "tui.refresh_subscription",
+            Self::Dns(_) => "tui.dns_save",
         }
     }
 }
@@ -81,6 +84,9 @@ impl Request {
             "operationId":self.operation,"action":c.kind.wire()});
         if c.kind == Kind::Connect {
             p["profileId"] = json!(c.profile);
+        }
+        if let Kind::Dns(preset) = c.kind {
+            p["preset"] = json!(preset.id());
         }
         if matches!(c.kind, Kind::Connect | Kind::Mode) {
             p["mode"] = json!(c.mode.wire());

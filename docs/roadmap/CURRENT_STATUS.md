@@ -19,9 +19,17 @@ whole-run PASS. This does not qualify ARM, physical or a newer RC composition.
 KDF workspace hardening #838 is integrated at development43f73c09 with separate
 PR and merged-push CI and fresh generated-distribution admission. The earlier
 VM package remains a separate installed input until explicitly updated. Do not
-repeat the accepted KDF, Remove #820, WG/AWG or selected T4 gates. The remaining
-user-facing plan includes the restored Test/Ping presentation; its exact
-installed/CI/final admission must be recorded on its owning PR before closure.
+repeat the accepted KDF, Remove #820, WG/AWG or selected T4 gates. Restored
+Test/Ping #839 is integrated at development68cd26ff with its affected installed
+EN/RU checks, PR/independent merged-push CI and fresh final distribution admission.
+The original failed checks remain recorded separately on that PR.
+
+The next selected [DNS preset candidate](../development/USER_DNS_PRESETS.md)
+adds only three choices saved while Off for the next connection. Numeric
+isolated-core feasibility passed; new production code, matching native packages,
+installed review and final delivery retain their own gates. Russian user guides
+and locale-aware Help remain open for the coordinated0.9.9 English/RU RC document
+freeze, with English fallback until the same authorized stable snapshot exists.
 
 ## Earlier delivery checkpoints (dated history)
 

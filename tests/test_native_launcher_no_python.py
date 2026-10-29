@@ -58,6 +58,7 @@ CASES = (
     fixed("native-desktop-capabilities", ("desktop", "capabilities")),
     fixed("native-startup-capabilities", ("capabilities",)),
     fixed("native-startup-configure", ("plugin", "startup-configure"), *FENCE, private_stdin=True),
+    fixed("native-dns-configure", ("plugin", "dns-configure"), *FENCE, private_stdin=True),
     fixed("native-support-report", ("diagnostics", "export")),
     fixed("native-clipboard-copy", ("desktop", "clipboard-copy"), private_stdin=True),
     fixed("native-onboarding-complete", ("plugin", "onboarding-complete"), *FENCE),

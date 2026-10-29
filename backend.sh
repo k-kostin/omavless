@@ -70,6 +70,11 @@ if command -v omavless >/dev/null 2>&1; then
           shift
           exec omavless plugin startup-configure "$@"
           ;;
+        native-dns-configure)
+          [ "$#" -eq 4 ] || blocked
+          shift
+          exec omavless plugin dns-configure "$@"
+          ;;
         native-support-report)
           [ "$#" -eq 1 ] || blocked
           exec omavless diagnostics export

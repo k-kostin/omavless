@@ -20,6 +20,17 @@ function fixture() {
   }};
 }
 function parse(value, previous) { return parser.parse(JSON.stringify(value), previous); }
+test('DNS preference is closed optional metadata and never inferred for older owners', () => {
+  assert.equal(parse(fixture()).dns, null);
+  for (const preset of ['preset-default','google','cloudflare']) {
+    const p=fixture();p.result.dns={preset,source:'bundled'};
+    assert.equal(parse(p).dns.preset,preset);
+  }
+  for (const dns of [null,{preset:'quad9',source:'bundled'},{preset:'google',source:'unknown'},
+    {preset:'google',source:'bundled',url:'https://private.invalid/key'}]) {
+    const p=fixture();p.result.dns=dns;assert.equal(parse(p),null);
+  }
+});
 test('native state is metadata, never live connected or disconnected inference', () => {
   const r = parse(fixture());
   assert.equal(r.healthFresh, false);
