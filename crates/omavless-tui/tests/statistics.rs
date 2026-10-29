@@ -170,7 +170,14 @@ fn recorded_and_partial_labels_and_confirmation_render_in_both_locales() {
                     .collect::<String>();
                 assert!(!text.contains("Missing translation"));
                 assert!(text.contains(locale.text("stats.title")));
-                if !confirmation {
+                if confirmation {
+                    assert!(
+                        text.contains(locale.text("stats.reset_notice").split('.').next().unwrap())
+                    );
+                    assert!(
+                        !text.contains(locale.text("tui.confirm_ack").split('.').next().unwrap())
+                    );
+                } else {
                     assert!(text.contains(&omavless_tui::statistics::grouped(u64::MAX, locale)));
                 }
             }

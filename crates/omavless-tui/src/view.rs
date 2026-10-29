@@ -328,22 +328,25 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
                 lines.push(Line::from(tr("tui.saved_mode_only")));
             }
         }
-        lines.push(Line::from(tr(match confirmation {
+        let confirmation_hint = match confirmation {
             Confirmation::New(command) if matches!(command.kind, crate::actions::Kind::Dns(_)) => {
-                "tui.dns_confirm"
+                Some("tui.dns_confirm")
             }
             Confirmation::New(command)
                 if command.kind == crate::actions::Kind::RefreshSubscription =>
             {
-                "tui.confirm_subscription_refresh"
+                Some("tui.confirm_subscription_refresh")
             }
-            Confirmation::New(_) => "tui.confirm_network",
-            Confirmation::Retry => "tui.confirm_retry",
-            Confirmation::Acknowledge { .. } => "tui.confirm_ack",
-            Confirmation::Job(_) => "tui.confirm_job",
-            Confirmation::CancelJob => "tui.confirm_cancel_job",
-            Confirmation::Statistics(_) => "tui.confirm_ack",
-        })));
+            Confirmation::New(_) => Some("tui.confirm_network"),
+            Confirmation::Retry => Some("tui.confirm_retry"),
+            Confirmation::Acknowledge { .. } => Some("tui.confirm_ack"),
+            Confirmation::Job(_) => Some("tui.confirm_job"),
+            Confirmation::CancelJob => Some("tui.confirm_cancel_job"),
+            Confirmation::Statistics(_) => None,
+        };
+        if let Some(hint) = confirmation_hint {
+            lines.push(Line::from(tr(hint)));
+        }
         frame.render_widget(
             Paragraph::new(lines).wrap(Wrap { trim: false }).block(
                 Block::default()
