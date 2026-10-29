@@ -4340,6 +4340,60 @@ mod tests {
     }
 
     #[test]
+    fn traffic_statistics_actual_owner_and_quit_fences_span_candidate_selection() {
+        use traffic_statistics::{State, admission::Admission};
+        let base = temporary_base("stats-admit-owner");
+        let (mut owner, _, _) = native_owner_fixture(&base);
+        let proc = base.join("stats-proc");
+        let sys = base.join("stats-sys");
+        fs::create_dir(&proc).unwrap();
+        fs::create_dir(&sys).unwrap();
+        owner.batch_coordinator().host_mut().statistics_off = Some(
+            native_host::StatsOffContext::fixture(proc, sys, base.join("absent-controller")),
+        );
+        let server = RuntimeServer::bind_with_owner_factory(
+            RuntimePaths::below(&base.join("runtime")),
+            move |_| Ok(owner),
+        )
+        .unwrap();
+        let capture = {
+            let dispatcher = server.dispatcher.lock().unwrap();
+            let RuntimeDispatcher::Native(owner) = &*dispatcher else {
+                panic!()
+            };
+            owner.stats_capture().unwrap()
+        };
+        let mut candidate = State::default();
+        Admission::current_owner(
+            Arc::clone(&server.quit_gate),
+            Arc::downgrade(&server.dispatcher),
+            capture,
+            false,
+        )
+        .run(|| {
+            assert!(
+                server.dispatcher.try_lock().is_err(),
+                "Connect/revision owner cannot interleave before candidate selection"
+            );
+            assert!(
+                server.quit_gate.try_write().is_err(),
+                "Quit cannot interleave admission"
+            );
+            candidate.configure(true, 100).unwrap();
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(candidate.projection()["enabled"], true);
+        assert!(
+            server.dispatcher.try_lock().is_ok(),
+            "no owner guard survives selection into storage"
+        );
+        assert!(server.quit_gate.try_write().is_ok());
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn traffic_statistics_blocked_preflight_does_not_retain_server_or_write_after_quit_seal() {
         use traffic_statistics::{
             admission::Admission,
@@ -4378,7 +4432,7 @@ mod tests {
                     waiting.recv_timeout(Duration::from_secs(8)).unwrap();
                     Ok(Admission {
                         gate,
-                        verify: Box::new(|| Ok(())),
+                        verify: Box::new(|select| select()),
                     })
                 }),
             )

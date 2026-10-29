@@ -101,29 +101,9 @@ impl RuntimeServer {
                     return Err(worker::Error::Unavailable);
                 }
             }
-            Ok(admission::Admission {
-                gate,
-                verify: Box::new(move || {
-                    let owner = dispatcher.upgrade().ok_or(worker::Error::Restarting)?;
-                    let dispatcher = owner.try_lock().map_err(|_| worker::Error::Busy)?;
-                    let RuntimeDispatcher::Native(owner) = &*dispatcher else {
-                        return Err(worker::Error::Unavailable);
-                    };
-                    let current = if read {
-                        owner.stats_capture().is_some_and(|c| {
-                            c.revision == capture.revision
-                                && c.owner_generation == capture.owner_generation
-                        })
-                    } else {
-                        owner.stats_off_current(&capture)
-                    };
-                    if current {
-                        Ok(())
-                    } else {
-                        Err(worker::Error::Conflict)
-                    }
-                }),
-            })
+            Ok(admission::Admission::current_owner(
+                gate, dispatcher, capture, read,
+            ))
         });
         let receive = if let Some(parsed) = &parsed {
             let utc = std::time::SystemTime::now()

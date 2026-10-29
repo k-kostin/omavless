@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: MIT
 //! Slow proof runs only on the existing detached statistics worker. The short
 //! seal and owner fence covers candidate selection, never filesystem I/O.
+use super::collection::Capture;
 use super::worker::Error;
-use std::sync::{Arc, RwLock};
+use crate::RuntimeDispatcher;
+use std::sync::{Arc, Mutex, RwLock, Weak};
 
 pub(crate) type Preflight = Box<dyn FnOnce() -> Result<Admission, Error> + Send>;
+type Selection<'a> = dyn FnMut() -> Result<(), Error> + 'a;
+type OwnerFence = Box<dyn FnOnce(&mut Selection<'_>) -> Result<(), Error> + Send>;
 pub(crate) struct Admission {
     pub(crate) gate: Arc<RwLock<bool>>,
-    pub(crate) verify: Box<dyn FnOnce() -> Result<(), Error> + Send>,
+    pub(crate) verify: OwnerFence,
 }
 impl Admission {
     pub(crate) fn run<T>(self, select: impl FnOnce() -> Result<T, Error>) -> Result<T, Error> {
@@ -15,17 +19,53 @@ impl Admission {
         if *gate {
             return Err(Error::Restarting);
         }
-        (self.verify)()?;
-        // Admission is the candidate selection itself; a queued receipt is not
-        // permission to write after an intervening whole-runtime seal.
-        select()
+        let mut select = Some(select);
+        let mut selected = None;
+        (self.verify)(&mut || {
+            let select = select.take().ok_or(Error::Conflict)?;
+            selected = Some(select()?);
+            Ok(())
+        })?;
+        selected.ok_or(Error::Unavailable)
     }
+    pub(crate) fn current_owner(
+        gate: Arc<RwLock<bool>>,
+        dispatcher: Weak<Mutex<RuntimeDispatcher>>,
+        capture: Capture,
+        read: bool,
+    ) -> Self {
+        Self {
+            gate,
+            verify: Box::new(move |select| {
+                let owner = dispatcher.upgrade().ok_or(Error::Restarting)?;
+                let dispatcher = owner.try_lock().map_err(|_| Error::Busy)?;
+                let RuntimeDispatcher::Native(owner) = &*dispatcher else {
+                    return Err(Error::Unavailable);
+                };
+                let current = if read {
+                    owner.stats_capture().is_some_and(|c| {
+                        c.revision == capture.revision
+                            && c.owner_generation == capture.owner_generation
+                    })
+                } else {
+                    owner.stats_off_current(&capture)
+                };
+                if !current {
+                    return Err(Error::Conflict);
+                }
+                // The same memory-only owner guard remains held through selection.
+                // Ordinary Connect cannot interleave between Off proof and admission.
+                select()
+            }),
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn test_preflight() -> Preflight {
         Box::new(|| {
             Ok(Self {
                 gate: Arc::new(RwLock::new(false)),
-                verify: Box::new(|| Ok(())),
+                verify: Box::new(|select| select()),
             })
         })
     }
@@ -41,7 +81,7 @@ mod tests {
         let mut selected = false;
         Admission {
             gate: Arc::clone(&gate),
-            verify: Box::new(|| Ok(())),
+            verify: Box::new(|select| select()),
         }
         .run(|| {
             assert!(
@@ -56,7 +96,7 @@ mod tests {
         *gate.write().unwrap() = true;
         let late = Admission {
             gate,
-            verify: Box::new(|| panic!("sealed request cannot reach owner")),
+            verify: Box::new(|_| panic!("sealed request cannot reach owner")),
         };
         assert_eq!(
             late.run(|| panic!("sealed request cannot select candidate")),
