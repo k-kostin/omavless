@@ -1556,12 +1556,15 @@ State: **backend/operator implementation deferred to Rust runtime/T3**.
 
 D1 already provides useful controller/diagnostic foundations. The full read-only
 connection/process/chain view should be implemented in Rust and presented
-primarily in TUI. Closing a connection remains a separate mutation/security
-slice.
+primarily in TUI. New Single/Set Close is deferred to1.0.0 by owner choice October28; the
+accepted read-only view remains in0.9.9. Closing retains its separate
+mutation/security contract and is not accepted by this scope decision.
 
 ### S1 — App proxy without TUN
 
-State: **design retained; implementation after Rust runtime ownership**.
+State: **entirely deferred to1.0.0 by the owner, October29**. Neither global
+proxy nor a child/curl-only substitute is selected for0.9.9. Retain #623/#693
+research and its original limits; deferral is not acceptance.
 
 Preserve/restore exact prior proxy state transactionally. On Omarchy cover both
 desktop proxy state and systemd/UWSM user-manager environment; on standalone
@@ -1578,8 +1581,9 @@ NixOS provisioning remain separate host implementations.
 
 ### K1 — Full VPN fail-closed kill switch
 
-State: **design accepted; Rust ownership prerequisite satisfied, separate
-privileged implementation and host acceptance still required**.
+State: **entirely deferred to1.0.0 by the owner, October29**. No default-off
+readiness implementation is selected for0.9.9. Retain #689/#703 research and
+original results; mandatory future physical/security gates remain applicable.
 
 Initial scope remains opt-in Full VPN only. Protection follows desired tunnel
 state through core/runtime failure; explicit disconnect disarms it. Deliver as
@@ -1624,7 +1628,7 @@ Keep outside active protocol/runtime work unless real demand/fixtures justify:
 - TUIC v4 / TUIC 0-RTT without fixtures and replay-risk review;
 - AnyTLS, Shadowsocks and VMess solely for protocol-count completeness;
 - manual core-selection UX without operational need;
-- permanent Lockdown before K1 kill-switch behavior is proven;
+- permanent Lockdown: entirely1.0.0 by owner choice October29, following K1;
 - arbitrary raw YAML merge/patch systems or provider-controlled runtime config.
 
 ## 13. Branch and evidence policy

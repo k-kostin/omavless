@@ -62,8 +62,11 @@ control roles. Keep the compact terminal-like style using shared shell tokens,
 plain-text dynamic data and the existing scrollbar gutter. Longer translations,
 selection and hover must not overlap adjacent controls or move their hit areas.
 
-The owner-hidden main Test and latency sections remain hidden until explicitly
-requested. Do not restore them as part of general polish.
+The owner explicitly selected restoration of main Test and latency for0.9.9
+on October23, reaffirmed by the October29 gap review. Follow
+[their owning contract](MAIN_PANEL_DEFERRED_SECTIONS.md): separate read-only
+results below traffic, truthful unavailable states and bounded visible-panel
+sampling. This does not authorize a backend or connection-policy redesign.
 
 ## Control roles and visual grammar
 

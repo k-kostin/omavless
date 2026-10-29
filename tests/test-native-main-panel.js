@@ -189,6 +189,25 @@ test('protocol filters join Main and subscription Tab order before name search',
     assert.equal(targets.filter(x=>x==='wireguard').length,1);
   }
 });
+test('visible checks have one Tab stop in screen order and hidden checks have none',()=>{
+  const from=source.indexOf('  function panelTabTargets()'),to=source.indexOf('\n  function availablePanelTabTargets()',from);
+  const code=source.slice(from,to),names=Array.from(new Set(code.match(/\bnative[A-Z]\w*/g)));
+  for(const page of ['main','subscription']) for(const testVisible of [false,true]) for(const pingVisible of [false,true]) {
+    const c=vm.createContext({page,vless:{nativeOwner:true},showMainConnectionTest:testVisible,showMainLatencySection:pingVisible});
+    c.root=c;c.bootstrapRequired=false;
+    for(const name of names)c[name]={focusTarget:name,count:0};
+    for(const name of ['rowPin','rowRename','rowEdit','rowQr','rowExport','rowDetails','rowDelete'])c[name]=name;
+    c.nativeRequiredComponents={focusTargets:[]};c.nativeProtocolChoices={tabTargets:()=>[]};
+    vm.runInContext(code,c);const targets=Array.from(c.panelTabTargets());
+    const expected=[c.nativeDirect];
+    for(const [visible,target] of [[testVisible,c.nativeTestButton],[pingVisible,c.nativePingTest]]) {
+      assert.equal(targets.filter(x=>x===target).length,page==='main'&&visible?1:0);
+      if(visible)expected.push(target);
+    }
+    expected.push(c.nativeSubscriptionsButton);
+    if(page==='main')for(let n=1;n<expected.length;n++)assert(targets.indexOf(expected[n-1])<targets.indexOf(expected[n]));
+  }
+});
 test('empty native list guidance distinguishes unavailable, absent, filtered and managed data',()=>{
   for(const locale of ['en','ru']) {
     const c=context();c.locale=locale;
@@ -694,14 +713,20 @@ test('profile frame is square padded content under the existing single scroller'
   assert(frame.includes('id: nativeSearch'));assert(frame.includes('id: nativeProfiles'));
   assert(!/Flickable\s*\{|ScrollView\s*\{/.test(frame));
 });
-test('main HTTPS Test is presentation-hidden without removing Ping or its probe implementation',()=>{
-  assert.match(source,/readonly property bool showMainConnectionTest: false/);
-  const block=source.slice(source.indexOf('id: nativeConnectionTestSection'),source.indexOf('id: nativeSettingsBack'));
+test('restored checks follow traffic without claiming connection health',()=>{
+  assert.match(source,/readonly property bool showMainConnectionTest: true/);
+  assert.match(source,/readonly property bool showMainLatencySection: true/);
+  const start=source.indexOf('id: nativeConnectionTestSection');
+  const ping=source.indexOf('id: nativeLatencySection');
+  const block=source.slice(start,ping);
+  assert(source.indexOf('id: nativeTrafficSection')<start);
+  assert(start<ping&&ping<source.indexOf('id: nativeProfilesFrame'));
   assert.match(block,/visible: root.showMainConnectionTest && root.page === "main" && root.nativeView.connected/);
-  assert.match(source,/if \(page === "main" && showMainConnectionTest\) targets.push\(nativeTestButton\)/);
   assert(block.includes('onClicked: vless.startNativeConnectionTest()'));
-  assert(source.includes('id: nativePingTest;'));
-  assert.match(source,/RowLayout \{\s+Layout.fillWidth: true\s+visible: root.showMainLatencySection\s+spacing: Style.space\(12\)\s+DetailPair \{\s+Layout.fillWidth: true\s+label: root.textFor\("metric.ping"\)/);
+  assert(block.includes('vless.nativeTestStatus || "idle"'));
+  assert(block.includes('vless.nativeCanAct && vless.nativeTestProcess === null'));
+  assert(block.includes('vless.nativeTestResult.https && vless.showExitIp'));
+  assert(source.includes('onClicked: vless.testNativePing()'));
 });
 test('settings sections group related controls in a stable visual order',()=>{
   const region=source.slice(source.indexOf('id: nativeColumn'),source.indexOf('AdvancedDiagnostics {'));
