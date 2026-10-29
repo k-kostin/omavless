@@ -337,6 +337,24 @@ Item {
     }
   }
 
+  readonly property bool nativeCanSaveDns: nativeCanAct && !nativeActionRunning && !nativeOutcomeUnknown
+    && !nativeBatchBusy && nativeSnapshot.dns && nativeSnapshot.dns.source === "bundled"
+    && !nativeSnapshot.desired.connected && nativeSnapshot.lastKnownActual === "disconnected"
+  function requestNativeDns(preset) {
+    if (!nativeCanSaveDns || ["preset-default", "google", "cloudflare"].indexOf(preset) < 0
+        || preset === nativeSnapshot.dns.preset) return false
+    var operation = "qml-dns-" + Date.now().toString(36) + "-" + (++_nativeOperationSerial).toString(36) + "-" + Math.floor(Math.random() * 0x100000000).toString(36)
+    var args = ["bash", backendPath, "native-dns-configure", nativeSnapshot.instanceId, String(nativeSnapshot.revision), operation]
+    nativePending = {instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision,
+      operationId:operation, action:"dns-configure", command:args, input:preset}
+    nativeActionCode = ""
+    nativeOutcomeUnknown = false
+    nativeActionProcess.command = args
+    nativeActionProcess.stdinEnabled = true
+    nativeActionProcess.running = true
+    return true
+  }
+
   function requestNativeStartup(enabled, target, profileId, mode) {
     if (!nativeStartupAvailable || typeof enabled !== "boolean" || ["last", "profile"].indexOf(target) < 0
         || ["rule", "global"].indexOf(mode) < 0) return false
@@ -4282,7 +4300,7 @@ Item {
       var subscriptionAction = root.nativePending && root.nativePending.action.indexOf("subscription-") === 0
       var contextualMetadataAction = subscriptionAction || (metadataAction && (
         root.nativePending.action.indexOf("profile-") === 0
-        || ["startup-configure", "routing-preset", "custom-rule-add", "custom-rule-delete"].indexOf(root.nativePending.action) >= 0))
+        || ["startup-configure", "dns-configure", "routing-preset", "custom-rule-add", "custom-rule-delete"].indexOf(root.nativePending.action) >= 0))
       root.finishNativeEditorAction(result, !result || exitCode === 73 || (!result.ok && result.code === "daemon_restarting"))
       root.finishNativeSubscriptionAction(result, !result || exitCode === 73 || (!result.ok && result.code === "daemon_restarting"))
       root.finishNativeRoutingAction(result, !result || exitCode === 73 || (!result.ok && result.code === "daemon_restarting"))

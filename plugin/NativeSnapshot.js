@@ -390,7 +390,7 @@ function parse(raw, previous) {
         || p.api !== "omavless.control" || p.version !== 1 || p.ok !== true
         || !id(p.id, false) || !number(p.revision, 9007199254740991)) return null
     var r = p.result
-    if (!object(r, ["schemaVersion", "scope", "desired", "lastKnownActual", "healthFresh", "liveHealth", "profiles", "lastProfileId", "subscriptions", "startup", "onboardingComplete", "routing", "instanceId", "transition"])
+    if (!object(r, ["schemaVersion", "scope", "desired", "lastKnownActual", "healthFresh", "liveHealth", "profiles", "lastProfileId", "subscriptions", "startup", "onboardingComplete", "routing", "instanceId", "transition"].concat(r.dns === undefined ? [] : ["dns"]))
         || r.schemaVersion !== 1 || r.scope !== "private_ui_metadata"
         || !id(r.instanceId, false) || r.transition !== null
         || r.healthFresh !== false || r.liveHealth !== "unavailable"
@@ -403,6 +403,9 @@ function parse(raw, previous) {
         || !/^[\x21-\x7e]*$/.test(d.profileId) || (!d.connected && d.profileId !== "")
         || ["rule", "global", "direct"].indexOf(d.mode) < 0 || !number(d.generation, 9007199254740991)) return null
     var s = r.startup
+    var dns = r.dns === undefined ? null : r.dns
+    if (r.dns !== undefined && (!object(dns, ["preset", "source"]) || ["preset-default", "google", "cloudflare"].indexOf(dns.preset) < 0
+        || ["bundled", "custom", "unavailable"].indexOf(dns.source) < 0)) return null
     if (!object(s, ["configured", "enabled", "target", "profileId", "mode"])
         || typeof s.configured !== "boolean" || typeof s.enabled !== "boolean"
         || ["last", "profile"].indexOf(s.target) < 0 || !id(s.profileId, true)
@@ -434,7 +437,7 @@ function parse(raw, previous) {
     if (r.lastProfileId && !seen[r.lastProfileId]) return null
     return {instanceId: r.instanceId, revision: p.revision, desired: d, lastKnownActual: r.lastKnownActual,
       healthFresh: false, liveHealth: "unavailable", profiles: profiles, subscriptions: subscriptions,
-      startup: s, routing: r.routing, onboardingComplete: r.onboardingComplete, lastProfileId: r.lastProfileId}
+      startup: s, dns:dns, routing: r.routing, onboardingComplete: r.onboardingComplete, lastProfileId: r.lastProfileId}
   } catch (_) { return null }
 }
 
@@ -675,7 +678,7 @@ function parseAction(raw, pending) {
   try {
     var p = envelope(raw)
     if (!p || !pending || !id(pending.instanceId, false) || !id(pending.operationId, false)
-        || !number(pending.revision, 9007199254740991) || ["connect", "disconnect", "mode", "profile-rename", "profile-favorite", "profile-delete", "profile-import", "profile-bundle-import", "profile-replace", "subscription-add", "subscription-update", "subscription-delete", "subscription-refresh", "routing-preset", "custom-rule-add", "custom-rule-delete", "onboarding-complete", "startup-configure"].indexOf(pending.action) < 0) return null
+        || !number(pending.revision, 9007199254740991) || ["connect", "disconnect", "mode", "profile-rename", "profile-favorite", "profile-delete", "profile-import", "profile-bundle-import", "profile-replace", "subscription-add", "subscription-update", "subscription-delete", "subscription-refresh", "routing-preset", "custom-rule-add", "custom-rule-delete", "onboarding-complete", "startup-configure", "dns-configure"].indexOf(pending.action) < 0) return null
     if (p.ok === true) {
       var r = p.result
       var actionKeys = ["schemaVersion", "instanceId", "operationId", "action", "applied"]
@@ -771,7 +774,7 @@ function parseImportPreview(raw, revision) {
 
 function parseActionExit(raw, pending, exitCode) {
   // Reserved CLI exit proves local rejection before socket dispatch.
-  if (exitCode === 74 && pending && ["profile-bundle-import", "profile-replace", "subscription-add", "subscription-update", "subscription-delete", "subscription-refresh", "routing-preset", "custom-rule-add", "custom-rule-delete", "onboarding-complete", "startup-configure"].indexOf(pending.action) >= 0)
+  if (exitCode === 74 && pending && ["profile-bundle-import", "profile-replace", "subscription-add", "subscription-update", "subscription-delete", "subscription-refresh", "routing-preset", "custom-rule-add", "custom-rule-delete", "onboarding-complete", "startup-configure", "dns-configure"].indexOf(pending.action) >= 0)
     return {ok:false, code:"invalid_argument"}
   return parseAction(raw, pending)
 }

@@ -2,6 +2,56 @@
 use super::*;
 use std::os::unix::fs::{PermissionsExt, symlink};
 
+const BUNDLES: [&str; 3] = [
+    include_str!("../../../templates/default.yaml"),
+    include_str!("../../../templates/china.yaml"),
+    include_str!("../../../templates/iran.yaml"),
+];
+
+#[test]
+fn dns_snapshot_matches_the_normal_transient_policy_without_template_writes() {
+    use omavless_domain::private_store::DnsPreset;
+    let root = root();
+    let uid = nix::unistd::Uid::current().as_raw();
+    let (mut desired, _) = candidate();
+    fs::create_dir(root.join("ruleset")).unwrap();
+    for bundle in BUNDLES {
+        for name in manifest(bundle).unwrap() {
+            fs::write(root.join("ruleset").join(name), b"synthetic cache snapshot").unwrap();
+        }
+        for mode in [
+            crate::desired::RoutingMode::Rule,
+            crate::desired::RoutingMode::Global,
+            crate::desired::RoutingMode::Direct,
+        ] {
+            desired.mode = mode;
+            let template =
+                omavless_domain::routing::template_with_mode(bundle, mode.as_str()).unwrap();
+            for preset in [
+                DnsPreset::PresetDefault,
+                DnsPreset::Google,
+                DnsPreset::Cloudflare,
+            ] {
+                let (_, store) = candidate_with_dns(Some(preset.id()));
+                let snapshot =
+                    ValidationSnapshot::capture(&root, uid, &desired, &store, &template).unwrap();
+                let transformed = crate::managed_template::with_dns(&template, preset).unwrap();
+                let expected = store
+                    .prepare_config_mode(
+                        &desired.profile_id,
+                        &transformed,
+                        "/work/mihomo.sock",
+                        mode.as_str(),
+                    )
+                    .unwrap();
+                assert!(snapshot.config == expected);
+                assert_eq!(snapshot.resources.len(), manifest(&template).unwrap().len());
+            }
+        }
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 fn root() -> PathBuf {
     let root = crate::test_temp::directory("isolated-validation").unwrap();
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
@@ -9,17 +59,21 @@ fn root() -> PathBuf {
 }
 
 fn candidate() -> (DesiredState, PrivateStore) {
+    candidate_with_dns(None)
+}
+
+fn candidate_with_dns(preset: Option<&str>) -> (DesiredState, PrivateStore) {
     let id = "00000000-0000-4000-8000-000000000001";
-    let store = omavless_domain::private_store::parse_private_store(
-        &serde_json::json!({
+    let mut document = serde_json::json!({
         "version":3,"activeId":"","lastId":id,
         "profiles":[{"id":id,"name":"Synthetic","protocol":"vless",
         "uri":"vless://11111111-1111-4111-8111-111111111111@192.0.2.1:443?security=none&type=tcp",
         "subscriptionId":"","subscriptionKey":"","missing":false,"favorite":false}],
-        "subscriptions":[],"customRules":[]})
-        .to_string(),
-    )
-    .unwrap();
+        "subscriptions":[],"customRules":[]});
+    if let Some(preset) = preset {
+        document["dnsPreset"] = preset.into();
+    }
+    let store = omavless_domain::private_store::parse_private_store(&document.to_string()).unwrap();
     (
         DesiredState {
             connected: true,

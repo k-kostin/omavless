@@ -28,8 +28,10 @@ use std::fmt;
 pub(crate) mod backup_candidate;
 mod candidate;
 mod credential;
+mod dns;
 use crate::store::normalize_candidate_store_state;
 pub use credential::PrivateProfileCredential;
+pub use dns::{DnsPreset, apply_dns_preset};
 use omavless_profile::import::ImportFamily;
 use omavless_profile::wireguard::parse_unique_private_json;
 mod local_bundle;
@@ -991,6 +993,7 @@ pub fn parse_private_store(input: &str) -> Result<PrivateStore, PrivateStoreErro
     };
     let root = object(&value)?;
 
+    dns::validate(root.get("dnsPreset"))?;
     let subscription_values = root
         .get("subscriptions")
         .map(|value| {

@@ -98,6 +98,7 @@ pub mod desktop_helpers;
 #[cfg(feature = "developer-conditional-close")]
 mod developer_connection_close;
 mod diagnostic_read;
+mod dns_protocol;
 pub mod doctor;
 #[cfg(any(test, feature = "t4-manager-actor-service"))]
 mod file_link_count;
@@ -375,6 +376,7 @@ const NATIVE_MUTATION_METHODS: &[&str] = &[
     "plugin.action",
     "onboarding.complete",
     "startup.configure",
+    "dns.configure",
     "subscriptions.schedule.configure",
     "profiles.replace",
     "profiles.import",
@@ -416,6 +418,7 @@ fn valid_mutation_shape(request: &Value, instance: &str) -> bool {
             custom_rule_protocol::parse(request).is_ok()
         }
         "startup.configure" => startup_protocol::parse_startup_request(request).is_ok(),
+        "dns.configure" => dns_protocol::parse(request).is_ok(),
         "subscriptions.schedule.configure" => subscription_schedule::parse(request).is_ok(),
         "onboarding.complete" => onboarding_protocol::parse(request).is_ok(),
         _ => false,
@@ -10684,6 +10687,62 @@ mod tests {
         assert_eq!(host_calls.load(Ordering::Relaxed), initial_calls);
         assert_eq!(effects.load(Ordering::Relaxed), initial_effects);
         assert_eq!(fs::read(&desired_path).unwrap(), desired_before);
+        worker.join().unwrap();
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn dns_socket_save_is_store_only_replay_fenced_and_snapshot_visible() {
+        let base = temporary_base("dns-socket");
+        let (owner, cutover, host_calls) = native_owner_fixture(&base);
+        let template = base.join("config/route-template.yaml");
+        fs::write(&template, include_bytes!("../../../templates/default.yaml")).unwrap();
+        fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
+        let before_template = fs::read(&template).unwrap();
+        let store = base.join("config/profiles.json");
+        let desired = DesiredPaths::below(&base.join("state")).file;
+        let before_desired = fs::read(&desired).unwrap();
+        let calls_before = host_calls.load(Ordering::Relaxed);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let worker = thread::spawn(move || server.serve(Some(7)).unwrap());
+        let hello = call(&paths, "system.hello", json!({"versions":[1]})).unwrap();
+        let params = json!({"instanceId":hello["result"]["instanceId"], "expectedRevision":0,
+            "operationId":"dns-plugin-save", "action":"dns-configure", "preset":"cloudflare"});
+        let response = call_plugin_action(&paths, params.clone()).unwrap();
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["revision"], 1);
+        let saved = fs::read(&store).unwrap();
+        assert_eq!(
+            call_plugin_action(&paths, params.clone()).unwrap(),
+            response
+        );
+        let mut stale = params.clone();
+        stale["operationId"] = json!("dns-stale");
+        assert_eq!(
+            call_plugin_action(&paths, stale).unwrap()["error"]["code"],
+            "conflict"
+        );
+        let mut invalid = params.clone();
+        invalid["preset"] = json!("https://private.invalid/key");
+        let error = call(&paths, "plugin.action", invalid).unwrap();
+        assert_eq!(error["error"]["code"], "invalid_argument");
+        assert!(!error.to_string().contains("private.invalid"));
+        let snapshot = call(&paths, "ui.snapshot", json!({})).unwrap();
+        assert_eq!(
+            snapshot["result"]["dns"],
+            json!({"preset":"cloudflare","source":"bundled"})
+        );
+        write_marker(&cutover, OwnershipPhase::Rust, 3);
+        assert_eq!(
+            call_plugin_action(&paths, params).unwrap()["error"]["code"],
+            "capability_unavailable"
+        );
+        assert!(fs::read(&store).unwrap() == saved);
+        assert!(fs::read(&template).unwrap() == before_template);
+        assert!(fs::read(&desired).unwrap() == before_desired);
+        assert_eq!(host_calls.load(Ordering::Relaxed), calls_before + 1);
         worker.join().unwrap();
         fs::remove_dir_all(base).unwrap();
     }

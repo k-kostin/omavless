@@ -27,6 +27,7 @@ shape!(StoreShape {
     _active: String => "activeId",
     _last: String => "lastId",
     _preset: String => "routingPreset",
+    _dns_preset: Option<String> => "dnsPreset",
     _rules: Vec<RuleShape> => "customRules",
     _rules_updated: u64 => "rulesUpdatedAt",
     _startup: StartupShape => "startup",
@@ -45,6 +46,7 @@ shape!(StoreV4Shape {
     _subscriptions: Vec<SubscriptionShape> => "subscriptions",
     _active: String => "activeId", _last: String => "lastId",
     _preset: String => "routingPreset", _rules: Vec<RuleShape> => "customRules",
+    _dns_preset: Option<String> => "dnsPreset",
     _rules_updated: u64 => "rulesUpdatedAt", _startup: StartupShape => "startup",
     _configured: bool => "startupConfigured", _onboarding: bool => "onboardingComplete",
 });
@@ -133,6 +135,28 @@ mod tests {
         "customRules":[{"id":"30000000-0000-4000-8000-000000000001","kind":"domain","value":"example.invalid","action":"direct"}],
         "rulesUpdatedAt":0,"startup":{"enabled":false,"target":"last","profileId":"","mode":"rule"},
         "startupConfigured":true,"onboardingComplete":true})
+    }
+
+    #[test]
+    fn dns_preference_is_portable_without_relaxing_archive_shape() {
+        for mut value in [fixture(), v4_fixture(false), v4_fixture(true)] {
+            for preset in ["preset-default", "google", "cloudflare"] {
+                value["dnsPreset"] = json!(preset);
+                let input = value.to_string();
+                assert_eq!(validate(input.as_bytes()).unwrap().bytes, input.as_bytes());
+            }
+            for invalid in [Value::Null, json!("quad9"), json!([])] {
+                value["dnsPreset"] = invalid;
+                assert!(validate(value.to_string().as_bytes()).is_err());
+            }
+            value["dnsPreset"] = json!("google");
+            let duplicate = value
+                .to_string()
+                .replacen("{", "{\"dnsPreset\":\"cloudflare\",", 1);
+            assert!(validate(duplicate.as_bytes()).is_err());
+            value["dnsPolicy"] = json!({});
+            assert!(validate(value.to_string().as_bytes()).is_err());
+        }
     }
 
     #[test]

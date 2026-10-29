@@ -76,6 +76,14 @@ without retaining discarded events or adding daemon reads. The 32-event bound
 and existing freshness header remain unchanged. Synthetic EN/RU rendering and
 retention tests do not establish installed terminal acceptance.
 
+The selected0.9.9 [DNS preset candidate](../development/USER_DNS_PRESETS.md) adds
+an application-level Settings group: 1/2/3 selects Preset default/Google/Cloudflare
+for explicit save confirmation through the same native owner. It requires fresh
+settled Off and a recognized bundled template, applies next connection and never
+starts or reloads a core. Unknown/pending outcomes retain the existing fences.
+This group is separate from window-local appearance and its 0-reset below;
+candidate source/render checks do not imply installed delivery acceptance.
+
 The integrated session-settings checkpoint #283 adds a Settings page (`,` or the page cycle):
 `l` cycles automatic/English/Russian; `t` toggles Omarchy-following/default theme;
 `0` restores both automatic choices. Changes are immediate and window-local;

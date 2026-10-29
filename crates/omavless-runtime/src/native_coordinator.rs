@@ -16,6 +16,7 @@ mod batch_admission;
 pub(crate) mod connection_admission;
 #[allow(dead_code)]
 pub(crate) mod connection_close;
+mod dns;
 mod onboarding;
 mod probe;
 mod profile_admission;
@@ -1430,10 +1431,25 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         let actual = self.actual();
         let desired_paths = self.transaction.desired_paths().clone();
         let uid = self.transaction.uid();
+        let template_path = self
+            .transaction
+            .store_path()
+            .parent()
+            .ok_or(NativeOwnerError::Invariant)?
+            .join("route-template.yaml");
         self.with_owned_private_store(|store| {
             let desired = crate::desired::read_desired_snapshot(&desired_paths, uid)
                 .map_err(|_| NativeOwnerError::Invariant)?;
-            Ok(crate::ui_snapshot::project(store, &desired, actual))
+            let mut snapshot = crate::ui_snapshot::project(store, &desired, actual);
+            snapshot["dns"]["source"] = serde_json::json!(match omavless_store::read_private_utf8(
+                &template_path,
+                uid
+            ) {
+                Ok(template) if crate::managed_template::dns_editable(&template) => "bundled",
+                Ok(_) => "custom",
+                Err(_) => "unavailable",
+            });
+            Ok(snapshot)
         })
     }
 
@@ -4847,6 +4863,90 @@ mod tests {
         store["onboardingComplete"] = json!(true);
         assert!(written == store);
         assert_eq!(owner.host().calls, calls);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn dns_store_only_save_replays_and_requires_settled_off_and_exact_bundle() {
+        let (root, store_path, mut owner) = fixture("dns-policy");
+        let template = store_path.parent().unwrap().join("route-template.yaml");
+        fs::write(&template, include_str!("../../../templates/default.yaml")).unwrap();
+        fs::set_permissions(&template, fs::Permissions::from_mode(0o600)).unwrap();
+        let before_desired = fs::read(root.join("state/omavless/desired.json")).unwrap();
+        let before_template = fs::read(&template).unwrap();
+        let before: Value = serde_json::from_slice(&fs::read(&store_path).unwrap()).unwrap();
+        let legacy_bytes = fs::read(&store_path).unwrap();
+        let default = profile_request(
+            "dns.configure",
+            json!({"preset":"preset-default","operationId":"dns-default-noop","expectedRevision":0}),
+        );
+        let (noop, _) = applied(owner.execute_dns(&default).unwrap());
+        assert_eq!(noop.revision, 0);
+        assert!(fs::read(&store_path).unwrap() == legacy_bytes);
+        let request = profile_request(
+            "dns.configure",
+            json!({"preset":"google","operationId":"dns-save","expectedRevision":0}),
+        );
+        let (cached, _) = applied(owner.execute_dns(&request).unwrap());
+        assert_eq!(cached.revision, 1);
+        // The only host operation is a read-only independent Off observation.
+        assert_eq!(owner.host().calls, 2);
+        assert_eq!(
+            owner.execute_dns(&request).unwrap(),
+            NativeOwnerExecution::Replay(cached)
+        );
+        assert_eq!(owner.host().calls, 2);
+        assert_eq!(
+            fs::read(root.join("state/omavless/desired.json")).unwrap(),
+            before_desired
+        );
+        assert_eq!(fs::read(&template).unwrap(), before_template);
+        let mut saved: Value = serde_json::from_slice(&fs::read(&store_path).unwrap()).unwrap();
+        assert_eq!(
+            saved.as_object_mut().unwrap().remove("dnsPreset"),
+            Some(json!("google"))
+        );
+        assert_eq!(saved, before);
+        let unchanged = fs::read(&store_path).unwrap();
+        let stale = profile_request(
+            "dns.configure",
+            json!({"preset":"cloudflare","operationId":"dns-stale","expectedRevision":0}),
+        );
+        assert!(matches!(
+            owner.execute_dns(&stale),
+            Err(NativeOwnerError::Coordinator(
+                crate::mutation::CoordinatorError::RevisionConflict
+            ))
+        ));
+        assert_eq!(fs::read(&store_path).unwrap(), unchanged);
+        fs::write(&template, b"# custom configuration\n").unwrap();
+        let custom = profile_request(
+            "dns.configure",
+            json!({"preset":"cloudflare","operationId":"dns-custom","expectedRevision":1}),
+        );
+        assert!(matches!(
+            owner.execute_dns(&custom).unwrap(),
+            NativeOwnerExecution::Applied {
+                outcome: Err(_),
+                ..
+            }
+        ));
+        assert_eq!(fs::read(&store_path).unwrap(), unchanged);
+        fs::write(&template, before_template).unwrap();
+        applied(owner.execute_connection(connect("dns-connect", 1)).unwrap());
+        let connected_store = fs::read(&store_path).unwrap();
+        let active = profile_request(
+            "dns.configure",
+            json!({"preset":"cloudflare","operationId":"dns-active","expectedRevision":2}),
+        );
+        assert!(matches!(
+            owner.execute_dns(&active).unwrap(),
+            NativeOwnerExecution::Applied {
+                outcome: Err(_),
+                ..
+            }
+        ));
+        assert!(fs::read(&store_path).unwrap() == connected_store);
         fs::remove_dir_all(root).unwrap();
     }
 

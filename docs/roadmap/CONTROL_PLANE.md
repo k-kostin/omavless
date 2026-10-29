@@ -742,6 +742,11 @@ It does not implement legacy QML status or switch the frontend. See
 
 ### Connection and routing methods
 
+The selected0.9.9 [user DNS preset candidate](../development/USER_DNS_PRESETS.md)
+adds enum-only `dns.configure` and private `ui.snapshot.dns` saved intent/template
+classification. It is an independently Off-gated store-only operation; arbitrary
+URLs, hot reload and privileged DNS policy are not part of this method.
+
 - `connection.connect` with opaque profile ID and optional mode;
 - `connection.disconnect`;
 - `routing.set_mode`;

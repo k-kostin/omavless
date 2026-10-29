@@ -39,6 +39,7 @@ pub(crate) fn project(store: &PrivateStore, desired: &DesiredState, actual: Actu
         "subscriptions":crate::subscription_list_json(&list)["subscriptions"],
         "startup":{"configured":projection.startup_configured,"enabled":startup.enabled,"target":startup.target,"profileId":startup.profile_id,"mode":startup.mode},
         "onboardingComplete":projection.onboarding_complete,
+        "dns":{"preset":store.dns_preset().id(),"source":"unavailable"},
         "routing":{"storedPreset":projection.routing_preset,"customRuleCount":projection.custom_rule_count}
     })
 }

@@ -765,6 +765,19 @@ impl App {
                 self.palette = self.settings.palette();
                 return Action::None;
             }
+            if self.page == crate::inspection::Page::Settings {
+                use omavless_domain::private_store::DnsPreset;
+                let dns = match key.code {
+                    KeyCode::Char('1') => Some(DnsPreset::PresetDefault),
+                    KeyCode::Char('2') => Some(DnsPreset::Google),
+                    KeyCode::Char('3') => Some(DnsPreset::Cloudflare),
+                    _ => None,
+                };
+                if let Some(preset) = dns {
+                    self.prepare(Kind::Dns(preset), None, now);
+                    return Action::None;
+                }
+            }
         }
         if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) && key.kind == KeyEventKind::Press {
             let next = self
@@ -1083,6 +1096,14 @@ impl App {
             && self.fresh(now)
             && self.snapshot.as_ref().is_some_and(|s| {
                 s.actions_available
+                    && (!matches!(kind, Kind::Dns(_))
+                        || (s.capabilities.dns
+                            && s.status() == Status::Disconnected
+                            && !s.metadata.desired.connected
+                            && s.metadata
+                                .dns
+                                .as_ref()
+                                .is_some_and(|dns| dns.source == crate::model::DnsSource::Bundled)))
                     && !matches!(
                         s.metadata.last_known_actual,
                         Actual::Starting | Actual::Stopping | Actual::Reconnecting

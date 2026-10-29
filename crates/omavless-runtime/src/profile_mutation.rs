@@ -199,6 +199,17 @@ pub(crate) fn prepare_startup_preferences(
     Ok(PreparedProfileMutation { prepared })
 }
 
+pub(crate) fn prepare_dns_preset(
+    store_path: &Path,
+    uid: u32,
+    preset: omavless_domain::private_store::DnsPreset,
+) -> Result<PreparedProfileMutation, ProfileMutationCommitError> {
+    let prepared = prepare_private_store_write(store_path, uid, |input| {
+        omavless_domain::private_store::apply_dns_preset(input, preset)
+    })?;
+    Ok(PreparedProfileMutation { prepared })
+}
+
 pub(crate) fn prepare_onboarding_completion(
     store_path: &Path,
     uid: u32,

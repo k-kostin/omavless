@@ -150,6 +150,13 @@ pub(crate) fn parse(request: &Value) -> Result<Action, MutationProtocolError> {
         .and_then(Value::as_str)
         .ok_or(InvalidArgument)?;
     let fields: &[&str] = match action {
+        "dns-configure" => &[
+            "instanceId",
+            "expectedRevision",
+            "operationId",
+            "action",
+            "preset",
+        ],
         "startup-configure" => &[
             "instanceId",
             "expectedRevision",
@@ -293,6 +300,7 @@ pub(crate) fn parse(request: &Value) -> Result<Action, MutationProtocolError> {
         "disconnect" => "connection.disconnect",
         "onboarding-complete" => "onboarding.complete",
         "startup-configure" => "startup.configure",
+        "dns-configure" => "dns.configure",
         "mode" => "routing.set_mode",
         "profile-rename" => "profiles.rename",
         "profile-favorite" => "profiles.favorite",
@@ -316,7 +324,9 @@ pub(crate) fn parse(request: &Value) -> Result<Action, MutationProtocolError> {
         let policy = mapped.remove("routeAction").ok_or(InvalidArgument)?;
         mapped.insert("action".into(), policy);
     }
-    if action == "startup-configure" {
+    if action == "dns-configure" {
+        crate::dns_protocol::parse(&canonical)?;
+    } else if action == "startup-configure" {
         crate::startup_protocol::parse_startup_request(&canonical)?;
     } else if action == "onboarding-complete" {
         crate::onboarding_protocol::parse(&canonical)?;
@@ -356,6 +366,7 @@ pub fn cli_input_limit(arguments: &[OsString]) -> Option<usize> {
     }
     match arguments[1].to_str()? {
         "startup-configure" => Some(64),
+        "dns-configure" => Some(32),
         "profile-rename" => {
             Some(36 + 1 + crate::profile_mutation_protocol::MAX_PROFILE_NAME_INPUT_BYTES + 1)
         }
@@ -390,6 +401,7 @@ pub fn cli_params(
                 "disconnect",
                 "onboarding-complete",
                 "startup-configure",
+                "dns-configure",
                 "mode",
                 "profile-rename",
                 "profile-favorite",
@@ -457,7 +469,8 @@ pub fn cli_params(
             | "routing-preset"
             | "custom-rule-add"
             | "custom-rule-delete"
-            | "startup-configure"),
+            | "startup-configure"
+            | "dns-configure"),
             instance,
             revision,
             operation,
@@ -475,7 +488,13 @@ pub fn cli_params(
     if let Some(mode) = mode {
         params["mode"] = json!(mode);
     }
-    if action == "startup-configure" {
+    if action == "dns-configure" {
+        let input = private_stdin.ok_or(crate::semantic_cli::SemanticCliError::MissingInput)?;
+        if input.len() > 32 {
+            return Err(crate::semantic_cli::SemanticCliError::InputTooLarge);
+        }
+        params["preset"] = json!(input.strip_suffix('\n').unwrap_or(input));
+    } else if action == "startup-configure" {
         let input = private_stdin.ok_or(crate::semantic_cli::SemanticCliError::MissingInput)?;
         if input.len() > 64 {
             return Err(crate::semantic_cli::SemanticCliError::InputTooLarge);

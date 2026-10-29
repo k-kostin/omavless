@@ -1712,9 +1712,12 @@ impl LifecycleHost for NativeLifecycleHost {
             .ok_or(HostStepError::Prepare)?;
         // Presets and portable archives store policy DATA, not this machine's
         // DNS enrollment. Apply selected-host flags only to the rendered copy.
-        let template =
-            crate::managed_template::for_host(&template, self.paths.managed_pair.is_some())
-                .ok_or(HostStepError::Prepare)?;
+        let template = crate::managed_template::for_host_with_dns(
+            &template,
+            self.paths.managed_pair.is_some(),
+            store.dns_preset(),
+        )
+        .ok_or(HostStepError::Prepare)?;
         let config = store
             .prepare_config_mode(
                 &desired.profile_id,

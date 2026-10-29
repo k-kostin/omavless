@@ -362,6 +362,12 @@ mod tests {
         const PROFILE: &str = "10000000-0000-4000-8000-000000000001";
         for target in ["last", "profile"] {
             let mut store: serde_json::Value = serde_json::from_slice(STORE).unwrap();
+            store["dnsPreset"] = if target == "last" {
+                "google"
+            } else {
+                "cloudflare"
+            }
+            .into();
             store["profiles"] = serde_json::json!([{
                 "id": PROFILE, "name": "Synthetic",
                 "uri": "vless://11111111-1111-4111-8111-111111111111@192.0.2.1:443?security=none&type=tcp#Synthetic",
@@ -387,6 +393,7 @@ mod tests {
             let restored = opened.restore_store_off().unwrap();
             let output: serde_json::Value = serde_json::from_slice(&restored).unwrap();
             assert_eq!(output["startup"]["enabled"], false);
+            assert_eq!(output["dnsPreset"], store["dnsPreset"]);
             assert_eq!(output["startup"]["target"], target);
             assert_eq!(
                 output["startup"]["profileId"],
@@ -400,6 +407,20 @@ mod tests {
         let encrypted = seal(STORE, TEMPLATE, PASSPHRASE).unwrap();
         let opened = open(&encrypted, PASSPHRASE).unwrap();
         assert_eq!(opened.restore_store_off().unwrap().as_slice(), STORE);
+    }
+
+    #[test]
+    fn dns_preference_survives_v4_encryption_and_restore_off() {
+        let mut store: serde_json::Value = serde_json::from_slice(STORE).unwrap();
+        store["version"] = 4.into();
+        store["dnsPreset"] = "cloudflare".into();
+        let input = store.to_string();
+        let encrypted = seal(input.as_bytes(), TEMPLATE, PASSPHRASE).unwrap();
+        let opened = open(&encrypted, PASSPHRASE).unwrap();
+        assert!(opened.store() == input.as_bytes());
+        assert!(opened.template() == TEMPLATE);
+        let restored = opened.restore_store_off().unwrap();
+        assert!(restored.as_slice() == input.as_bytes());
     }
 
     #[test]

@@ -84,6 +84,7 @@ impl Event {
             Self::Submitted(Kind::Disconnect) => "tui.event_disconnect_request",
             Self::Submitted(Kind::Mode) => "tui.event_mode_request",
             Self::Submitted(Kind::RefreshSubscription) => "tui.event_refresh_request",
+            Self::Submitted(Kind::Dns(_)) => "tui.event_dns_request",
             Self::Retried => "tui.event_retry",
             Self::Applied => "tui.event_applied",
             Self::Rejected | Self::Refused(_) => "tui.event_rejected",
