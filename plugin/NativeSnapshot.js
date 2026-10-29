@@ -339,6 +339,46 @@ function pingWindow(samples) {
     loss:samples.length ? Math.round(lost * 100 / samples.length) : null}
 }
 
+function statisticsInteger(value) {
+  return typeof value === "string" && /^(0|[1-9][0-9]{0,19})$/.test(value)
+    && (value.length < 20 || value <= "18446744073709551615")
+}
+function statisticsBytes(value, locale) {
+  if (!statisticsInteger(value)) return "--"
+  return value.replace(/\B(?=(\d{3})+(?!\d))/g, locale === "ru" ? "\u00a0" : ",")
+}
+function statisticsSince(value) {
+  if (!number(value, 253402300799) || value === 0) return ""
+  return new Date(value * 1000).toISOString().slice(0, 16).replace("T", " ") + " UTC"
+}
+function parseStatistics(raw, context) {
+  try {
+    var p = envelope(raw)
+    if (!p || p.ok !== true || !context || p.revision !== context.revision) return null
+    var r = p.result
+    var common = ["schemaVersion", "scope", "availability", "instanceId"]
+    var control = context.operationId ? ["operationId"] : []
+    if (!r || r.schemaVersion !== 1 || r.scope !== "private_recorded_tun_bytes" || r.instanceId !== context.instanceId
+        || (context.operationId && r.operationId !== context.operationId)) return null
+    if (r.availability === "unavailable") return object(r, common) && !context.operationId ? {available:false} : null
+    if (!object(r, common.concat(control, ["enabled", "periodStartedAtUtc", "receivedBytes", "sentBytes", "partial", "controlRevision"]))
+        || ["recorded", "overflow"].indexOf(r.availability) < 0 || typeof r.enabled !== "boolean" || typeof r.partial !== "boolean"
+        || !number(r.periodStartedAtUtc, 253402300799) || !number(r.controlRevision, 9007199254740991)
+        || !statisticsInteger(r.receivedBytes) || !statisticsInteger(r.sentBytes)
+        || (r.periodStartedAtUtc === 0 && (r.enabled || r.partial || r.receivedBytes !== "0" || r.sentBytes !== "0"))
+        || (r.availability === "overflow" && !r.partial)) return null
+    return {available:true, instanceId:r.instanceId, ownerRevision:p.revision, enabled:r.enabled, since:r.periodStartedAtUtc, received:r.receivedBytes, sent:r.sentBytes,
+      partial:r.partial, overflow:r.availability === "overflow", revision:r.controlRevision}
+  } catch (_) { return null }
+}
+function statisticsError(raw) {
+  try {
+    var p = envelope(raw)
+    if (!p || p.ok !== false || !p.error || ["busy", "conflict", "daemon_restarting", "capability_unavailable", "invalid_argument"].indexOf(p.error.code) < 0) return "stats.unconfirmed"
+    return "error." + p.error.code
+  } catch (_) { return "stats.unconfirmed" }
+}
+
 function parseTraffic(raw, context) {
   try {
     var p = envelope(raw)

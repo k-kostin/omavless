@@ -21,6 +21,7 @@ pub mod private_import;
 pub mod private_restore;
 pub mod route_inspection;
 pub mod settings;
+pub mod statistics;
 pub mod subscription_usage;
 pub mod theme;
 pub mod traffic_history;
@@ -29,6 +30,12 @@ pub mod view;
 use app::{Action, App};
 pub type ImportAdapter =
     Box<dyn FnMut(private_import::Request) -> private_import::Completion + Send>;
+pub type StatisticsAdapter = Box<dyn FnMut(statistics::Request) -> statistics::Completion + Send>;
+#[derive(Default)]
+pub struct ClientTools {
+    pub import: Option<ImportAdapter>,
+    pub statistics: Option<StatisticsAdapter>,
+}
 use client::Read;
 use model::ReadError;
 use ratatui::crossterm::event::{self, Event};
@@ -116,7 +123,7 @@ pub fn run(
         None::<fn(&jobs::Call) -> Result<Value, ReadError>>,
         None,
         None,
-        None,
+        ClientTools::default(),
         false,
     )
 }
@@ -133,7 +140,7 @@ pub fn run_actions(
         None::<fn(&jobs::Call) -> Result<Value, ReadError>>,
         None,
         None,
-        None,
+        ClientTools::default(),
         false,
     )
 }
@@ -143,9 +150,9 @@ pub fn run_full(
     read: impl FnMut(Read) -> Result<Value, ReadError> + Send + 'static,
     mutate: impl FnMut(&actions::Request) -> Result<Value, ReadError> + Send + 'static,
     jobs: impl FnMut(&jobs::Call) -> Result<Value, ReadError> + Send + 'static,
-    import: Option<ImportAdapter>,
+    tools: ClientTools,
 ) -> Result<(), &'static str> {
-    run_client(read, Some(mutate), Some(jobs), None, None, import, false)
+    run_client(read, Some(mutate), Some(jobs), None, None, tools, false)
 }
 
 /// Explicit opt-in client only. Backup callback has one fixed semantic method;
@@ -156,7 +163,7 @@ pub fn run_full_private_backup(
     mutate: impl FnMut(&actions::Request) -> Result<Value, ReadError> + Send + 'static,
     jobs: impl FnMut(&jobs::Call) -> Result<Value, ReadError> + Send + 'static,
     backup: impl FnMut(private_backup::Request) -> private_backup::Completion + Send + 'static,
-    import: Option<ImportAdapter>,
+    tools: ClientTools,
 ) -> Result<(), &'static str> {
     run_client(
         read,
@@ -164,7 +171,7 @@ pub fn run_full_private_backup(
         Some(jobs),
         Some(Box::new(backup)),
         None,
-        import,
+        tools,
         false,
     )
 }
@@ -177,7 +184,7 @@ pub fn run_full_private_restore(
     jobs: impl FnMut(&jobs::Call) -> Result<Value, ReadError> + Send + 'static,
     backup: impl FnMut(private_backup::Request) -> private_backup::Completion + Send + 'static,
     restore: impl FnMut(private_restore::Request) -> private_restore::Completion + Send + 'static,
-    import: Option<ImportAdapter>,
+    tools: ClientTools,
     recovery: bool,
 ) -> Result<(), &'static str> {
     run_client(
@@ -186,7 +193,7 @@ pub fn run_full_private_restore(
         Some(jobs),
         Some(Box::new(backup)),
         Some(Box::new(restore)),
-        import,
+        tools,
         recovery,
     )
 }
@@ -197,9 +204,10 @@ fn run_client(
     jobs: Option<impl FnMut(&jobs::Call) -> Result<Value, ReadError> + Send + 'static>,
     _backup: Option<BackupAdapter>,
     _restore: Option<RestoreAdapter>,
-    import: Option<ImportAdapter>,
+    tools: ClientTools,
     _recovery: bool,
 ) -> Result<(), &'static str> {
+    let ClientTools { import, statistics } = tools;
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         return Err("OmaVLESS TUI requires an interactive terminal");
     }
@@ -379,6 +387,21 @@ fn run_client(
             })
             .map_err(|_| "Could not start terminal job client")?;
     }
+    let (statistics_calls, statistics_requests) = mpsc::sync_channel::<statistics::Request>(1);
+    let (statistics_results, statistics_responses) = mpsc::sync_channel(1);
+    if let Some(mut statistics) = statistics {
+        app.statistics_enabled = true;
+        thread::Builder::new()
+            .name("tui-statistics".into())
+            .spawn(move || {
+                while let Ok(request) = statistics_requests.recv() {
+                    if statistics_results.send(statistics(request)).is_err() {
+                        break;
+                    }
+                }
+            })
+            .map_err(|_| "Could not start statistics client")?;
+    }
     let (submit, submissions) = mpsc::sync_channel::<actions::Request>(1);
     let (finished, finishes) = mpsc::sync_channel(1);
     if let Some(mut mutate) = mutate {
@@ -439,6 +462,10 @@ fn run_client(
         if let Ok(palette) = palette_updates.try_recv() {
             app.update_palette(palette);
         }
+        if let Ok(completion) = statistics_responses.try_recv() {
+            app.finish_statistics(completion, now);
+            due = now;
+        }
         if let Ok(outcome) = finishes.try_recv() {
             app.finish(outcome, now);
             due = now;
@@ -495,6 +522,15 @@ fn run_client(
                 Action::Close => break,
                 Action::Refresh => due = Instant::now(),
                 Action::None => {}
+                Action::SubmitStatistics => {
+                    if let Some(request) = app.take_statistics_request()
+                        && let Err(error) = statistics_calls.try_send(request)
+                    {
+                        let (mpsc::TrySendError::Full(request)
+                        | mpsc::TrySendError::Disconnected(request)) = error;
+                        app.finish_statistics(request.not_sent(), now);
+                    }
+                }
                 Action::SubmitImport => {
                     if let Some(request) = app.take_import_request()
                         && let Err(error) = import_calls.try_send(request)

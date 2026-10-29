@@ -1125,6 +1125,48 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         Ok(response)
     }
 
+    pub(crate) fn stats_off_context(
+        &self,
+        capture: &crate::traffic_statistics::collection::Capture,
+    ) -> Option<crate::native_host::StatsOffContext> {
+        if !matches!(self.ownership, ProductionOwnership::Committed { .. }) {
+            return None;
+        }
+        self.coordinator.stats_off_context(capture)
+    }
+    pub(crate) fn stats_off_current(
+        &self,
+        capture: &crate::traffic_statistics::collection::Capture,
+    ) -> bool {
+        matches!(self.ownership, ProductionOwnership::Committed { .. })
+            && self.coordinator.stats_off_current(capture)
+    }
+    pub(crate) fn stats_capture(&self) -> Option<crate::traffic_statistics::collection::Capture> {
+        if !matches!(self.ownership, ProductionOwnership::Committed { .. }) {
+            return None;
+        }
+        self.coordinator.stats_capture()
+    }
+    pub(crate) fn stats_context(
+        &self,
+        capture: &crate::traffic_statistics::collection::Capture,
+        desired: &crate::desired::DesiredState,
+    ) -> Option<crate::native_host::StatsReadContext> {
+        if !matches!(self.ownership, ProductionOwnership::Committed { .. }) {
+            return None;
+        }
+        self.coordinator.stats_context(capture, desired)
+    }
+    pub(crate) fn stats_current(
+        &self,
+        capture: &crate::traffic_statistics::collection::Capture,
+        desired: &crate::desired::DesiredState,
+        context: &crate::native_host::StatsReadContext,
+    ) -> bool {
+        matches!(self.ownership, ProductionOwnership::Committed { .. })
+            && self.coordinator.stats_current(capture, desired, context)
+    }
+
     pub(crate) fn traffic(&mut self, request: &Value) -> Result<Value, ProtocolError> {
         crate::native_dispatch::respond_to_traffic(&mut self.coordinator, request)
     }

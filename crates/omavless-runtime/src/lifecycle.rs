@@ -187,6 +187,28 @@ pub trait LifecycleHost {
     ) -> Result<crate::tun_ping::Binding, HostStepError> {
         Err(HostStepError::Observation)
     }
+    fn statistics_off_context(&self) -> Option<crate::native_host::StatsOffContext> {
+        None
+    }
+    fn statistics_off_current(&self) -> bool {
+        false
+    }
+
+    /// Internal detached-reader capture; implementations must perform no I/O.
+    fn statistics_context(
+        &self,
+        _desired: &DesiredState,
+    ) -> Option<crate::native_host::StatsReadContext> {
+        None
+    }
+    fn statistics_context_current(
+        &self,
+        _desired: &DesiredState,
+        _context: &crate::native_host::StatsReadContext,
+    ) -> bool {
+        false
+    }
+
     fn traffic_counters(
         &mut self,
         _desired: &DesiredState,

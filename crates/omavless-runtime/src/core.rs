@@ -69,11 +69,42 @@ fn executable(path: &Path) -> bool {
         .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
 }
 
+/// Read-only revocation, separate from conditional Close authority. The gate
+/// covers ONLY a nonblocking socket write; never connect, read, filesystem I/O
+/// or waiting. The child cannot be reaped until revoke has crossed this gate.
+#[derive(Default)]
+pub(crate) struct ReadLifetime(std::sync::Mutex<bool>);
+impl ReadLifetime {
+    pub(crate) fn revoke(&self) {
+        if let Ok(mut revoked) = self.0.lock() {
+            *revoked = true;
+        }
+    }
+    pub(crate) fn live(&self) -> bool {
+        self.0.lock().is_ok_and(|revoked| !*revoked)
+    }
+    pub(crate) fn write(
+        &self,
+        stream: &mut std::os::unix::net::UnixStream,
+        bytes: &[u8],
+    ) -> Option<usize> {
+        use std::io::Write;
+        stream.set_nonblocking(true).ok()?;
+        let revoked = self.0.lock().ok()?;
+        if *revoked {
+            return None;
+        }
+        // Caller must keep this stream nonblocking for the lifetime of this call.
+        stream.write(bytes).ok()
+    }
+}
+
 pub struct OwnedCore {
     child: Option<Child>,
     controller_socket: PathBuf,
     diagnostics: crate::core_diagnostics::Capture,
     conditional_lifetime: Option<Arc<crate::conditional_close_candidate::Lifetime>>,
+    read_lifetime: Arc<ReadLifetime>,
 }
 
 impl OwnedCore {
@@ -112,6 +143,7 @@ impl OwnedCore {
             controller_socket: controller_socket.to_owned(),
             diagnostics,
             conditional_lifetime: None,
+            read_lifetime: Arc::new(ReadLifetime::default()),
         })
     }
 
@@ -122,6 +154,10 @@ impl OwnedCore {
     #[must_use]
     pub fn pid(&self) -> Option<u32> {
         self.child.as_ref().map(Child::id)
+    }
+
+    pub(crate) fn read_lifetime(&self) -> Arc<ReadLifetime> {
+        Arc::clone(&self.read_lifetime)
     }
 
     pub(crate) fn controller_path(&self) -> &Path {
@@ -162,6 +198,9 @@ impl OwnedCore {
             && let Some(lifetime) = &self.conditional_lifetime
         {
             lifetime.revoke();
+        }
+        if !matches!(observation, Ok(true)) {
+            self.read_lifetime.revoke();
         }
         observation
     }
@@ -260,6 +299,7 @@ impl OwnedCore {
         if timeout.is_zero() || timeout > Duration::from_secs(60) {
             return Err(CoreError::InvalidArgument);
         }
+        self.read_lifetime.revoke();
         if let Some(lifetime) = &self.conditional_lifetime {
             lifetime.revoke();
         }

@@ -70,6 +70,20 @@ if command -v omavless >/dev/null 2>&1; then
           shift
           exec omavless plugin startup-configure "$@"
           ;;
+        native-statistics-get)
+          [ "$#" -eq 1 ] || blocked
+          exec omavless stats get
+          ;;
+        native-statistics-configure)
+          [ "$#" -eq 6 ] || blocked
+          shift
+          exec omavless stats configure "$@"
+          ;;
+        native-statistics-reset)
+          [ "$#" -eq 5 ] || blocked
+          shift
+          exec omavless stats reset "$@"
+          ;;
         native-dns-configure)
           [ "$#" -eq 4 ] || blocked
           shift

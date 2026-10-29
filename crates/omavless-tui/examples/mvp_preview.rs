@@ -80,7 +80,7 @@ fn main() {
                 "progress":{"completed":if terminal && !cancelled {total}else{0},"total":total},
                 "cancelRequested":cancelled,"cancellable":!terminal,"error":null}}}))
         },
-        None,
+        omavless_tui::ClientTools::default(),
     );
     if result.is_err() {
         eprintln!("Synthetic TUI unavailable");

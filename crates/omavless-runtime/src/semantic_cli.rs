@@ -72,6 +72,10 @@ pub fn parse_semantic_read(
 ) -> Result<Option<SemanticRequest>, SemanticCliError> {
     let arguments = utf8(arguments)?;
     Ok(match arguments.as_slice() {
+        ["stats", "get"] => Some(SemanticRequest {
+            method: "stats.get",
+            params: json!({}),
+        }),
         ["runtime", "traffic"] => Some(SemanticRequest {
             method: "runtime.traffic",
             params: json!({}),
@@ -253,6 +257,31 @@ pub fn parse_semantic_profile_replace(
     Ok(request)
 }
 
+fn stats_request(
+    method: &'static str,
+    instance: &str,
+    owner: &str,
+    stats: &str,
+    operation: &str,
+    enabled: Option<bool>,
+) -> Result<SemanticRequest, SemanticCliError> {
+    let owner = owner
+        .parse::<u64>()
+        .map_err(|_| SemanticCliError::InvalidArgument)?;
+    let stats = stats
+        .parse::<u64>()
+        .map_err(|_| SemanticCliError::InvalidArgument)?;
+    let mut params = json!({"instanceId":instance,"expectedRevision":owner,"statisticsRevision":stats,"operationId":operation});
+    if let Some(enabled) = enabled {
+        params["enabled"] = enabled.into();
+    }
+    let request = omavless_control_protocol::make_request("stats", method, params.clone())
+        .map_err(|_| SemanticCliError::InvalidArgument)?;
+    crate::traffic_statistics::protocol::parse(&request)
+        .map_err(|_| SemanticCliError::InvalidArgument)?;
+    Ok(SemanticRequest { method, params })
+}
+
 // Correlation IDs are non-credential identifiers supplied by hello/the caller.
 // Reuse the exact protocol parser; never accept a generic method or JSON argv.
 fn long_request(
@@ -352,6 +381,32 @@ pub fn parse_semantic_mutation(
 ) -> Result<SemanticRequest, SemanticCliError> {
     let arguments = utf8(arguments)?;
     match arguments.as_slice() {
+        [
+            "stats",
+            "configure",
+            instance,
+            owner,
+            stats,
+            operation,
+            enabled,
+        ] => {
+            let enabled = match *enabled {
+                "on" => true,
+                "off" => false,
+                _ => return Err(SemanticCliError::InvalidArgument),
+            };
+            stats_request(
+                "stats.configure",
+                instance,
+                owner,
+                stats,
+                operation,
+                Some(enabled),
+            )
+        }
+        ["stats", "reset", instance, owner, stats, operation] => {
+            stats_request("stats.reset", instance, owner, stats, operation, None)
+        }
         ["onboarding", "complete"] => Ok(SemanticRequest {
             method: "onboarding.complete",
             params: json!({}),
@@ -564,6 +619,44 @@ mod tests {
 
     fn args(values: &[&str]) -> Vec<OsString> {
         values.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn statistics_cli_has_only_fixed_get_configure_reset_and_validated_metadata() {
+        let get = parse_semantic_read(&args(&["stats", "get"]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(get.into_parts().0, "stats.get");
+        let set = parse_semantic_mutation(
+            &args(&["stats", "configure", "runtime", "7", "2", "operation", "on"]),
+            None,
+        )
+        .unwrap();
+        let (method, params) = set.into_parts();
+        assert_eq!(method, "stats.configure");
+        assert_eq!(params["enabled"], true);
+        assert_eq!(params["statisticsRevision"], 2);
+        let reset = parse_semantic_mutation(
+            &args(&["stats", "reset", "runtime", "7", "2", "reset-op"]),
+            None,
+        )
+        .unwrap();
+        assert_eq!(reset.into_parts().0, "stats.reset");
+        for argv in [
+            vec![
+                "stats",
+                "configure",
+                "runtime",
+                "7",
+                "2",
+                "operation",
+                "true",
+            ],
+            vec!["stats", "reset", "runtime", "7", "-1", "reset"],
+            vec!["stats", "reset", "runtime", "7", "2", "reset", "extra"],
+        ] {
+            assert!(parse_semantic_mutation(&args(&argv), None).is_err());
+        }
     }
 
     #[test]

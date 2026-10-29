@@ -10,6 +10,7 @@ pub enum Read {
     Snapshot,
     Observation,
     Traffic,
+    Statistics,
     Diagnostics,
     Rules,
     Providers,
@@ -61,6 +62,7 @@ impl Read {
             Self::Snapshot => "ui.snapshot",
             Self::Observation => "runtime.observation",
             Self::Traffic => "runtime.traffic",
+            Self::Statistics => "stats.get",
             Self::Diagnostics => "diagnostics.summary",
             Self::Rules => "diagnostics.rules",
             Self::Providers => "diagnostics.providers",
@@ -208,10 +210,17 @@ pub fn load_page_for_route(
             Err(_) => crate::route_inspection::Status::Unavailable,
         }
     });
+    let statistics = if page == Page::Traffic && methods.iter().any(|m| m == "stats.get") {
+        read(Read::Statistics).ok()
+    } else {
+        None
+    };
     let observed = success(read(Read::Observation)?)?;
     let mut snapshot = Snapshot::parse(&meta, &observed, instance)?;
     snapshot.actions_available = methods.iter().any(|m| m == "plugin.action");
     snapshot.capabilities = Capabilities::parse(methods);
+    snapshot.statistics = statistics
+        .and_then(|value| crate::statistics::Data::parse(&value, instance, snapshot.revision));
     if let Some(value) = connections {
         if value["ok"] == true
             && (value["revision"].as_u64() != Some(snapshot.revision)

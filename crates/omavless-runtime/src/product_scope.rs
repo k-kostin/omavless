@@ -15,7 +15,10 @@ pub(crate) fn method_disabled(method: &str) -> bool {
     backup_only()
         && matches!(
             method,
-            "backup.restore"
+            "stats.get"
+                | "stats.configure"
+                | "stats.reset"
+                | "backup.restore"
                 | "backup.preview"
                 | "backup.restore_previewed"
                 | "developer.restore_current"

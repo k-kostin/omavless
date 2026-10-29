@@ -100,6 +100,21 @@ fn consumer_recovery_tui_entry(arguments: &[std::ffi::OsString]) -> bool {
 }
 
 #[cfg(feature = "tui")]
+fn tui_client_tools() -> Result<omavless_tui::ClientTools, CliError> {
+    let paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+    Ok(omavless_tui::ClientTools {
+        import: Some(tui_import_adapter()?),
+        statistics: Some(Box::new(
+            move |request: omavless_tui::statistics::Request| {
+                let result = call(&paths, request.method(), request.params())
+                    .map_err(|_| omavless_tui::model::ReadError::Unavailable);
+                request.settle(result)
+            },
+        )),
+    })
+}
+
+#[cfg(feature = "tui")]
 fn tui_import_adapter() -> Result<omavless_tui::ImportAdapter, CliError> {
     let paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
     Ok(Box::new(move |request| {
@@ -353,7 +368,7 @@ fn run() -> Result<(), CliError> {
                         omavless_runtime::private_pair_api::restore_for_tui(&restore_paths, request)
                     }
                 },
-                Some(tui_import_adapter()?),
+                tui_client_tools()?,
                 consumer_recovery_tui_entry(&arguments),
             )
             .map_err(CliError::Terminal);
@@ -374,7 +389,7 @@ fn run() -> Result<(), CliError> {
             move |request| {
                 omavless_runtime::private_pair_api::create_for_tui(&backup_paths, request)
             },
-            Some(tui_import_adapter()?),
+            tui_client_tools()?,
         )
         .map_err(CliError::Terminal);
     }
@@ -396,7 +411,7 @@ fn run() -> Result<(), CliError> {
                 call(&job_paths, request.method(), request.params())
                     .map_err(|_| omavless_tui::model::ReadError::Unavailable)
             },
-            Some(tui_import_adapter()?),
+            tui_client_tools()?,
         )
         .map_err(CliError::Terminal);
     }

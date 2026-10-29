@@ -60,6 +60,13 @@ pub struct App {
     pub selected_subscription: Option<String>,
     pub subscription_selection_moved: bool,
     pub usage_request: Option<crate::subscription_usage::Request>,
+    pub statistics_enabled: bool,
+    pub statistics_pending: Option<crate::statistics::Request>,
+    pub statistics_unknown: bool,
+    pub statistics_error: &'static str,
+    statistics_queued: Option<crate::statistics::Request>,
+    statistics_minimum_sample: Option<Instant>,
+    statistics_ack_after: Option<Instant>,
     pub usage_result: Option<crate::subscription_usage::Status>,
     usage_context: Option<crate::subscription_usage::Request>,
     /// Latest attempt per subscription in this window, not persisted/provider history.
@@ -97,6 +104,7 @@ pub struct App {
 }
 pub enum Confirmation {
     Job(crate::job_ui::Intent),
+    Statistics(crate::statistics::Review),
     CancelJob,
     New(Command),
     Retry,
@@ -105,6 +113,7 @@ pub enum Confirmation {
 #[derive(PartialEq, Eq, Debug)]
 pub enum Action {
     SubmitImport,
+    SubmitStatistics,
     #[cfg(feature = "private-backup")]
     SubmitRestore,
     #[cfg(feature = "private-backup")]
@@ -238,6 +247,13 @@ impl App {
             selected_subscription: None,
             subscription_selection_moved: false,
             usage_request: None,
+            statistics_enabled: false,
+            statistics_pending: None,
+            statistics_unknown: false,
+            statistics_error: "",
+            statistics_queued: None,
+            statistics_minimum_sample: None,
+            statistics_ack_after: None,
             usage_result: None,
             usage_context: None,
             subscription_attempts: std::collections::BTreeMap::new(),
@@ -281,7 +297,29 @@ impl App {
             result = Err(ReadError::Changed);
         }
         match result {
-            Ok(next) => {
+            Ok(mut next) => {
+                if self
+                    .statistics_minimum_sample
+                    .is_some_and(|minimum| started < minimum)
+                {
+                    next.statistics = None;
+                } else if next.statistics.is_some() {
+                    self.statistics_minimum_sample = None;
+                    if self
+                        .statistics_ack_after
+                        .is_some_and(|after| started >= after)
+                    {
+                        self.statistics_unknown = false;
+                        self.statistics_error = "";
+                        self.statistics_ack_after = None;
+                    }
+                }
+                if let Some(Confirmation::Statistics(review)) = &self.confirmation
+                    && !review.matches(&next)
+                {
+                    self.confirmation = None;
+                    self.statistics_error = "error.conflict";
+                }
                 if self
                     .accepted
                     .as_ref()
@@ -570,7 +608,11 @@ impl App {
                     // Held keys must not both open and confirm a network action.
                     let operation = if matches!(
                         self.confirmation,
-                        Some(Confirmation::New(_) | Confirmation::Job(_))
+                        Some(
+                            Confirmation::New(_)
+                                | Confirmation::Job(_)
+                                | Confirmation::Statistics(_)
+                        )
                     ) {
                         actions::operation_id()
                     } else {
@@ -777,6 +819,34 @@ impl App {
                     self.prepare(Kind::Dns(preset), None, now);
                     return Action::None;
                 }
+            }
+        }
+        if self.page == crate::inspection::Page::Traffic
+            && key.kind == KeyEventKind::Press
+            && key.modifiers.is_empty()
+        {
+            match key.code {
+                KeyCode::Char('e' | 'x') => {
+                    if self.statistics_can_change(now)
+                        && let Some(snapshot) = &self.snapshot
+                    {
+                        let control = if key.code == KeyCode::Char('x') {
+                            crate::statistics::Control::Reset
+                        } else {
+                            crate::statistics::Control::Set(
+                                !snapshot.statistics.as_ref().unwrap().enabled,
+                            )
+                        };
+                        self.confirmation = crate::statistics::Review::new(snapshot, control)
+                            .map(Confirmation::Statistics);
+                    }
+                    return Action::None;
+                }
+                KeyCode::Char('r') => {
+                    self.statistics_ack_after = Some(now);
+                    return Action::Refresh;
+                }
+                _ => {}
             }
         }
         if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) && key.kind == KeyEventKind::Press {
@@ -1084,6 +1154,40 @@ impl App {
             _ => {}
         }
         Action::None
+    }
+
+    pub fn statistics_can_change(&self, now: Instant) -> bool {
+        self.statistics_enabled
+            && !self.unknown
+            && !self.running
+            && !self.statistics_unknown
+            && self.statistics_pending.is_none()
+            && self.statistics_minimum_sample.is_none()
+            && self.eligible(Kind::Mode, now)
+            && self.snapshot.as_ref().is_some_and(|s| {
+                s.capabilities.statistics
+                    && s.status() == Status::Disconnected
+                    && s.statistics.is_some()
+            })
+    }
+    pub fn take_statistics_request(&mut self) -> Option<crate::statistics::Request> {
+        self.statistics_queued.take()
+    }
+    pub fn finish_statistics(&mut self, completion: crate::statistics::Completion, now: Instant) {
+        if !self
+            .statistics_pending
+            .as_ref()
+            .is_some_and(|request| request.same(&completion.request))
+        {
+            return;
+        }
+        self.statistics_pending = None;
+        self.statistics_unknown = completion.unknown;
+        self.statistics_error = completion.error;
+        self.statistics_minimum_sample = Some(now);
+        if let Some(snapshot) = &mut self.snapshot {
+            snapshot.statistics = None;
+        }
     }
 
     fn eligible(&self, kind: Kind, now: Instant) -> bool {
@@ -1558,6 +1662,21 @@ impl App {
             return Action::None;
         };
         match confirmation {
+            Confirmation::Statistics(review) => {
+                if !self.statistics_can_change(now)
+                    || !self.snapshot.as_ref().is_some_and(|s| review.matches(s))
+                {
+                    self.statistics_error = "error.conflict";
+                    return Action::None;
+                }
+                let Some(request) = crate::statistics::Request::new(review, operation) else {
+                    return Action::None;
+                };
+                self.statistics_pending = Some(request.clone());
+                self.statistics_queued = Some(request);
+                self.statistics_error = "";
+                return Action::SubmitStatistics;
+            }
             Confirmation::Job(intent) => {
                 if !self.jobs_enabled
                     || !self.eligible(Kind::RefreshSubscription, now)

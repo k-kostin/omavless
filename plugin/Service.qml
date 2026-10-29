@@ -1617,6 +1617,93 @@ Item {
   // devices — readable without privilege. This is activity, not health:
   // A proxy profile has no connection state, and a tunnel that is silent is not
   // thereby broken. Sampled on a short timer only while the panel is open.
+  // Persistent statistics have their own pending/read state. They never
+  // occupy nativePending or hide ordinary Disconnect/Full Quit admission.
+  property bool nativeStatisticsVisible: false
+  property var nativeStatisticsFact: null
+  property var nativeStatisticsPending: null
+  property string nativeStatisticsError: ""
+  property var _nativeStatisticsRead: null
+  property int _nativeStatisticsGeneration: 0
+  readonly property bool nativeStatisticsEligible: nativeOwner && nativeFactsCurrent && nativeStatisticsVisible && !nativeQuitting
+  readonly property bool nativeStatisticsCurrent: nativeFactsCurrent && nativeStatisticsFact !== null && nativeStatisticsFact.available
+    && nativeStatisticsFact.instanceId === nativeSnapshot.instanceId && nativeStatisticsFact.ownerRevision === nativeSnapshot.revision
+  readonly property bool nativeCanSaveStatistics: nativeCanAct && !nativeActionRunning && !nativeOutcomeUnknown && !nativeBatchBusy
+    && nativeStatisticsCurrent && nativeStatisticsPending === null
+    && nativeStatisticsError !== "stats.unconfirmed" && !nativeSnapshot.desired.connected && nativeSnapshot.lastKnownActual === "disconnected"
+    && NativePresentation.project(nativeSnapshot, nativeObservation, nativeSnapshotFailed, nativePending, nativeOutcomeUnknown).state === "disconnected"
+  function statisticsContextCurrent(context) {
+    return !!(context && nativeFactsCurrent && context.instanceId === nativeSnapshot.instanceId && context.revision === nativeSnapshot.revision)
+  }
+  onNativeStatisticsEligibleChanged: {
+    _nativeStatisticsGeneration++
+    nativeStatisticsFact = null
+    if (_nativeStatisticsRead !== null) _nativeStatisticsRead.running = false
+    if (nativeStatisticsEligible) readNativeStatistics(false)
+  }
+  function readNativeStatistics(acknowledge) {
+    if (!nativeStatisticsEligible || _nativeStatisticsRead !== null || nativeStatisticsPending !== null) return false
+    var context = {generation:_nativeStatisticsGeneration, instanceId:nativeSnapshot.instanceId,
+      revision:nativeSnapshot.revision, acknowledge:!!acknowledge}
+    _nativeStatisticsRead = nativeStatisticsComponent.createObject(root, {context:context,
+      command:["bash", backendPath, "native-statistics-get"]})
+    if (!_nativeStatisticsRead) { nativeStatisticsFact = null; return false }
+    _nativeStatisticsRead.running = true
+    return true
+  }
+  function requestNativeStatistics(action, reviewedRevision) {
+    if (!nativeCanSaveStatistics || ["on", "off", "reset"].indexOf(action) < 0
+        || reviewedRevision !== nativeStatisticsFact.revision) return false
+    var operation = "qml-stats-" + Date.now().toString(36) + "-" + (++_nativeOperationSerial).toString(36)
+    var context = {instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision, operationId:operation}
+    var command = ["bash", backendPath, action === "reset" ? "native-statistics-reset" : "native-statistics-configure",
+      context.instanceId, String(context.revision), String(reviewedRevision), operation]
+    if (action !== "reset") command.push(action)
+    var process = nativeStatisticsComponent.createObject(root, {context:context, mutation:true, command:command})
+    if (!process) { nativeStatisticsError = "stats.unavailable"; return false }
+    _nativeStatisticsGeneration++
+    if (_nativeStatisticsRead !== null) _nativeStatisticsRead.running = false
+    nativeStatisticsError = ""
+    nativeStatisticsPending = process
+    process.running = true
+    return true
+  }
+  function finishNativeStatistics(process, code, output) {
+    if (process.mutation) {
+      if (nativeStatisticsPending !== process) return false
+      nativeStatisticsPending = null
+      var parsed = code === 0 && statisticsContextCurrent(process.context) ? NativeSnapshot.parseStatistics(output, process.context) : null
+      if (parsed && parsed.available && (!nativeStatisticsFact || !nativeStatisticsFact.available || nativeStatisticsFact.instanceId !== parsed.instanceId || parsed.revision >= nativeStatisticsFact.revision)) {
+        nativeStatisticsFact = parsed; nativeStatisticsError = ""; return true
+      }
+      nativeStatisticsFact = null
+      nativeStatisticsError = NativeSnapshot.statisticsError(output)
+      return false
+    }
+    if (_nativeStatisticsRead !== process) return false
+    _nativeStatisticsRead = null
+    var context = process.context
+    if (context.generation !== _nativeStatisticsGeneration || !nativeStatisticsEligible || !statisticsContextCurrent(context)) return false
+    var value = code === 0 ? NativeSnapshot.parseStatistics(output, context) : null
+    if (value && value.available && nativeStatisticsFact && nativeStatisticsFact.available && nativeStatisticsFact.instanceId === value.instanceId && value.revision < nativeStatisticsFact.revision) return false
+    nativeStatisticsFact = value
+    if (value && value.available && (context.acknowledge || nativeStatisticsError !== "stats.unconfirmed")) nativeStatisticsError = ""
+    return !!value
+  }
+  Component {
+    id: nativeStatisticsComponent
+    Process {
+      id: process
+      property var context
+      property bool mutation: false
+      stdout: StdioCollector { id: output; waitForEnd: true }
+      stderr: StdioCollector { waitForEnd: true }
+      property Timer watchdog: Timer { interval: 6000; running: process.running; onTriggered: process.running = false }
+      onExited: function(code) { try { root.finishNativeStatistics(process, code, output.text) } finally { process.destroy() } }
+    }
+  }
+  Timer { interval: 2000; repeat: true; running: root.nativeStatisticsEligible; onTriggered: root.readNativeStatistics(false) }
+
   property bool trafficMonitoring: false
   property bool nativeTrafficMonitoring: false
   property var nativeTrafficSample: null

@@ -257,9 +257,13 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
             Confirmation::New(command) => Some(command),
             Confirmation::Retry => app.pending.as_ref().map(|r| &r.command),
             Confirmation::Acknowledge { .. } => None,
-            Confirmation::Job(_) | Confirmation::CancelJob => None,
+            Confirmation::Job(_) | Confirmation::CancelJob | Confirmation::Statistics(_) => None,
         };
         let mut lines = Vec::new();
+        if let Confirmation::Statistics(review) = confirmation {
+            lines.push(Line::from(tr("stats.title")));
+            lines.push(Line::from(tr(review.key())));
+        }
         let job_intent = match confirmation {
             Confirmation::Job(intent) => Some(intent),
             Confirmation::CancelJob => app.job.as_ref().map(|job| &job.intent),
@@ -338,6 +342,7 @@ pub fn draw(frame: &mut Frame, app: &App, now: Instant) {
             Confirmation::Acknowledge { .. } => "tui.confirm_ack",
             Confirmation::Job(_) => "tui.confirm_job",
             Confirmation::CancelJob => "tui.confirm_cancel_job",
+            Confirmation::Statistics(_) => "tui.confirm_ack",
         })));
         frame.render_widget(
             Paragraph::new(lines).wrap(Wrap { trim: false }).block(
@@ -1201,6 +1206,45 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
             lines
         }
         Page::Traffic => {
+            let mut recorded = vec![Line::from(tr("stats.title")), Line::from(tr("stats.scope"))];
+            if let Some(data) = &s.statistics {
+                recorded.push(Line::from(tr(if data.enabled {
+                    "stats.enabled"
+                } else {
+                    "stats.disabled"
+                })));
+                if let Some(date) = crate::subscription_usage::utc_date(data.since) {
+                    recorded.push(Line::from(tr("stats.since").replace("{date}", &date)));
+                }
+                recorded.push(Line::from(tr("stats.received").replace(
+                    "{bytes}",
+                    &crate::statistics::grouped(data.received, app.locale),
+                )));
+                recorded.push(Line::from(tr("stats.sent").replace(
+                    "{bytes}",
+                    &crate::statistics::grouped(data.sent, app.locale),
+                )));
+                if data.partial {
+                    recorded.push(Line::from(tr(if data.overflow {
+                        "stats.overflow"
+                    } else {
+                        "stats.partial"
+                    })));
+                }
+                if s.status() != Status::Disconnected {
+                    recorded.push(Line::from(tr("stats.disconnect_first")));
+                }
+            } else {
+                recorded.push(Line::from(tr("stats.unavailable")));
+            }
+            if app.statistics_pending.is_some() {
+                recorded.push(Line::from(tr("stats.saving")));
+            }
+            if !app.statistics_error.is_empty() {
+                recorded.push(Line::from(tr(app.statistics_error)));
+            }
+            recorded.push(Line::from(tr("stats.keys")));
+            recorded.push(Line::from(""));
             let mut lines = vec![
                 field(
                     "tui.upload_rate",
@@ -1238,6 +1282,8 @@ fn inspection_lines(app: &App, now: Instant) -> Vec<Line<'static>> {
                 ),
                 Line::from(tr("tui.connection_count_scope")),
             ];
+            recorded.append(&mut lines);
+            let mut lines = recorded;
             if let Some(overview) = s.connection_overview {
                 lines.push(Line::from(""));
                 lines.push(Line::from(tr("tui.connection_categories_scope")));
