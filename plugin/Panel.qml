@@ -1051,12 +1051,10 @@ Panel {
         : page === "subscriptions" ? [nativeSettingsBack, nativeRefresh, nativeRecoveryDisconnect, nativeSubscriptionAdd, nativeSubscriptionRefreshAll]
         : page === "subscription" ? [nativeSettingsBack, nativeSubscriptionTest, nativeSubscriptionSort, nativeSubscriptionRefresh, nativeSubscriptionUsage, nativeSubscriptionEdit, nativeSubscriptionDelete, nativeSearch]
         : [nativeSettingsControl, nativePowerControl, nativeGlobal, nativeRule, nativeDirect, nativeSubscriptionsButton, nativeImportEntry, nativeImportClipboard, nativeImportFile, nativeSearch]
-      if (page === "settings") {
-        if (nativeStatisticsResetReview.visible)
-          targets.splice(targets.indexOf(nativeRoutingToolsSetting.focusTarget), 0,
-                         nativeStatisticsCancelReset, nativeStatisticsConfirmReset)
-        targets.push(nativeRemoveSetting.focusTarget)
-      }
+      if (page === "settings" && nativeStatisticsResetReview.visible)
+        targets.splice(targets.indexOf(nativeRoutingToolsSetting.focusTarget), 0,
+                       nativeStatisticsCancelReset, nativeStatisticsConfirmReset)
+      if (page === "settings") targets.push(nativeRemoveSetting.focusTarget)
       targets = targets.concat([nativeBatchCheck, nativeBatchCancel, nativeBatchDismiss, nativeBatchAbandon])
       var searchIndex = targets.indexOf(nativeSearch)
       if (searchIndex >= 0)
