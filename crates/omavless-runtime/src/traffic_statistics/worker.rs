@@ -315,6 +315,9 @@ impl Worker {
         &self,
         preflight: Preflight,
     ) -> Result<mpsc::Receiver<Result<Value, Error>>, Error> {
+        if self.finished.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(Error::Unavailable);
+        }
         let (reply, receive) = mpsc::sync_channel(1);
         self.sender
             .try_send(Command::Read { preflight, reply })
@@ -349,6 +352,9 @@ impl Worker {
         utc: u64,
         preflight: Preflight,
     ) -> Result<mpsc::Receiver<Result<Value, Error>>, Error> {
+        if self.finished.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(Error::Unavailable);
+        }
         let (reply, receive) = mpsc::sync_channel(1);
         let mut receipts = self.receipts.lock().map_err(|_| Error::Unavailable)?;
         if let Some((id, digest)) = &operation {
