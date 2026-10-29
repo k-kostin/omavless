@@ -47,10 +47,10 @@ Panel {
     onFileChanged: reload()
   }
 
-  // Owner-requested temporary presentation gates. Restore only on explicit
-  // owner direction; see docs/roadmap/MAIN_PANEL_DEFERRED_SECTIONS.md.
-  readonly property bool showMainConnectionTest: false
-  readonly property bool showMainLatencySection: false
+  // Owner-selected restoration, October23/29. Keep read-only checks separate
+  // from connection state; see docs/roadmap/MAIN_PANEL_DEFERRED_SECTIONS.md.
+  readonly property bool showMainConnectionTest: true
+  readonly property bool showMainLatencySection: true
   // First-run provisioning cannot depend on a working backend. The existing
   // native owner gate remains authoritative; no legacy controls are exposed
   // when the application is missing or ownership has not been committed.
@@ -1053,8 +1053,9 @@ Panel {
       var searchIndex = targets.indexOf(nativeSearch)
       if (searchIndex >= 0)
         targets = targets.slice(0, searchIndex).concat(nativeProtocolChoices.tabTargets(), targets.slice(searchIndex))
-      if (page === "main" && showMainConnectionTest) targets.push(nativeTestButton)
-      if (page === "main" && showMainLatencySection) targets.splice(6, 0, nativePingTest)
+      // Follow the visible order: mode, connection checks, then profiles.
+      if (page === "main" && showMainConnectionTest) targets.splice(5, 0, nativeTestButton)
+      if (page === "main" && showMainLatencySection) targets.splice(showMainConnectionTest ? 6 : 5, 0, nativePingTest)
       for (var s = 0; s < nativeSubscriptions.count; s++) {
         var subscriptionRow = nativeSubscriptions.itemAt(s)
         if (subscriptionRow) targets = targets.concat(subscriptionRow.focusTargets)
@@ -2523,26 +2524,6 @@ Panel {
             font.family: root.fontFamily; font.pixelSize: Style.font.body
             wrapMode: Text.Wrap
           }
-          ColumnLayout {
-            id: nativeConnectionTestSection
-            visible: root.showMainConnectionTest && root.page === "main" && root.nativeView.connected
-            Layout.fillWidth: true
-            RowLayout {
-              Layout.fillWidth: true
-              PlainText { Layout.fillWidth: true; text: root.textFor("native.test.title"); color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.body }
-              Button { id: nativeTestButton; text: root.textFor(vless.nativeTestProcess ? "common.loading" : "action.test"); bordered: true; focusable: true; enabled: vless.nativeCanAct && vless.nativeTestProcess === null; onClicked: vless.startNativeConnectionTest() }
-            }
-            PlainText {
-              visible: vless.nativeTestStatus !== ""
-              Layout.fillWidth: true
-              text: root.textFor("native.test." + (vless.nativeTestStatus || "unavailable"), {ms:vless.nativeTestResult ? vless.nativeTestResult.elapsedMs : 0})
-                + (vless.nativeTestResult && vless.nativeTestResult.https && vless.showExitIp ? "\n" + root.textFor("settings.observed_exit_ip") + ": " + vless.nativeTestResult.observedIp : "")
-                + "\n" + root.textFor("native.test.scope")
-              color: vless.nativeTestStatus === "failed" ? root.urgent : root.dim
-              font.family: root.fontFamily; font.pixelSize: Style.font.body
-              wrapMode: Text.Wrap
-            }
-          }
           RowLayout {
             visible: root.page !== "main"
             Layout.fillWidth: true
@@ -2726,10 +2707,54 @@ Panel {
               txColor: root.trafficTxColor
               guideColor: Util.alpha(root.foreground, 0.16)
             }
+            PlainText { Layout.fillWidth: true; visible: root.showMainLatencySection && vless.nativeTrafficFresh; text: root.textFor("traffic.native_note"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
+          }
+          ColumnLayout {
+            id: nativeConnectionTestSection
+            visible: root.showMainConnectionTest && root.page === "main" && root.nativeView.connected
+            Layout.fillWidth: true
+            spacing: Style.space(8)
+            PanelSectionHeader { Layout.fillWidth: true; text: root.textFor("native.test.title"); foreground: root.foreground; fontFamily: root.fontFamily }
             RowLayout {
               Layout.fillWidth: true
-              visible: root.showMainLatencySection
-              spacing: Style.space(12)
+              spacing: Style.space(8)
+              PlainText {
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                text: root.textFor("native.test." + (vless.nativeTestStatus || "idle"), {ms:vless.nativeTestResult ? vless.nativeTestResult.elapsedMs : 0})
+                color: root.foreground
+                font.family: root.fontFamily; font.pixelSize: Style.font.body
+                wrapMode: Text.Wrap
+              }
+              Button { id: nativeTestButton; readonly property Item focusScrollItem: nativeConnectionTestSection; text: root.textFor(vless.nativeTestProcess ? "common.loading" : "native.test.action"); bordered: true; focusable: true; enabled: vless.nativeCanAct && vless.nativeTestProcess === null; Keys.onPressed: function(event) { root.handlePanelControlKey(event) }; onClicked: vless.startNativeConnectionTest() }
+            }
+            PlainText { Layout.fillWidth: true; text: root.textFor("native.test.scope"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
+            PlainText {
+              visible: !!vless.nativeTestResult && vless.nativeTestResult.https && vless.showExitIp
+              Layout.fillWidth: true
+              text: root.textFor("settings.observed_exit_ip") + ": " + (vless.nativeTestResult ? vless.nativeTestResult.observedIp : "")
+              color: root.dim
+              font.family: root.fontFamily; font.pixelSize: Style.font.caption
+              wrapMode: Text.Wrap
+            }
+          }
+          ColumnLayout {
+            id: nativeLatencySection
+            visible: root.showMainLatencySection && root.page === "main" && root.nativeTransitionKind !== "disconnect"
+              && root.nativeTransitionKind !== "stopping"
+              && vless.nativeSnapshot !== null && vless.nativeSnapshot.desired.connected
+            Layout.fillWidth: true
+            spacing: Style.space(8)
+            RowLayout {
+              Layout.fillWidth: true
+              spacing: Style.space(8)
+              PanelSectionHeader { Layout.fillWidth: true; text: root.textFor("native.ping.title"); foreground: root.foreground; fontFamily: root.fontFamily }
+              Button { id: nativePingTest; readonly property Item focusScrollItem: nativeLatencySection; text: root.textFor("native.ping.test"); focusable: true; bordered: true; enabled: vless.nativePingEligible; Keys.onPressed: function(event) { root.handlePanelControlKey(event) }; onClicked: vless.testNativePing() }
+            }
+            GridLayout {
+              Layout.fillWidth: true
+              columns: 2
+              columnSpacing: Style.space(12)
               DetailPair {
                 Layout.fillWidth: true
                 label: root.textFor("metric.ping")
@@ -2737,10 +2762,8 @@ Panel {
                   ? root.textFor("native.ping.timeout") : root.textFor("native.ping.milliseconds", {ms:Number(vless.nativePingSummary.latency).toLocaleString(Qt.locale(root.uiLocale), "f", vless.nativePingSummary.latency > 0 && vless.nativePingSummary.latency < 10 ? 1 : 0)})
               }
               DetailPair { Layout.fillWidth: true; label: root.textFor("metric.packet_loss"); value: vless.nativePingFresh ? String(vless.nativePingSummary.loss) + "%" : "--" }
-              Button { id: nativePingTest; text: root.textFor("native.ping.test"); focusable: true; bordered: true; enabled: vless.nativePingEligible; onClicked: vless.testNativePing() }
             }
-            PlainText { Layout.fillWidth: true; visible: root.showMainLatencySection; text: root.textFor("native.ping." + (vless.nativePingStatus || "unavailable")); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
-            PlainText { Layout.fillWidth: true; visible: root.showMainLatencySection && vless.nativeTrafficFresh; text: root.textFor("traffic.native_note"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
+            PlainText { Layout.fillWidth: true; text: root.textFor("native.ping." + (vless.nativePingStatus || "unavailable")); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
           }
           PanelSectionHeader { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("settings.diagnostics_privacy"); foreground: root.foreground; fontFamily: root.fontFamily }
           SettingsActionRow { id: nativeDiagnosticsSetting; Layout.fillWidth: true; visible: root.page === "settings"; title: root.textFor("settings.live_diagnostics"); description: root.textFor("settings.live_diagnostics_description"); actionText: root.textFor("common.open"); onAction: root.openAdvancedDiagnostics() }

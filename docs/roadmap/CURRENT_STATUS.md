@@ -1,5 +1,30 @@
 # Current delivery status
 
+## October29: selected0.9.9 scope and earned boundaries
+
+The owner moved new Single/Set Close, all S1 App Proxy, all K1 and persistent
+Lockdown to1.0.0. They are excluded from0.9.9 completion dependencies, not PASS;
+retain their research/code/originals and future safety/physical requirements.
+No inactive K1 readiness batch is selected as replacement work. Read-only
+Connections remains selected. Physical suspend/Tailscale still awaits the
+owner-ready session, and public main/release authorization remains separate.
+
+Selected x86_64 development-VM AUTO-1 acceptance closed October29: genuine Last
+and pinned distinct from Last, HTTPS/DNS/TUN, same-login-epoch Disconnect then
+runtime restart staying Off, plus a separately qualified failure-recovery login.
+The original aggregate journey failed later on the display-manager rate limit;
+its earned positives and the separate recovery original are not a rewritten
+whole-run PASS. This does not qualify ARM, physical or a newer RC composition.
+
+KDF workspace hardening #838 is integrated at development43f73c09 with separate
+PR and merged-push CI and fresh generated-distribution admission. The earlier
+VM package remains a separate installed input until explicitly updated. Do not
+repeat the accepted KDF, Remove #820, WG/AWG or selected T4 gates. The remaining
+user-facing plan includes the restored Test/Ping presentation; its exact
+installed/CI/final admission must be recorded on its owning PR before closure.
+
+## Earlier delivery checkpoints (dated history)
+
 Development now includes subscriptions/UX #801, socket fixtures #802/#803,
 direct input/local bundles/TUI #804 and consumer Restore #805. Each final outcome
 earned its own exact PR and independent merged PUSH, new committed export and
@@ -781,7 +806,7 @@ older "withheld"/prerelease status, not their acceptance limits.
 | R0–R4 | Rust protocol, profile/domain/store and core foundations accepted; do not restart their migration |
 | R5 / T1 | Rust owns the activated native application's state, mutations, background work and Mihomo lifecycle; restored QML is a client of that owner |
 | R6 | Native installed path closed under the owner-approved scope, with deliberate installed Python-absence evidence |
-| Enabled login autoconnect | AUTO-1 open; Last/pinned fresh-login acceptance is deferred, not PASS; default is Off |
+| Enabled login autoconnect | Selected x86_64 VM acceptance closed October29 as qualified above; default Off. New RC composition, ARM and physical claims remain separate |
 | Network/DNS | Separate unresolved investigation; failed probes remain failures and are not hidden by migration closure |
 | Native distribution | Reviewed local Arch package and explicit native-only frontend install accepted; no automatic marketplace migration or release implied |
 | V0 / #30 | Draft; accepted exact XHTTP evidence preserved; missing-family/UDP-restricted evidence remains unavailable |
