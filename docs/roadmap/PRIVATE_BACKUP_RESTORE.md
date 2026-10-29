@@ -337,6 +337,15 @@ zeroized. Both APIs require 12–1024 passphrase bytes. The future UI must expla
 that losing the passphrase is unrecoverable and avoid argv, environment and
 logging exposure.
 
+The KDF owns its 64-MiB `Zeroizing<Vec<argon2::Block>>` workspace and uses
+Argon2's existing caller-memory API. Every initialized block is explicitly
+cleared before either a successful key or a normal error returns; the owning
+wrapper also clears during Rust unwinding. This does not promise cleanup after
+SIGKILL, abort or process death. Regression coverage seeds every block before
+success and early-error paths, and retains the independent envelope vector.
+The algorithm, parameters, derived bytes and archive format are unchanged;
+this memory hardening grants no new Backup/Restore authority.
+
 Version 01 bytes are: `OVBKUP01` (8), salt (16), nonce (24), big-endian u32
 ciphertext length (4), ciphertext and 16-byte AEAD tag. The authenticated
 plaintext is the fixed `OVTESTP1` inner representation above. No variable KDF
