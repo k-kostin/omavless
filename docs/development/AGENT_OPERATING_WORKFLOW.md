@@ -74,6 +74,12 @@ remaining budget. Renaming a harness, adding agents or renewing a timebox does
 not replace this decision. The owner's October28 T3 split is the first applied
 case: read-only Connections in0.9.9, new Single/Set Close retained for1.0.0.
 
+For process findings, also apply the mandatory
+[retrospective closure and distribution gate](EXECUTION_POLICY.md#retrospective-closure-and-distribution).
+Close the checkpoint with finding → applied correction → behavior check →
+distribution status, including when no release-scope change is needed. Follow
+that existing gate rather than treating a saved retrospective as the correction.
+
 ### Research before feature implementation
 
 Before implementing each new feature, follow [Feature research](FEATURE_RESEARCH.md).
@@ -199,6 +205,16 @@ enabled unit is an applicability mismatch, not permission to change the machine
 to fit the script. Revalidate volatile identities immediately before their
 effect; reuse unchanged static evidence only within its proven applicability.
 Separate files-installed proof from distinct loaded-feature proof.
+
+Start connection diagnosis at the ordinary UI/setup path and exact selected
+working input before assigning a failure to credentials or a provider. Keep UI
+readiness, proxy reachability and TUN/host-policy failures distinct; a timeout
+alone identifies none of them.
+
+Before batching lifecycle actions, read the actual service's rate/restart limits
+as well as action deadlines. Pace the controller outside product operations;
+limits do not authorize policy changes, clearing failure counters or replaying
+earned scenarios. Preserve completed checks and repair only the missing return.
 
 ## 4. Qualify the harness before the live journey
 
