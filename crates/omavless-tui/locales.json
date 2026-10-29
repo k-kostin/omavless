@@ -1,7 +1,7 @@
 {
   "stats.checking":{"en":"Checking statistics…","ru":"Проверка статистики…"},
   "stats.title":{"en":"Recorded traffic","ru":"Учтённый трафик"},
-  "stats.scope":{"en":"Bytes recorded on the app's tunnel, including Direct mode. Separate from your provider's data allowance.","ru":"Байты, учтённые на сетевом туннеле приложения, включая режим Direct. Это не расход тарифа провайдера."},
+  "stats.scope":{"en":"Bytes recorded on the app's tunnel, including Direct mode. Separate from your provider's data allowance.","ru":"Байты, учтённые на сетевом туннеле приложения, включая режим «Напрямую». Это не расход тарифа провайдера."},
   "stats.enabled":{"en":"Recording is on","ru":"Учёт включён"},
   "stats.disabled":{"en":"Recording is off. Saved totals are kept.","ru":"Учёт выключен. Сохранённые значения остаются."},
   "stats.since":{"en":"Since {date}","ru":"С {date}"},

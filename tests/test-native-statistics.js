@@ -63,4 +63,24 @@ test('wrong reset period or restarted runtime cannot apply an old completion',()
  assert.equal(c.nativeStatisticsFact,null);
  assert(panel.includes('vless.nativeSnapshot.instanceId === root.statisticsResetInstance'));assert(panel.includes('vless.nativeStatisticsFact.since === root.statisticsResetSince'));
 });
+test('actual panel traversal includes visible statistics controls and reset confirmation in order',()=>{
+ const from=panel.indexOf('  function panelTabTargets()'),to=panel.indexOf('\n  function scrollPanelControlIntoView(',from);
+ const code=panel.slice(from,to),names=Array.from(new Set(code.match(/\bnative[A-Z]\w*/g)));
+ const c=vm.createContext({page:'settings',vless:{nativeOwner:true},bootstrapRequired:false,Qt:{BacktabFocusReason:1,TabFocusReason:2}});c.root=c;
+ for(const name of names)c[name]={focusTarget:name,count:0,visible:true,enabled:true,activeFocus:false};
+ c.nativeStatisticsResetReview.visible=false;
+ vm.runInContext(code,c);
+ const stats=[c.nativeStatisticsToggle,c.nativeStatisticsCheck,c.nativeStatisticsReviewReset];
+ let targets=Array.from(c.availablePanelTabTargets()),at=targets.indexOf(c.nativeDnsCloudflare);
+ assert.deepEqual(targets.slice(at+1,at+4),stats);assert(!targets.includes(c.nativeStatisticsCancelReset));
+ c.nativeStatisticsResetReview.visible=true;targets=Array.from(c.availablePanelTabTargets());
+ assert.deepEqual(targets.slice(at+1,at+6),stats.concat([c.nativeStatisticsCancelReset,c.nativeStatisticsConfirmReset]));
+ const focusFrom=panel.indexOf('  function focusPanelControl('),focusTo=panel.indexOf('\n  function handlePanelControlKey(',focusFrom);
+ let focused=null;for(const item of targets)item.forceActiveFocus=()=>{for(const t of targets)t.activeFocus=false;item.activeFocus=true;focused=item;};
+ c.scrollPanelControlIntoView=()=>{};vm.runInContext(panel.slice(focusFrom,focusTo),c);
+ c.nativeStatisticsCancelReset.activeFocus=true;assert(c.focusPanelControl(1));assert.equal(focused,c.nativeStatisticsConfirmReset);
+ assert(c.focusPanelControl(-1));assert.equal(focused,c.nativeStatisticsCancelReset);
+ c.nativeStatisticsToggle.enabled=false;assert(!Array.from(c.availablePanelTabTargets()).includes(c.nativeStatisticsToggle));
+ assert(panel.includes('root.statisticsResetRevision = -1; nativeStatisticsReviewReset.forceActiveFocus()'));
+});
 console.log('native statistics: '+count+' passed');
