@@ -475,6 +475,8 @@ test('keyboard scrolling keeps complete settings cards visible and bounds oversi
   assert.match(source,/id: actionButton\s+readonly property Item focusScrollItem: settingRow/);
   for (const id of ['nativeSupportCopy','nativeSupportSave'])
     assert(source.includes('id: '+id+'; readonly property Item focusScrollItem: nativeSupportSetting;'));
+  for (const [id,section] of [['nativeTestButton','nativeConnectionTestSection'],['nativePingTest','nativeLatencySection']])
+    assert(source.includes('id: '+id+'; readonly property Item focusScrollItem: '+section+';'));
 });
 test('reopening main resets both scrollers without erasing search',()=>{
   const c=context();c.opened=true;c.panelFlick={contentY:210};c.nativeFlick.contentY=470;c.profileFilter='kept';

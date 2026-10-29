@@ -2726,7 +2726,7 @@ Panel {
                 font.family: root.fontFamily; font.pixelSize: Style.font.body
                 wrapMode: Text.Wrap
               }
-              Button { id: nativeTestButton; text: root.textFor(vless.nativeTestProcess ? "common.loading" : "native.test.action"); bordered: true; focusable: true; enabled: vless.nativeCanAct && vless.nativeTestProcess === null; Keys.onPressed: function(event) { root.handlePanelControlKey(event) }; onClicked: vless.startNativeConnectionTest() }
+              Button { id: nativeTestButton; readonly property Item focusScrollItem: nativeConnectionTestSection; text: root.textFor(vless.nativeTestProcess ? "common.loading" : "native.test.action"); bordered: true; focusable: true; enabled: vless.nativeCanAct && vless.nativeTestProcess === null; Keys.onPressed: function(event) { root.handlePanelControlKey(event) }; onClicked: vless.startNativeConnectionTest() }
             }
             PlainText { Layout.fillWidth: true; text: root.textFor("native.test.scope"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap }
             PlainText {
@@ -2749,7 +2749,7 @@ Panel {
               Layout.fillWidth: true
               spacing: Style.space(8)
               PanelSectionHeader { Layout.fillWidth: true; text: root.textFor("native.ping.title"); foreground: root.foreground; fontFamily: root.fontFamily }
-              Button { id: nativePingTest; text: root.textFor("native.ping.test"); focusable: true; bordered: true; enabled: vless.nativePingEligible; Keys.onPressed: function(event) { root.handlePanelControlKey(event) }; onClicked: vless.testNativePing() }
+              Button { id: nativePingTest; readonly property Item focusScrollItem: nativeLatencySection; text: root.textFor("native.ping.test"); focusable: true; bordered: true; enabled: vless.nativePingEligible; Keys.onPressed: function(event) { root.handlePanelControlKey(event) }; onClicked: vless.testNativePing() }
             }
             GridLayout {
               Layout.fillWidth: true
