@@ -59,6 +59,8 @@ for(const [label,digest] of removalIdentities){
 // Keep the exact previous installed development pair removable for rollback;
 // this is not generic admission for another 0.9.9 rebuild.
 if(selectedVersion==='0.9.9-1')for(const [arch,digest] of [
+ ['x86_64','ac0cfeac3fde5ae118dd1171354ec176d9cd8ee6d42506eddc383ec86ccb27be'],
+ ['aarch64','9979df50170ea090aa795a1231d079dc6c38c7f1cfe2ebce745d150961ba863e'],
  ['x86_64','7b0bf8e503f4d24f29cce4c5843ff09f64657da19340a0105bd3f2d95d2abf3c'],
  ['aarch64','608e0b40c84a0931565cf271d16a60c1a4e1949190a096a7dc50343975d2f70e'],
  ['x86_64','71c2ad854bf0a5593d6353eb63273834ac7f30b243fbc1ed372b290b772413b8'],
