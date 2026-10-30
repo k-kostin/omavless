@@ -75,7 +75,7 @@ impl StoreCompatibility {
             ),
             Self::Incompatible => (
                 "store_requires_repair",
-                "Private store failed native validation; keep legacy ownership and repair or export through the current plugin where possible, or restore a valid backup",
+                "Private store failed native validation. Use store-preserve-original to save a private unencrypted original before separate repair. Normal editor and Backup may be unavailable; preservation does not permit connection",
                 "legacy_repair_or_export",
             ),
         };

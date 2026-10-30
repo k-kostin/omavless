@@ -44,6 +44,7 @@ enum CliError {
     DesktopCancelled,
     ActionOutcomeUnknown,
     SemanticOutcomeUnknown,
+    PreservationOutcomeUnknown,
     ActionNotAdmitted,
     LoginSkip,
     LoginFailure(String),
@@ -558,6 +559,12 @@ fn run() -> Result<(), CliError> {
             "  store-compatibility              read-only native store check and recovery guidance"
         );
         println!(
+            "  store-preserve-original          save exact original bytes; unencrypted consent + new private destination via stdin"
+        );
+        println!(
+            "    stdin JSON object: destination (absolute new private file), confirmUnencrypted: true"
+        );
+        println!(
             "  profile replace PROFILE_ID      read confirmed name + replacement link from stdin"
         );
         println!(
@@ -764,6 +771,23 @@ fn run() -> Result<(), CliError> {
             "createdFiles":result.created_files,"ownershipActivated":false,
             "startupEnabled":false,"onboardingComplete":false})
         );
+        return Ok(());
+    }
+    if arguments == ["store-preserve-original"] {
+        use omavless_runtime::store_preservation::{
+            MAX_INPUT_BYTES, PreservationError, preserve_current_original,
+        };
+        let input = read_semantic_input(MAX_INPUT_BYTES)?;
+        preserve_current_original(&input).map_err(|error| match error {
+            PreservationError::Unknown => CliError::PreservationOutcomeUnknown,
+            _ => CliError::Message(error.to_string()),
+        })?;
+        writeln!(
+            io::stdout(),
+            "{}",
+            json!({"schemaVersion":1,"outcome":"preserved","unencrypted":true})
+        )
+        .map_err(|_| CliError::PreservationOutcomeUnknown)?;
         return Ok(());
     }
     if arguments == ["store-compatibility"] {
@@ -1049,6 +1073,14 @@ fn main() -> ExitCode {
         }
         Err(CliError::SemanticOutcomeUnknown) => {
             eprintln!("OmaVLESS action outcome is unknown; inspect status before another action");
+            ExitCode::from(73)
+        }
+        Err(CliError::PreservationOutcomeUnknown) => {
+            let _ = writeln!(
+                io::stderr(),
+                "{}",
+                omavless_runtime::store_preservation::PreservationError::Unknown
+            );
             ExitCode::from(73)
         }
         Err(CliError::ActionNotAdmitted) => {

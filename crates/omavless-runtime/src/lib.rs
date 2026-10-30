@@ -170,6 +170,7 @@ pub mod startup_protocol;
 mod startup_validation;
 pub mod store_bootstrap;
 pub mod store_preflight;
+pub mod store_preservation;
 pub mod subscription_batch_work;
 pub mod subscription_mutation;
 pub mod subscription_mutation_protocol;
@@ -4228,10 +4229,18 @@ mod tests {
         let before_store = fs::read(base.join("config/profiles.json")).unwrap();
         let before_desired = fs::read(base.join("state/omavless/desired.json")).unwrap();
         let before_calls = calls.load(Ordering::Relaxed);
-        let serving = RunningSocketFixture::start(server);
         let deadline = std::time::Instant::now() + Duration::from_secs(2);
         let initial = loop {
-            let value = call(&paths, "stats.get", json!({})).unwrap();
+            // Serve the actual socket handler serially until the lost-request
+            // control has finished. A concurrent GET is allowed to win the
+            // nonblocking dispatcher gate and refuse a mutation before write.
+            let value = thread::scope(|scope| {
+                let client = scope.spawn(|| call(&paths, "stats.get", json!({})).unwrap());
+                let (mut peer, _) = server.listener.accept().unwrap();
+                server.handle(&mut peer).unwrap();
+                drop(peer); // Complete the unary EOF before joining its client.
+                client.join().unwrap()
+            });
             if value["result"]["availability"] == "recorded" {
                 break value;
             }
@@ -4242,6 +4251,32 @@ mod tests {
         assert!(!base.join("state/omavless/traffic-statistics.json").exists());
         let instance = initial["result"]["instanceId"].clone();
         let params = json!({"instanceId":instance,"operationId":"stats-enable","expectedRevision":0,"statisticsRevision":0,"enabled":true});
+        // Sensitive negative control: a fully written request with a lost
+        // response can be refused before admission. This does not diagnose
+        // the historical CI interleaving or retry an uncertain operation.
+        let mut refused_params = params.clone();
+        refused_params["operationId"] = "stats-known-contention".into();
+        let refused_request =
+            make_request("stats-refused-reply", "stats.configure", refused_params).unwrap();
+        let mut refused_peer = UnixStream::connect(&paths.socket).unwrap();
+        write_unary_frame(
+            &mut refused_peer,
+            &encode_request(&refused_request).unwrap(),
+            FrameKind::Request,
+        )
+        .unwrap();
+        // Retain this peer just long enough to prove the original refusal.
+        refused_peer.shutdown(std::net::Shutdown::Write).unwrap();
+        let (mut incoming, _) = server.listener.accept().unwrap();
+        let held = server.dispatcher.lock().unwrap();
+        server.handle(&mut incoming).unwrap();
+        drop(held);
+        drop(incoming);
+        let refusal =
+            decode_response(&read_unary_frame(&mut refused_peer, FrameKind::Response).unwrap())
+                .unwrap();
+        assert_eq!(refusal["error"]["code"], "busy");
+        assert!(!base.join("state/omavless/traffic-statistics.json").exists());
         // Write the complete original request, then close its real Unix peer
         // without reading any response. Reconcile by GET, not mutation retry.
         let original_request =
@@ -4254,6 +4289,21 @@ mod tests {
         )
         .unwrap();
         drop(lost);
+        let (mut incoming, _) = server.listener.accept().unwrap();
+        assert!(
+            matches!(server.handle(&mut incoming), Err(RuntimeError::Io)),
+            "the closed original peer cannot receive its reply"
+        );
+        let committed = traffic_statistics::State::decode(
+            &fs::read(base.join("state/omavless/traffic-statistics.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            committed.projection()["controlRevision"],
+            1,
+            "prove this control reached durable admission before GET reconciliation"
+        );
+        let serving = RunningSocketFixture::start(server);
         let deadline = std::time::Instant::now() + Duration::from_secs(2);
         loop {
             let observed = call(&paths, "stats.get", json!({})).unwrap();
