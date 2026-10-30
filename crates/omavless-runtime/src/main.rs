@@ -777,6 +777,9 @@ fn run() -> Result<(), CliError> {
         use omavless_runtime::store_preservation::{
             MAX_INPUT_BYTES, PreservationError, preserve_current_original,
         };
+        if std::io::IsTerminal::is_terminal(&io::stdin()) {
+            return Err("Original preservation requires non-terminal stdin".into());
+        }
         let input = read_semantic_input(MAX_INPUT_BYTES)?;
         preserve_current_original(&input).map_err(|error| match error {
             PreservationError::Unknown => CliError::PreservationOutcomeUnknown,

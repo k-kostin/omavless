@@ -1437,6 +1437,43 @@ fn store_preserve_original_cli_broken_output_keeps_copy_and_reports_unknown() {
 }
 
 #[test]
+fn store_preserve_original_cli_refuses_terminal_before_reading_or_file_effects() {
+    let base = file_base();
+    prepare_isolated_daemon_environment(&base);
+    let isolated = isolated_command(&base);
+    let output = Command::new("python3")
+        .args([
+            "-I",
+            "-B",
+            "-c",
+            r#"
+import os, pty, subprocess, sys
+master, slave = pty.openpty()
+try:
+    result = subprocess.run([sys.argv[1], 'store-preserve-original'],
+                            stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=2)
+    assert result.returncode == 2
+    assert result.stdout == b''
+    assert b'non-terminal stdin' in result.stderr
+finally:
+    os.close(master)
+    os.close(slave)
+"#,
+        ])
+        .arg(env!("CARGO_BIN_EXE_omavless"))
+        .envs(isolated.get_envs().filter_map(|(k, v)| v.map(|v| (k, v))))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "PTY control failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(fs::read_dir(&base).unwrap().count(), 3);
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
 fn store_compatibility_cli_is_bounded_read_only_and_requires_no_external_tools() {
     use omavless_runtime::cutover::{CutoverPaths, MigrationLock};
     use std::os::unix::fs::{MetadataExt, symlink};
@@ -1967,6 +2004,7 @@ fn help_exposes_only_fixed_semantic_commands() {
         "profile export PROFILE_ID qr|file",
         "profile edit-input PROFILE_ID",
         "store-compatibility",
+        "store-preserve-original",
         "subscription list",
         "subscription edit-input SUBSCRIPTION_ID",
         "subscription usage SUBSCRIPTION_ID",
@@ -1981,7 +2019,15 @@ fn help_exposes_only_fixed_semantic_commands() {
         assert!(help.contains(command));
     }
     assert!(!help.contains("METHOD"));
-    assert!(!help.contains("JSON"));
+    // One fixed local-file schema is not a generic method/JSON RPC entry.
+    assert_eq!(
+        help.lines()
+            .filter(|line| line.contains("JSON"))
+            .collect::<Vec<_>>(),
+        [
+            "    stdin JSON object: destination (absolute new private file), confirmUnencrypted: true"
+        ]
+    );
 }
 
 #[test]

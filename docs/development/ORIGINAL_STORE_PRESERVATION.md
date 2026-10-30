@@ -13,7 +13,8 @@ escape. The historical four XHTTP differences remain unsupported.
 starting the application. A report exit of zero does not mean compatible.
 
 The matching development application provides `omavless store-preserve-original`.
-It reads one JSON **object** from stdin, at most 8192 UTF-8 bytes, with exactly:
+It reads one JSON **object** from non-terminal stdin, at most 8192 UTF-8 bytes,
+with exactly:
 
 - `destination`: an absolute new file name, at most 4096 bytes, in an existing
   private same-user directory outside managed config/state/runtime directories;
@@ -31,6 +32,8 @@ Do not put the object or its destination into command arguments, shared reports,
 clipboard automation or logs. No source path can be supplied. The source is only
 the established current-user `~/.config/omavless/profiles.json` location (including
 the existing test/developer `OMAVLESS_HOME` convention).
+Interactive terminal stdin is refused before input is consumed or files are
+touched. This avoids echoing the private destination at the native input entry.
 
 The command saves the whole nonempty file as exact bytes, at most 5 MiB. It does
 not parse, normalize, filter or repair JSON, UTF-8, URIs or metadata. On success
