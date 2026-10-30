@@ -1,19 +1,19 @@
 {
   "schemaVersion": 2,
-  "sourceCommit": "e7a7a0cd7f965bf0ddf024b3c2709a9b657330fc",
+  "sourceCommit": "4678d53654cbf0519fa0b5969cc3304485d74b08",
   "updatePair": true,
   "identities": {
     "x86_64": {
-      "appSha": "273158c53c7088585e20d5236ee03e264160bca305a6045b4f3b3c4ccd3cfa09",
+      "appSha": "ac0cfeac3fde5ae118dd1171354ec176d9cd8ee6d42506eddc383ec86ccb27be",
       "coreSha": "bae38eb117c44e05acdfe88ebe1c59450424616caa380414f383821235c19ea2",
       "brokerSha": "50f4a046677ca8fe2cb7af58af2b536caba7dfc04ddebc1dbc23a3ac30f7d0c5",
-      "dnsReceiptSha": "209f692f551d22cbd7865c64c1dff0f92194f83ee168bfeebde795040fba02d3"
+      "dnsReceiptSha": "818705e2beb198adfdf56f5bdd81344a4151250121ca96155d1d28f6596c9523"
     },
     "aarch64": {
-      "appSha": "59acea8f1ad931cdc036056934028ac649da90ef34f91dfb6550279981df2c2c",
+      "appSha": "9979df50170ea090aa795a1231d079dc6c38c7f1cfe2ebce745d150961ba863e",
       "coreSha": "16e0708c52ba2cf1c0a2f8bb769aa7cf317a71242594a2a4df44071a6a3c47a1",
       "brokerSha": "62a5f8ab13c8fcdce56a8290147dce4ebfe911cf3572e656c45d10785d5778b9",
-      "dnsReceiptSha": "f6be881875276e741713a689342ee335bdf3fd25b209cc547ccb9dcc350c2c2c"
+      "dnsReceiptSha": "fd1eb924db35cd350caf666574dcc67f9c18a7e7fa98536ee3c8a36d40b9cb60"
     }
   }
 }
