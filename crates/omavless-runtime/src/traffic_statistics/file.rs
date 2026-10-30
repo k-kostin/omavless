@@ -222,10 +222,37 @@ mod tests {
     use std::os::unix::fs::{PermissionsExt, symlink};
 
     fn fixture() -> (tempfile::TempDir, Store) {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir_in(crate::test_temp::home_parent().unwrap()).unwrap();
         fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
         let store = Store::new(dir.path(), nix::unistd::getuid().as_raw()).unwrap();
         (dir, store)
+    }
+
+    #[test]
+    fn writable_ancestor_refuses_without_creating_or_repairing_statistics() {
+        let (root, _) = fixture();
+        let shared = root.path().join("shared");
+        fs::create_dir(&shared).unwrap();
+        fs::set_permissions(&shared, fs::Permissions::from_mode(0o777)).unwrap();
+        let private = tempfile::tempdir_in(&shared).unwrap();
+        fs::set_permissions(private.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        let uid = nix::unistd::getuid().as_raw();
+        assert!(matches!(
+            Store::new(private.path(), uid),
+            Err(Error::Unsafe)
+        ));
+        assert!(!private.path().join(NAME).exists());
+        assert_eq!(fs::metadata(&shared).unwrap().mode() & 0o777, 0o777);
+        // Repair only this test-owned ancestor to prove the refusal control
+        // distinguishes ancestry from the unchanged private leaf and payload.
+        fs::set_permissions(&shared, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(
+            Store::new(private.path(), uid)
+                .unwrap()
+                .read()
+                .unwrap()
+                .absent()
+        );
     }
 
     #[test]

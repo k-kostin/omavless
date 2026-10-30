@@ -424,7 +424,7 @@ mod tests {
     use std::time::{Duration, Instant};
     fn fixture() -> (tempfile::TempDir, file::Store) {
         use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir_in(crate::test_temp::home_parent().unwrap()).unwrap();
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         let store = file::Store::new(dir.path(), nix::unistd::getuid().as_raw()).unwrap();
         (dir, store)
