@@ -176,6 +176,16 @@ against the complete returned body without printing it again. Preserve the full
 prior index when compacting or replacing it; small material edits need their
 original import and full readback, not a new historical archive each time.
 
+### Storage is part of the outcome budget
+
+Apply the [proactive retention gate](README.md#proactive-retention-gate) before
+allocating another checkout, build cache, artifact set or VM fixture, and at
+phase closure, pause or handoff. Reuse the authorized checkout and compatible
+cache; a new commit, PR or agent does not justify another full copy. Complete
+eligible retirement before new allocation. Keep named exceptions in the same
+checkpoint, with an actual consumer and release condition. Do not defer this
+work until storage pressure or an owner reminder.
+
 ## 3. Measure the baseline before effects
 
 Check critical input availability before harness implementation or delegation:
@@ -449,9 +459,12 @@ to higher-priority required progress updates. A scheduled wakeup is not renewed
 effect authority. An available authorized next step must not be silently dropped.
 
 Apply the [whole-task closure check](EXECUTION_POLICY.md#delivery-closure-check).
-Settle original owned children, restore the declared state and classify cleanup
-under existing ownership/retention rules. Save the material checkpoint through
-the existing memory procedure. Pause only the completed continuation; a later
+Settle original owned children, restore the declared state and complete the
+[retention gate](README.md#proactive-retention-gate), including exact dispositions
+for retained exceptions. A pause stops product/VM work; it does not erase the
+primary's responsibility to retire already completed disposable outputs within
+existing authority. Preserve explicit owner stop boundaries. Save the material
+checkpoint through the existing memory procedure. Pause only the completed continuation; a later
 task does not reactivate it. Report local adoption, checked source and integrated
 distribution separately. Documentation tests protect discovery, not actual
 agent compliance or measured performance improvement.

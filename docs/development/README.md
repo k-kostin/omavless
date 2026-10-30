@@ -193,6 +193,75 @@ Raw logs, screenshots, private backups and detailed machine-repair checkpoints
 stay local; a cross-machine handoff carries only the bounded facts needed to
 continue. This does not prohibit preserving a substantive new failure promptly.
 
+## Proactive retention gate
+
+Owner correction, October31, 2026: existing cleanup rules were not applied at
+phase closure, and directory names were mistaken for chat ownership. Redundant
+source copies accumulated despite a retention policy. The primary must execute
+this gate as part of ordinary work, without waiting for the owner to request it.
+It applies only to the authorized project, never to all of HOME or Codex.
+
+1. **Before allocation:** inventory the project's registered worktrees and known
+   source clones, compatible build cache and generated fixtures. Reuse the
+   authorized checkout and one compatible active cache by default. A new commit,
+   feature, PR, review or agent is not a reason for a new full copy. Each extra
+   copy needs an actual independent consumer, finite budget and release condition
+   before creation. Required fresh source-admission fixtures remain fresh; retire
+   their completed predecessors rather than reusing or repairing consumed paths.
+2. **At each phase closure, pause and handoff:** settle original operations, then
+   retire completed disposable outputs within existing authority before reporting
+   closure or allocating successors. Do not run product/VM work to clean up after
+   an owner pause. Recheck retained items at their named release event; age and
+   free space alone neither justify keeping nor authorize deleting them.
+3. **For every retained exception:** use the existing compact checkpoint, not a
+   new tracker. Record path/kind, measured allocated bytes, actual repo identity,
+   owner/consumer, reason and exact release condition or next review event.
+   "History", "source", an old PR or an unverified chat association is not a
+   consumer. Retain required originals, selected delivery/rollback inputs, private
+   data and uncertain effect-bearing state under their exact owning contract.
+   Once the dependent gate closes, review that item instead of inheriting KEEP
+   forever. An unknown item fences itself and its actual dependencies, not all
+   unrelated retirement.
+4. **Resolve custody rather than infer it:** compare Git common-dir/registration
+   with actual chat attachments and current owner status through supported tools.
+   A directory under `.codex/worktrees` is not proof it is app-managed; an absent
+   attachment is not proof nobody uses it. If supported metadata is incomplete,
+   use only authorized, scoped read-only native metadata; never modify the app DB,
+   search credentials or inspect unrelated projects. Follow the existing
+   [stalled-operation triage](AGENT_OPERATING_WORKFLOW.md#stalled-operation-triage)
+   for a missing ownership/completion interface rather than declaring permanent
+   custody from a pathname.
+5. **Preserve useful work without preserving every checkout:** prove commits and
+   relevant reflog-only heads retained in Git; verify unique non-private dirty
+   source bytes in an appropriate retained Git snapshot before releasing a copy.
+   Keep private/ignored/uncertain material under its own reviewed disposition.
+   Verify preservation first, then remove only the classified exact copy through
+   its owning mechanism. Branch deletion is a separate decision. Do not produce
+   another full clone/archive just to preserve source history.
+6. **For app-managed copies:** use the supported archive/release path. Verify all
+   shared owners are released; do not archive an active chat or manually remove
+   a managed directory to bypass custody. Queued is not completed: require the
+   terminal archive record and path/registration disposition. Diagnose a blocked
+   queue against its actual limits, including room for its recovery attachment.
+   Unlink only verified obsolete project attachments within authority, preserving
+   source and recovery evidence; do not edit PRs or unrelated chats. Continue the
+   original request's observation path, never blindly resend an unknown archive.
+7. **Close with evidence:** report exact retired items and remaining named
+   consumers/release events, before/after copy counts and observed filesystem
+   available. Keep logical size, allocated bytes and physical reclaim distinct.
+   Verify active source changes and required retained inputs survive. If blocked,
+   name the exact unresolved item and next bounded diagnostic; a catalogue alone
+   is not completed cleanup. Reuse existing procedures/checkpoints: no background
+   GC, new service, cleanup framework or global cache purge.
+
+Before heavy builds/copies also apply the owner's whole-storage ceiling and
+retirement procedure from current coordination. A personal SSD is the resource
+being spent; move neither duplicates nor obsolete caches elsewhere to hide it.
+Reuse an unchanged inventory within the same phase; refresh affected entries at
+the release event and whole allocated usage before heavy work, not every turn.
+The [local cleanup safety](#local-cleanup-safety) rules below still govern every
+removal. This gate grants no new deletion, VM, branch or publication authority.
+
 ## Local cleanup safety
 
 New short-lived HOME-backed test fixtures belong under `~/.cache/ovt/`, in an

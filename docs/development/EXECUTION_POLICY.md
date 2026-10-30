@@ -487,6 +487,9 @@ Continue any authorized actionable step. For an external hold, name the missing
 access, running operation or owner decision and the specific outcome it blocks;
 do not let one unavailable environment stop independent work. A terminal CI
 failure changes waiting into actionable diagnosis, not another unchanged wait.
+Complete the [retention gate](README.md#proactive-retention-gate) before closure
+or handoff; retired outputs and named retained exceptions belong in that same
+summary. An unfinished retirement is not silently delegated to the owner.
 Reconcile the summary before reporting; do not announce whole-task completion
 from a passing subtask. An answer to an inline question does not close the task.
 
