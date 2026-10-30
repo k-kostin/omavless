@@ -124,6 +124,7 @@ if command -v node >/dev/null 2>&1; then
   node "$here/test-native-action-transitions.js"
   node "$here/test-traffic-reference.js"
   node "$here/test-native-traffic.js"
+  node "$here/test-native-statistics.js"
   node "$here/test-native-ping.js"
 else
   echo "node unavailable: i18n runtime tests not run" >&2

@@ -11,7 +11,7 @@ use omavless_domain::{config::MAX_TEMPLATE_BYTES, private_store::MAX_PRIVATE_STO
 use std::fs::{self, File, Metadata};
 use std::io::Read;
 use std::os::unix::fs::MetadataExt;
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 use zeroize::Zeroizing;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -88,6 +88,22 @@ fn private_directory(path: &Path, uid: u32) -> Result<Metadata, SnapshotError> {
 // Traverse from a pinned root so an accidental symlink or writable parent
 // cannot redirect a future backup source to a different private-looking pair.
 pub(crate) fn open_private_directory(path: &Path, uid: u32) -> Result<File, SnapshotError> {
+    let directory = open_owned_directory(path, uid)?;
+    if directory
+        .metadata()
+        .map_err(|_| SnapshotError::UnsafeSource)?
+        .mode()
+        & 0o7777
+        != 0o700
+    {
+        return Err(SnapshotError::UnsafeSource);
+    }
+    Ok(directory)
+}
+
+/// Same pinned no-follow traversal, allowing an ordinary same-user state base.
+/// It never creates or repairs a directory.
+pub(crate) fn open_owned_directory(path: &Path, uid: u32) -> Result<File, SnapshotError> {
     if !path.is_absolute() {
         return Err(SnapshotError::UnsafeSource);
     }
@@ -128,7 +144,7 @@ pub(crate) fn open_private_directory(path: &Path, uid: u32) -> Result<File, Snap
     let metadata = directory
         .metadata()
         .map_err(|_| SnapshotError::UnsafeSource)?;
-    if !metadata.is_dir() || metadata.uid() != uid || metadata.mode() & 0o7777 != 0o700 {
+    if !metadata.is_dir() || metadata.uid() != uid || metadata.mode() & 0o6022 != 0 {
         return Err(SnapshotError::UnsafeSource);
     }
     Ok(directory)
@@ -234,14 +250,72 @@ impl<'a> Member<'a> {
     }
 
     fn verify(&self) -> Result<(), SnapshotError> {
-        let held = fstat(&self.file).map_err(|_| SnapshotError::SourceChanged)?;
-        let current = fstatat(
-            self.directory,
-            Path::new(self.name),
-            AtFlags::AT_SYMLINK_NOFOLLOW,
-        )
+        verify_member(&self.file, self.directory, self.name, &self.before)
+    }
+}
+
+fn verify_member(
+    file: &File,
+    directory: &File,
+    name: &str,
+    before: &FileStat,
+) -> Result<(), SnapshotError> {
+    let held = fstat(file).map_err(|_| SnapshotError::SourceChanged)?;
+    let current = fstatat(directory, Path::new(name), AtFlags::AT_SYMLINK_NOFOLLOW)
         .map_err(|_| SnapshotError::SourceChanged)?;
-        if !stable_member(&self.before, &held) || !stable_member(&self.before, &current) {
+    if !stable_member(before, &held) || !stable_member(before, &current) {
+        return Err(SnapshotError::SourceChanged);
+    }
+    Ok(())
+}
+
+/// Raw original data only. This cannot be used as an authenticated Backup and
+/// carries no semantic profile/admission claim. Hold both FDs until publication.
+pub(crate) struct OriginalStore {
+    file: File,
+    directory: File,
+    path: PathBuf,
+    before: FileStat,
+    directory_before: Metadata,
+    uid: u32,
+    bytes: Zeroizing<Vec<u8>>,
+}
+
+impl OriginalStore {
+    pub(crate) fn capture(config: &Path, uid: u32) -> Result<Self, SnapshotError> {
+        let directory = open_private_directory(config, uid)?;
+        let directory_before = directory
+            .metadata()
+            .map_err(|_| SnapshotError::UnsafeSource)?;
+        let mut member = Member::open(&directory, "profiles.json", uid, MAX_PRIVATE_STORE_BYTES)?;
+        let bytes = member.read()?;
+        let Member { file, before, .. } = member;
+        let original = Self {
+            file,
+            directory,
+            path: config.to_owned(),
+            before,
+            directory_before,
+            uid,
+            bytes,
+        };
+        original.verify()?;
+        Ok(original)
+    }
+
+    pub(crate) fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    pub(crate) fn verify(&self) -> Result<(), SnapshotError> {
+        verify_member(&self.file, &self.directory, "profiles.json", &self.before)?;
+        let current = open_private_directory(&self.path, self.uid)?;
+        if !stable(
+            &self.directory_before,
+            &current
+                .metadata()
+                .map_err(|_| SnapshotError::SourceChanged)?,
+        ) {
             return Err(SnapshotError::SourceChanged);
         }
         Ok(())

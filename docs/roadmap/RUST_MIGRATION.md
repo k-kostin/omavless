@@ -18,6 +18,14 @@ GitHub for actual publication state. The subsequent owner-approved
 delivery, native-only source installation and fixture-backed Python-source
 removal. This is not permission to start unrelated work or publish marketplace.
 
+October30 development successor for #169:
+[original-store preservation](../development/ORIGINAL_STORE_PRESERVATION.md)
+provides an explicit raw-byte copy entry before native startup. Strict profile
+validation remains unchanged. The historical legacy-plugin recovery guidance
+below describes its dated checkpoint, not a current native-only recovery path.
+This new local-file claim needs its own source and installed acceptance; it is
+not repair, restored connectivity or public 0.9.8 availability.
+
 Historical local-only R6 continuity, 2026-09-11: native config preparation and
 [strict absent-legacy activation composition](../testing/R6_ABSENT_LEGACY_ACTIVATION.md)
 now have deterministic coverage, including unchanged initial-config parity and

@@ -27,7 +27,7 @@ c.applyFirstRoutingPreset('roscomvpn-default');
 assert.deepEqual(calls.splice(0),['preset-dismiss',['roscomvpn-default',false]]);
 assert.match(source,/nativeRoutingToolsVisible: root.opened && routingToolsPrompt.visible/);
 assert.match(source,/refreshAvailable: !vless.nativeOwner && vless.routing.ruleUpdateAvailable/);
-assert.match(source,/nativeRoutingPresetSetting.focusTarget, nativeDnsDefault, nativeDnsGoogle, nativeDnsCloudflare, nativeRoutingToolsSetting.focusTarget/);
+assert.match(source,/nativeRoutingPresetSetting.focusTarget, nativeDnsDefault, nativeDnsGoogle, nativeDnsCloudflare, nativeStatisticsToggle, nativeStatisticsCheck, nativeStatisticsReviewReset, nativeRoutingToolsSetting.focusTarget/);
 assert.match(source,/errorText: vless.nativeOwner.*root.textFor\(vless.nativeRoutingErrorCode\)/);
 assert.match(source,/accepted: selectedPreset !== "" && !vless.busy && \(!vless.nativeOwner \|\| vless.nativeCanAct\)/);
 console.log('native routing panel: 9 checks passed');

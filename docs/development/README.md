@@ -26,6 +26,9 @@ documentation-only main updates require explicit owner authorization.
 - [Architecture/roadmap index](../roadmap/README.md): feature contracts and status.
 - [T3 bounded selected-set close](T3_SELECTED_SET_CLOSE.md): explicit Product
   source successor, per-member outcomes and preserved single-close boundaries.
+- [Original-store preservation](ORIGINAL_STORE_PRESERVATION.md): unreleased
+  fixed-source plaintext preservation before native startup; no repair or
+  profile-admission claim.
 
 - [Development workflow](../roadmap/DEVELOPMENT_WORKFLOW.md): canonical branch,
   review and acceptance process. Its existing path is retained for continuity.

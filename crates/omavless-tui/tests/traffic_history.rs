@@ -163,6 +163,8 @@ fn traffic_screen_labels_relative_samples_in_en_and_ru_without_live_probe() {
         );
         app.traffic_history
             .observe(Some((42, 21)), now + Duration::from_secs(3));
+        app.inspection_scroll = u16::MAX;
+        view::clamp_scroll(&mut app, 90, 30, now + Duration::from_secs(3));
         let screen = render(&mut terminal, &app, now + Duration::from_secs(3));
         assert!(screen.contains(locale.text("tui.traffic_history_scope")));
         assert!(screen.contains(locale.text("tui.upload_history")));
@@ -174,6 +176,10 @@ fn traffic_screen_labels_relative_samples_in_en_and_ru_without_live_probe() {
         }
         let later = now + Duration::from_secs(66);
         app.sampled_at = Some(later);
+        // The recorded aggregate precedes the live charts. The long trend remains
+        // reachable through the same ordinary inspection-page scrolling.
+        app.inspection_scroll = u16::MAX;
+        view::clamp_scroll(&mut app, 90, 30, later);
         assert!(
             render(&mut terminal, &app, later)
                 .contains(locale.text("tui.traffic_history_long_scope"))

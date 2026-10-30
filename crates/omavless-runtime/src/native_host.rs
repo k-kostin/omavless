@@ -511,6 +511,110 @@ pub struct NativeLifecycleHost {
     product_preview_fixture: bool,
 }
 
+/// Fixed read-only proof for an explicit statistics control admitted while Off.
+/// This snapshot has no lifecycle effect or caller-selected observation target.
+#[derive(Clone)]
+pub struct StatsOffContext {
+    proc_root: PathBuf,
+    sys_net: PathBuf,
+    controller: PathBuf,
+}
+impl StatsOffContext {
+    pub(crate) fn settled(&self) -> bool {
+        processes_named_strict(&self.proc_root, "mihomo").is_ok_and(|pids| pids.is_empty())
+            && crate::tun_scope::inventory(&self.sys_net).is_ok_and(|tuns| tuns.is_empty())
+            && std::fs::symlink_metadata(&self.controller)
+                .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+    }
+    #[cfg(test)]
+    pub(crate) fn fixture(proc_root: PathBuf, sys_net: PathBuf, controller: PathBuf) -> Self {
+        Self {
+            proc_root,
+            sys_net,
+            controller,
+        }
+    }
+}
+
+/// Detached, read-only observation of a child retained by this runtime. No
+/// lifecycle operation, caller path, profile projection or child handle escapes.
+pub struct StatsReadContext {
+    pid: u32,
+    generation: u64,
+    profile: String,
+    readiness: ConfigReadiness,
+    controller: PathBuf,
+    proc_root: PathBuf,
+    sys_net: PathBuf,
+    tun: (String, u64),
+    auxiliary: std::sync::Arc<crate::auxiliary_core::AuxiliarySlot>,
+    lifetime: std::sync::Arc<crate::core::ReadLifetime>,
+}
+impl StatsReadContext {
+    /// Runs exclusively outside the dispatcher/lifecycle mutex. Its complete
+    /// controller work shares one deadline; failed acquisition is a gap.
+    pub(crate) fn collect(&self) -> Option<crate::traffic::TrafficCounters> {
+        use omavless_mihomo::ReadOnlyEndpoint;
+        let deadline = Instant::now() + Duration::from_millis(500);
+        let topology = || {
+            if !self.lifetime.live() {
+                return None;
+            }
+            let named = processes_named_strict(&self.proc_root, "mihomo").ok()?;
+            if !self.auxiliary.statistics_idle() {
+                return None;
+            }
+            if !named.contains(&self.pid) || named.len() != 1 {
+                return None;
+            }
+            let inventory = crate::tun_scope::inventory(&self.sys_net).ok()?;
+            if inventory.len() != 1
+                || !inventory.contains(&self.tun.0)
+                || crate::tun_scope::device_index(&self.sys_net, &self.tun.0).ok()? != self.tun.1
+            {
+                return None;
+            }
+            Some((named, inventory))
+        };
+        let before = topology()?;
+        let read = |endpoint| {
+            crate::core_selector::read_retained(
+                &self.controller,
+                self.pid,
+                endpoint,
+                deadline,
+                &self.lifetime,
+            )
+        };
+        if !self.readiness.ready_with(deadline, read, |kind| {
+            crate::core_selector::running_retained(
+                &self.controller,
+                self.pid,
+                kind,
+                deadline,
+                &self.lifetime,
+            )
+        }) {
+            return None;
+        }
+        let reported = read(ReadOnlyEndpoint::Configs)?;
+        if crate::traffic::controller_device(&reported)? != self.tun.0 {
+            return None;
+        }
+        let sample =
+            crate::traffic::read_device(&self.sys_net, self.pid, self.generation, &self.tun.0)?;
+        let after = read(ReadOnlyEndpoint::Configs)?;
+        if crate::traffic::controller_device(&after)? != self.tun.0
+            || topology()? != before
+            || !self.lifetime.live()
+            || Instant::now() >= deadline
+        {
+            return None;
+        }
+        Some(sample)
+    }
+}
+
 enum DropPaths {
     Cleanup,
     Preserve,
@@ -575,6 +679,64 @@ impl LifecycleHost for ObservationOnlyNativeHost {
 }
 
 impl NativeLifecycleHost {
+    fn stats_off_current(&self) -> bool {
+        self.core.is_none()
+            && self.profile_id.is_none()
+            && self.readiness.is_none()
+            && self.auxiliary.statistics_idle()
+    }
+    fn stats_off_context(&self) -> Option<StatsOffContext> {
+        self.stats_off_current().then(|| StatsOffContext {
+            proc_root: self.paths.proc_root.clone(),
+            sys_net: self.paths.sys_class_net.clone(),
+            controller: self.paths.controller_socket.clone(),
+        })
+    }
+
+    /// Memory-only capture; no filesystem/controller observation under owner.
+    pub(crate) fn stats_read_context(&self, desired: &DesiredState) -> Option<StatsReadContext> {
+        if !desired.connected || self.profile_id.as_deref()? != desired.profile_id {
+            return None;
+        }
+        let core = self.core.as_ref()?;
+        let readiness = self.readiness.as_ref()?;
+        if readiness.mode != desired.mode {
+            return None;
+        }
+        Some(StatsReadContext {
+            pid: core.pid()?,
+            generation: desired.generation,
+            profile: desired.profile_id.clone(),
+            readiness: readiness.clone(),
+            controller: self.paths.controller_socket.clone(),
+            proc_root: self.paths.proc_root.clone(),
+            sys_net: self.paths.sys_class_net.clone(),
+            tun: self.tun_identity.clone()?,
+            auxiliary: std::sync::Arc::clone(&self.auxiliary),
+            lifetime: core.read_lifetime(),
+        })
+    }
+    /// Memory-only final fence after detached I/O. A superseded result is never
+    /// relabelled as the current runtime/core epoch.
+    pub(crate) fn stats_read_context_current(
+        &self,
+        desired: &DesiredState,
+        context: &StatsReadContext,
+    ) -> bool {
+        desired.connected
+            && desired.generation == context.generation
+            && desired.profile_id == context.profile
+            && self.profile_id.as_ref() == Some(&context.profile)
+            && self.readiness.as_ref().is_some_and(|ready| {
+                ready.mode == desired.mode && ready.mode == context.readiness.mode
+            })
+            && self.tun_identity.as_ref() == Some(&context.tun)
+            && self.core.as_ref().is_some_and(|core| {
+                core.pid() == Some(context.pid)
+                    && std::sync::Arc::ptr_eq(&core.read_lifetime(), &context.lifetime)
+            })
+            && context.lifetime.live()
+    }
     #[cfg(all(test, feature = "acceptance-connection-close"))]
     pub(crate) fn install_close_acceptance_for_test(
         &mut self,
@@ -1418,6 +1580,23 @@ impl LifecycleHost for NativeLifecycleHost {
             epoch: self.ping_slot.epoch().ok_or(HostStepError::Observation)?,
         })
     }
+    fn statistics_off_context(&self) -> Option<StatsOffContext> {
+        self.stats_off_context()
+    }
+    fn statistics_off_current(&self) -> bool {
+        self.stats_off_current()
+    }
+    fn statistics_context(&self, desired: &DesiredState) -> Option<StatsReadContext> {
+        self.stats_read_context(desired)
+    }
+    fn statistics_context_current(
+        &self,
+        desired: &DesiredState,
+        context: &StatsReadContext,
+    ) -> bool {
+        self.stats_read_context_current(desired, context)
+    }
+
     fn traffic_counters(
         &mut self,
         desired: &DesiredState,

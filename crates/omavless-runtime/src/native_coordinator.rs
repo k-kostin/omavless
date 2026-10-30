@@ -1185,6 +1185,73 @@ impl<H: LifecycleHost> OfflineNativeCoordinator<H> {
         })
     }
 
+    /// Memory-only authorization snapshot. The detached caller checks durable
+    /// ownership and desired bytes outside the dispatcher before/after I/O.
+    pub(crate) fn stats_capture(&self) -> Option<crate::traffic_statistics::collection::Capture> {
+        let fence = self.required_ownership?;
+        if fence.phase != OwnershipPhase::Rust || self.retained_restore_busy() {
+            return None;
+        }
+        Some(crate::traffic_statistics::collection::Capture {
+            desired: self.transaction.desired_paths().clone(),
+            ownership: self.transaction.cutover_paths().clone(),
+            uid: self.uid(),
+            revision: self.revision(),
+            owner_generation: fence.generation,
+        })
+    }
+    pub(crate) fn stats_off_context(
+        &self,
+        capture: &crate::traffic_statistics::collection::Capture,
+    ) -> Option<crate::native_host::StatsOffContext> {
+        if !self.stats_off_current(capture) {
+            return None;
+        }
+        self.transaction.host().statistics_off_context()
+    }
+    pub(crate) fn stats_off_current(
+        &self,
+        capture: &crate::traffic_statistics::collection::Capture,
+    ) -> bool {
+        self.revision() == capture.revision
+            && !self.retained_restore_busy()
+            && self.actual() == ActualState::Disconnected
+            && self.required_ownership.is_some_and(|f| {
+                f.phase == OwnershipPhase::Rust && f.generation == capture.owner_generation
+            })
+            && self.transaction.host().statistics_off_current()
+    }
+    fn stats_fence(&self, capture: &crate::traffic_statistics::collection::Capture) -> bool {
+        self.revision() == capture.revision
+            && !self.retained_restore_busy()
+            && self.actual() == crate::lifecycle::ActualState::Connected
+            && self.required_ownership.is_some_and(|f| {
+                f.phase == OwnershipPhase::Rust && f.generation == capture.owner_generation
+            })
+    }
+    pub(crate) fn stats_context(
+        &self,
+        capture: &crate::traffic_statistics::collection::Capture,
+        desired: &crate::desired::DesiredState,
+    ) -> Option<crate::native_host::StatsReadContext> {
+        if !self.stats_fence(capture) {
+            return None;
+        }
+        self.transaction.host().statistics_context(desired)
+    }
+    pub(crate) fn stats_current(
+        &self,
+        capture: &crate::traffic_statistics::collection::Capture,
+        desired: &crate::desired::DesiredState,
+        context: &crate::native_host::StatsReadContext,
+    ) -> bool {
+        self.stats_fence(capture)
+            && self
+                .transaction
+                .host()
+                .statistics_context_current(desired, context)
+    }
+
     pub(crate) fn traffic(&mut self, request: &Value) -> Result<Value, NativeOwnerError> {
         crate::traffic::validate(request)?;
         self.with_owned_read(|owner| {

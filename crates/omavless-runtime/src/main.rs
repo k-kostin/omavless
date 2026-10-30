@@ -44,6 +44,7 @@ enum CliError {
     DesktopCancelled,
     ActionOutcomeUnknown,
     SemanticOutcomeUnknown,
+    PreservationOutcomeUnknown,
     ActionNotAdmitted,
     LoginSkip,
     LoginFailure(String),
@@ -97,6 +98,21 @@ fn private_pair_tui_entry(arguments: &[std::ffi::OsString]) -> Option<PrivatePai
 #[cfg(all(feature = "tui", any(feature = "t4-manager-actor-service", test)))]
 fn consumer_recovery_tui_entry(arguments: &[std::ffi::OsString]) -> bool {
     arguments == ["tui"] && private_pair_tui_entry(arguments) == Some(PrivatePairTui::Restore)
+}
+
+#[cfg(feature = "tui")]
+fn tui_client_tools() -> Result<omavless_tui::ClientTools, CliError> {
+    let paths = RuntimePaths::current().map_err(|_| "Runtime location unavailable")?;
+    Ok(omavless_tui::ClientTools {
+        import: Some(tui_import_adapter()?),
+        statistics: Some(Box::new(
+            move |request: omavless_tui::statistics::Request| {
+                let result = call(&paths, request.method(), request.params())
+                    .map_err(|_| omavless_tui::model::ReadError::Unavailable);
+                request.settle(result)
+            },
+        )),
+    })
 }
 
 #[cfg(feature = "tui")]
@@ -353,7 +369,7 @@ fn run() -> Result<(), CliError> {
                         omavless_runtime::private_pair_api::restore_for_tui(&restore_paths, request)
                     }
                 },
-                Some(tui_import_adapter()?),
+                tui_client_tools()?,
                 consumer_recovery_tui_entry(&arguments),
             )
             .map_err(CliError::Terminal);
@@ -374,7 +390,7 @@ fn run() -> Result<(), CliError> {
             move |request| {
                 omavless_runtime::private_pair_api::create_for_tui(&backup_paths, request)
             },
-            Some(tui_import_adapter()?),
+            tui_client_tools()?,
         )
         .map_err(CliError::Terminal);
     }
@@ -396,7 +412,7 @@ fn run() -> Result<(), CliError> {
                 call(&job_paths, request.method(), request.params())
                     .map_err(|_| omavless_tui::model::ReadError::Unavailable)
             },
-            Some(tui_import_adapter()?),
+            tui_client_tools()?,
         )
         .map_err(CliError::Terminal);
     }
@@ -541,6 +557,12 @@ fn run() -> Result<(), CliError> {
         );
         println!(
             "  store-compatibility              read-only native store check and recovery guidance"
+        );
+        println!(
+            "  store-preserve-original          save exact original bytes; unencrypted consent + new private destination via stdin"
+        );
+        println!(
+            "    stdin JSON object: destination (absolute new private file), confirmUnencrypted: true"
         );
         println!(
             "  profile replace PROFILE_ID      read confirmed name + replacement link from stdin"
@@ -749,6 +771,26 @@ fn run() -> Result<(), CliError> {
             "createdFiles":result.created_files,"ownershipActivated":false,
             "startupEnabled":false,"onboardingComplete":false})
         );
+        return Ok(());
+    }
+    if arguments == ["store-preserve-original"] {
+        use omavless_runtime::store_preservation::{
+            MAX_INPUT_BYTES, PreservationError, preserve_current_original,
+        };
+        if std::io::IsTerminal::is_terminal(&io::stdin()) {
+            return Err("Original preservation requires non-terminal stdin".into());
+        }
+        let input = read_semantic_input(MAX_INPUT_BYTES)?;
+        preserve_current_original(&input).map_err(|error| match error {
+            PreservationError::Unknown => CliError::PreservationOutcomeUnknown,
+            _ => CliError::Message(error.to_string()),
+        })?;
+        writeln!(
+            io::stdout(),
+            "{}",
+            json!({"schemaVersion":1,"outcome":"preserved","unencrypted":true})
+        )
+        .map_err(|_| CliError::PreservationOutcomeUnknown)?;
         return Ok(());
     }
     if arguments == ["store-compatibility"] {
@@ -1034,6 +1076,14 @@ fn main() -> ExitCode {
         }
         Err(CliError::SemanticOutcomeUnknown) => {
             eprintln!("OmaVLESS action outcome is unknown; inspect status before another action");
+            ExitCode::from(73)
+        }
+        Err(CliError::PreservationOutcomeUnknown) => {
+            let _ = writeln!(
+                io::stderr(),
+                "{}",
+                omavless_runtime::store_preservation::PreservationError::Unknown
+            );
             ExitCode::from(73)
         }
         Err(CliError::ActionNotAdmitted) => {

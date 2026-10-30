@@ -72,6 +72,14 @@ pub struct QuiescentGuard(Arc<AuxiliarySlot>);
 impl AuxiliarySlot {
     /// Nonblocking host-side assertion. This does not perform cancellation;
     /// the outer runtime dispatcher must drain outside its owner mutex first.
+    /// Statistics deliberately skip every auxiliary reservation. Never wait
+    /// behind auxiliary verification/cleanup while collecting statistics.
+    pub(crate) fn statistics_idle(&self) -> bool {
+        self.0
+            .try_lock()
+            .is_ok_and(|s| !s.failed && !s.draining && s.reservation.is_none())
+    }
+
     pub fn mutation_safe(&self) -> bool {
         self.0
             .lock()

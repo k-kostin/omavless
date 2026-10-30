@@ -769,9 +769,10 @@ test('native Settings Tab order follows visual action order without hidden Test'
   c.nativeSupportSetting.exportFocusTarget='nativeSupportSave';
   c.nativeSettingsBack='back';c.nativeRefresh='refresh';c.nativeGlobal='global';c.nativeRule='rule';c.nativeDirect='direct';
   c.nativeDnsDefault='dns-default';c.nativeDnsGoogle='dns-google';c.nativeDnsCloudflare='dns-cloudflare';
+  c.nativeStatisticsToggle='stats-toggle';c.nativeStatisticsCheck='stats-check';c.nativeStatisticsReviewReset='stats-reset';
   vm.runInContext(source.slice(from,to),c);
   const result=Array.from(c.panelTabTargets());
-  assert.deepEqual(result.slice(0,28),['back','refresh','nativeLanguageRow','nativeThroughputSetting','global','rule','direct','nativeRoutingPresetSetting','dns-default','dns-google','dns-cloudflare','nativeRoutingToolsSetting','nativeProvidersRefresh','nativeSubscriptionsSetting','nativeCoreSetupRow','nativeOnboardingSetting','nativeAppStartupRow','nativeStartupSummaryRow','nativeHelpersRefresh','nativeFileImportRow','nativeProfileEditorRow','nativeQrExportRow','nativeDiagnosticsSetting','nativeHelpSetting','nativeSupportSetting','nativeSupportSave','nativeExitIpSetting','nativeQuitSetting']);
+  assert.deepEqual(result.slice(0,31),['back','refresh','nativeLanguageRow','nativeThroughputSetting','global','rule','direct','nativeRoutingPresetSetting','dns-default','dns-google','dns-cloudflare','stats-toggle','stats-check','stats-reset','nativeRoutingToolsSetting','nativeProvidersRefresh','nativeSubscriptionsSetting','nativeCoreSetupRow','nativeOnboardingSetting','nativeAppStartupRow','nativeStartupSummaryRow','nativeHelpersRefresh','nativeFileImportRow','nativeProfileEditorRow','nativeQrExportRow','nativeDiagnosticsSetting','nativeHelpSetting','nativeSupportSetting','nativeSupportSave','nativeExitIpSetting','nativeQuitSetting']);
   assert(!result.includes(c.nativeOpenAppButton));
   assert(!result.includes(c.nativeTestButton));
 });

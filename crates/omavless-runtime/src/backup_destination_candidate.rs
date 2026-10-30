@@ -3,13 +3,13 @@
 //! Inactive, encrypted-only destination publisher. There is no product caller,
 //! path-bearing IPC, file picker or restore authority.
 
-use crate::backup_source_candidate::SealedBackup;
+use crate::backup_source_candidate::{OriginalStore, SealedBackup};
 use nix::errno::Errno;
 use nix::fcntl::{AtFlags, OFlag, open, openat};
 use nix::sys::stat::Mode;
 use nix::unistd::linkat;
 use std::fs::{File, Metadata};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path};
 use zeroize::Zeroizing;
@@ -118,6 +118,32 @@ pub(crate) fn publish_new(
     sealed: &SealedBackup,
 ) -> Result<(), PublishError> {
     publish_new_with_hook(destination, uid, sealed, || {})
+}
+
+/// A separate plaintext caller; never construct or weaken `SealedBackup`.
+pub(crate) fn publish_original(
+    destination: &Path,
+    uid: u32,
+    original: &OriginalStore,
+    admission_still_valid: impl Fn() -> bool,
+) -> Result<(), PublishError> {
+    publish_original_with_hook(destination, uid, original, admission_still_valid, || {})
+}
+
+fn publish_original_with_hook(
+    destination: &Path,
+    uid: u32,
+    original: &OriginalStore,
+    admission_still_valid: impl Fn() -> bool,
+    after_link: impl FnOnce(),
+) -> Result<(), PublishError> {
+    publish_bytes(
+        destination,
+        uid,
+        original.bytes(),
+        || original.verify().is_ok() && admission_still_valid(),
+        after_link,
+    )
 }
 
 /// Open only one private, single-link regular ciphertext file. Authentication
@@ -244,6 +270,31 @@ fn publish_new_with_hook(
     sealed: &SealedBackup,
     after_link: impl FnOnce(),
 ) -> Result<(), PublishError> {
+    publish_bytes(destination, uid, sealed.bytes(), || true, after_link)
+}
+
+fn verify_bytes(file: &mut File, bytes: &[u8]) -> std::io::Result<bool> {
+    file.seek(SeekFrom::Start(0))?;
+    let mut buffer = Zeroizing::new([0u8; 8192]);
+    for expected in bytes.chunks(buffer.len()) {
+        file.read_exact(&mut buffer[..expected.len()])?;
+        if &buffer[..expected.len()] != expected {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+// Private implementation shared by the two distinct typed publication callers.
+// Revalidation before link is a clean refusal; anything uncertain after link
+// is Ambiguous. No caller deletes or retries a possibly published destination.
+fn publish_bytes(
+    destination: &Path,
+    uid: u32,
+    bytes: &[u8],
+    validate: impl Fn() -> bool,
+    after_link: impl FnOnce(),
+) -> Result<(), PublishError> {
     if !destination.is_absolute() {
         return Err(PublishError::InvalidDestination);
     }
@@ -277,11 +328,11 @@ fn publish_new_with_hook(
     {
         return Err(PublishError::Unavailable);
     }
-    file.write_all(sealed.bytes())
+    file.write_all(bytes)
         .and_then(|_| file.sync_all())
         .map_err(|_| PublishError::Unavailable)?;
     let after = file.metadata().map_err(|_| PublishError::Unavailable)?;
-    if after.len() != sealed.bytes().len() as u64
+    if after.len() != bytes.len() as u64
         || after.uid() != uid
         || after.mode() & 0o7777 != 0o600
         || after.nlink() != 0
@@ -292,6 +343,9 @@ fn publish_new_with_hook(
                 .map_err(|_| PublishError::Unavailable)?,
         )
     {
+        return Err(PublishError::Unavailable);
+    }
+    if !verify_bytes(&mut file, bytes).map_err(|_| PublishError::Unavailable)? || !validate() {
         return Err(PublishError::Unavailable);
     }
     match linkat(
@@ -306,11 +360,34 @@ fn publish_new_with_hook(
         Err(_) => return Err(PublishError::Unavailable),
     }
     after_link(); // Synthetic crash/race hook; product caller is a no-op.
+    if !validate() || !verify_bytes(&mut file, bytes).map_err(|_| PublishError::Ambiguous)? {
+        return Err(PublishError::Ambiguous);
+    }
     let current_parent = open_parent(parent_path, uid).map_err(|_| PublishError::Ambiguous)?;
     let current = current_parent
         .metadata()
         .map_err(|_| PublishError::Ambiguous)?;
     if !stable_directory(&before, &current) {
+        return Err(PublishError::Ambiguous);
+    }
+    let named = File::from(
+        openat(
+            &directory,
+            Path::new(name),
+            OFlag::O_RDONLY | OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK | OFlag::O_CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|_| PublishError::Ambiguous)?,
+    );
+    let held = file.metadata().map_err(|_| PublishError::Ambiguous)?;
+    let named = named.metadata().map_err(|_| PublishError::Ambiguous)?;
+    if !stable_member(&held, &named)
+        || !held.is_file()
+        || held.uid() != uid
+        || held.len() != bytes.len() as u64
+        || held.nlink() != 1
+        || held.mode() & 0o7777 != 0o600
+    {
         return Err(PublishError::Ambiguous);
     }
     directory.sync_all().map_err(|_| PublishError::Ambiguous)?;
@@ -322,6 +399,49 @@ mod tests {
     use super::*;
     use std::fs;
     use std::os::unix::fs::{PermissionsExt, symlink};
+
+    #[test]
+    fn original_publication_refuses_changed_source_and_keeps_ambiguous_copy() {
+        let home = std::env::var_os("HOME").unwrap();
+        let root =
+            crate::test_temp::directory_under(Path::new(&home), "original-publication").unwrap();
+        let config = root.join("config");
+        fs::create_dir(&config).unwrap();
+        fs::set_permissions(&config, fs::Permissions::from_mode(0o700)).unwrap();
+        let source = config.join("profiles.json");
+        let bytes = b"synthetic exact original: not parsed as profiles\n";
+        fs::write(&source, bytes).unwrap();
+        fs::set_permissions(&source, fs::Permissions::from_mode(0o600)).unwrap();
+        let uid = fs::metadata(&root).unwrap().uid();
+        let original = OriginalStore::capture(&config, uid).unwrap();
+        let destination = root.join("original.json");
+        fs::write(&source, b"changed-before-publication").unwrap();
+        assert_eq!(
+            publish_original(&destination, uid, &original, || true),
+            Err(PublishError::Unavailable)
+        );
+        assert!(!destination.exists());
+        drop(original);
+        fs::write(&source, bytes).unwrap();
+        let original = OriginalStore::capture(&config, uid).unwrap();
+        let result = publish_original_with_hook(
+            &destination,
+            uid,
+            &original,
+            || true,
+            || {
+                fs::write(&source, b"changed-after-publication").unwrap();
+            },
+        );
+        assert_eq!(result, Err(PublishError::Ambiguous));
+        assert_eq!(
+            fs::read(&destination).unwrap(),
+            bytes,
+            "no automatic compensation after link"
+        );
+        assert_eq!(fs::read(&source).unwrap(), b"changed-after-publication");
+        fs::remove_dir_all(root).unwrap();
+    }
 
     fn fixture() -> (std::path::PathBuf, u32, SealedBackup) {
         // The product path policy intentionally rejects /tmp's writable

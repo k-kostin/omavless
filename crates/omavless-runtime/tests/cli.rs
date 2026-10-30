@@ -1108,6 +1108,372 @@ fn custom_rules_cli_maps_only_fixed_read_and_keeps_private_output_off_stderr() {
 }
 
 #[test]
+fn store_preserve_original_cli_saves_cold_mixed_bytes_without_admitting_profiles() {
+    use std::os::unix::fs::MetadataExt;
+    // This path policy deliberately rejects /tmp's writable ancestors.
+    let base = test_temp::directory_under(&test_temp::home_parent().unwrap(), "preserve").unwrap();
+    prepare_isolated_daemon_environment(&base);
+    let config = base.join("home/.config/omavless");
+    fs::create_dir_all(&config).unwrap();
+    fs::set_permissions(&config, fs::Permissions::from_mode(0o700)).unwrap();
+    let corpus: Vec<Value> = serde_json::from_str(include_str!(
+        "../../../tests/parity_cases/vless-canonical-v1.json"
+    ))
+    .unwrap();
+    let profile = |case_id: &str, id: &str| {
+        serde_json::json!({
+            "id":id,"name":"synthetic-private-label","protocol":"vless",
+            "uri":corpus.iter().find(|case| case["id"] == case_id).unwrap()["uri"]
+        })
+    };
+    let original = serde_json::to_vec_pretty(&serde_json::json!({"version":3,
+        "profiles":[profile("tcp-default","00000000-0000-4000-8000-000000000001"),
+                    profile("xhttp-unknown","00000000-0000-4000-8000-000000000002")],
+        "subscriptions":[]}))
+    .unwrap();
+    let source = config.join("profiles.json");
+    fs::write(&source, &original).unwrap();
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o600)).unwrap();
+    let destination = base.join("original-private.json");
+    let mut child = isolated_command(&base)
+        .arg("store-preserve-original")
+        .env("PATH", base.join("no-external-tools"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(
+            serde_json::json!({
+                "destination":destination,"confirmUnencrypted":true
+            })
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "preservation refused: {:?}",
+        output.stderr
+    );
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&output.stdout).unwrap(),
+        serde_json::json!({"schemaVersion":1,"outcome":"preserved","unencrypted":true})
+    );
+    assert_eq!(fs::read(&destination).unwrap(), original);
+    assert_eq!(fs::metadata(&destination).unwrap().mode() & 0o7777, 0o600);
+    assert_eq!(fs::read(&source).unwrap(), original);
+    assert_eq!(fs::metadata(&source).unwrap().mode() & 0o7777, 0o600);
+    assert!(!base.join("state/omavless").exists());
+    assert!(!omavless_runtime::RuntimePaths::below(&base).socket.exists());
+    let check = command(&base, "store-compatibility");
+    assert!(check.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&check.stdout).unwrap()["code"],
+        "store_requires_repair"
+    );
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn store_preserve_original_cli_requires_consent_and_never_replaces_destination() {
+    let base = test_temp::directory_under(&test_temp::home_parent().unwrap(), "preserve").unwrap();
+    prepare_isolated_daemon_environment(&base);
+    let config = base.join("home/.config/omavless");
+    fs::create_dir_all(&config).unwrap();
+    fs::set_permissions(&config, fs::Permissions::from_mode(0o700)).unwrap();
+    let source = config.join("profiles.json");
+    let original = b"{\n  \"version\":3, \"profiles\":[], \"subscriptions\":[]\n}\n";
+    fs::write(&source, original).unwrap();
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o600)).unwrap();
+    let destination = base.join("copy.json");
+    let input = |consent| {
+        serde_json::json!({"destination":destination,"confirmUnencrypted":consent}).to_string()
+    };
+    let denied = preservation_command(&base, input(false).as_bytes());
+    assert_eq!(denied.status.code(), Some(2));
+    assert!(denied.stdout.is_empty());
+    assert!(!destination.exists());
+    assert!(!base.join("state/omavless").exists());
+    assert_eq!(
+        fs::read_dir(&base).unwrap().count(),
+        3,
+        "no lock or copy before consent"
+    );
+    // Valid source is the positive control: rejection above is not a broken fixture.
+    let success = preservation_command(&base, input(true).as_bytes());
+    assert!(success.status.success());
+    assert_eq!(fs::read(&destination).unwrap(), original);
+    fs::write(&destination, b"sentinel: keep exactly").unwrap();
+    let exists = preservation_command(&base, input(true).as_bytes());
+    assert_eq!(exists.status.code(), Some(2));
+    assert!(exists.stdout.is_empty());
+    assert_eq!(
+        exists.stderr,
+        b"Original preservation refused: destination already exists; it was not replaced\n"
+    );
+    assert_eq!(fs::read(&destination).unwrap(), b"sentinel: keep exactly");
+    assert_eq!(fs::read(&source).unwrap(), original);
+    fs::remove_dir_all(base).unwrap();
+}
+
+fn preservation_command(base: &Path, input: &[u8]) -> std::process::Output {
+    let mut child = isolated_command(base)
+        .arg("store-preserve-original")
+        .env("PATH", base.join("no-external-tools"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(input).unwrap();
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn store_preserve_original_cli_is_raw_bounded_and_fenced_in_cold_rust_state() {
+    use omavless_runtime::cutover::{CutoverPaths, MigrationLock};
+    use std::os::unix::fs::{MetadataExt, symlink};
+    let base = test_temp::directory_under(&test_temp::home_parent().unwrap(), "preserve").unwrap();
+    prepare_isolated_daemon_environment(&base);
+    let config = base.join("home/.config/omavless");
+    let state = base.join("state/omavless");
+    for path in [&config, &state] {
+        fs::create_dir_all(path).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let source = config.join("profiles.json");
+    let marker = state.join("ownership.json");
+    let original_marker = br#"{"schemaVersion":1,"generation":7,"phase":"rust"}"#;
+    fs::write(&marker, original_marker).unwrap();
+    fs::set_permissions(&marker, fs::Permissions::from_mode(0o600)).unwrap();
+    let desired = state.join("desired.json");
+    fs::write(&desired, b"synthetic-control-sentinel").unwrap();
+    fs::set_permissions(&desired, fs::Permissions::from_mode(0o600)).unwrap();
+    let destination = base.join("original.json");
+    let input =
+        serde_json::json!({"destination":destination,"confirmUnencrypted":true}).to_string();
+    let corpus: Vec<Value> = serde_json::from_str(include_str!(
+        "../../../tests/parity_cases/vless-canonical-v1.json"
+    ))
+    .unwrap();
+    let mut originals = Vec::new();
+    for id in [
+        "xhttp-unknown",
+        "xhttp-stream-one-download",
+        "download-mode-mismatch",
+        "recursive-extra",
+    ] {
+        let uri = &corpus.iter().find(|c| c["id"] == id).unwrap()["uri"];
+        originals.push(serde_json::json!({"version":3,"profiles":[{
+            "id":"00000000-0000-4000-8000-000000000001","name":"synthetic-private-label", "protocol":"vless", "uri":uri
+        }],"subscriptions":[]}).to_string().into_bytes());
+    }
+    originals.extend([
+        b"{broken JSON, spacing retained\n".to_vec(),
+        b"{\"version\":3, \"version\":0, \"unknown\": [1,2]}\n".to_vec(),
+        vec![0xff, 0, 0xfe],
+        vec![b'x'; 5 * 1024 * 1024],
+    ]);
+    for original in originals {
+        fs::write(&source, &original).unwrap();
+        fs::set_permissions(&source, fs::Permissions::from_mode(0o600)).unwrap();
+        let output = preservation_command(&base, input.as_bytes());
+        assert!(output.status.success(), "{:?}", output.stderr);
+        assert_eq!(fs::read(&destination).unwrap(), original);
+        assert_eq!(fs::read(&source).unwrap(), original);
+        fs::remove_file(&destination).unwrap();
+    }
+    let original = b"synthetic-source-sentinel";
+    fs::write(&source, original).unwrap();
+    let refused = || {
+        let output = preservation_command(&base, input.as_bytes());
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(output.stderr.len() < 256);
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("synthetic-source"));
+        assert!(
+            !String::from_utf8_lossy(&output.stderr).contains(&base.to_string_lossy().to_string())
+        );
+        assert!(!destination.exists());
+    };
+    for pending in [
+        "restore-decision.intent",
+        "restore-finalization.pending",
+        "restore-decision.terminal",
+    ] {
+        fs::write(state.join(pending), b"unresolved-sentinel").unwrap();
+        refused();
+        assert_eq!(
+            fs::read(state.join(pending)).unwrap(),
+            b"unresolved-sentinel"
+        );
+        fs::remove_file(state.join(pending)).unwrap();
+    }
+    for phase in ["cutoverPreparing", "rollbackPreparing", "unknown"] {
+        fs::write(
+            &marker,
+            format!("{{\"schemaVersion\":1,\"generation\":7,\"phase\":\"{phase}\"}}"),
+        )
+        .unwrap();
+        refused();
+    }
+    fs::write(&marker, original_marker).unwrap();
+    let uid = fs::metadata(&base).unwrap().uid();
+    let cutover = CutoverPaths::below(&base, &base.join("state"), uid);
+    let lock = MigrationLock::acquire(&cutover, uid).unwrap();
+    refused();
+    drop(lock);
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o644)).unwrap();
+    refused();
+    assert_eq!(fs::metadata(&source).unwrap().mode() & 0o7777, 0o644);
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o600)).unwrap();
+    let held = config.join("held.json");
+    fs::rename(&source, &held).unwrap();
+    symlink(&held, &source).unwrap();
+    refused();
+    fs::remove_file(&source).unwrap();
+    fs::rename(&held, &source).unwrap();
+    fs::hard_link(&source, &held).unwrap();
+    refused();
+    fs::remove_file(&held).unwrap();
+    let moved = config.with_extension("held");
+    fs::rename(&config, &moved).unwrap();
+    symlink(&moved, &config).unwrap();
+    refused();
+    fs::remove_file(&config).unwrap();
+    fs::rename(&moved, &config).unwrap();
+    fs::write(&source, vec![b'x'; 5 * 1024 * 1024 + 1]).unwrap();
+    refused();
+    assert_eq!(fs::metadata(&source).unwrap().len(), 5 * 1024 * 1024 + 1);
+    fs::write(&source, original).unwrap();
+    assert!(
+        preservation_command(&base, input.as_bytes())
+            .status
+            .success()
+    );
+    assert_eq!(fs::read(&destination).unwrap(), original);
+    assert_eq!(fs::read(&source).unwrap(), original);
+    assert_eq!(fs::read(&marker).unwrap(), original_marker);
+    assert_eq!(fs::read(&desired).unwrap(), b"synthetic-control-sentinel");
+    assert!(!omavless_runtime::RuntimePaths::below(&base).socket.exists());
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn store_preserve_original_cli_rejects_unconfirmed_shapes_before_file_effects() {
+    let base = test_temp::directory_under(&test_temp::home_parent().unwrap(), "preserve").unwrap();
+    prepare_isolated_daemon_environment(&base);
+    for input in [
+        b"[]".to_vec(), b"[\"/private-path\",true]".to_vec(),
+        b"{\"destination\":\"/private-path\",\"confirmUnencrypted\":false}".to_vec(),
+        b"{\"destination\":\"/private-path\",\"confirmUnencrypted\":true,\"source\":\"private-token\"}".to_vec(),
+        b"{\"destination\":\"/private-path\",\"confirmUnencrypted\":true,\"confirmUnencrypted\":false}".to_vec(),
+        b"{\"destination\":\"/first\",\"destination\":\"/second\",\"confirmUnencrypted\":true}".to_vec(),
+        b"{\"destination\":\"relative\",\"confirmUnencrypted\":true}".to_vec(),
+        b"{\"destination\":\"/private-path\",\"confirmUnencrypted\":\"true\"}".to_vec(),
+        vec![b' '; omavless_runtime::store_preservation::MAX_INPUT_BYTES + 1],
+        vec![0xff],
+    ] {
+        let output = preservation_command(&base, &input);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let error = String::from_utf8(output.stderr).unwrap();
+        for private in ["/private-path", "private-token", "/first", "/second"] { assert!(!error.contains(private)); }
+        assert_eq!(fs::read_dir(&base).unwrap().count(), 3, "input rejected before lock/source/destination");
+    }
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn store_preserve_original_cli_broken_output_keeps_copy_and_reports_unknown() {
+    let base = test_temp::directory_under(&test_temp::home_parent().unwrap(), "preserve").unwrap();
+    prepare_isolated_daemon_environment(&base);
+    let config = base.join("home/.config/omavless");
+    fs::create_dir_all(&config).unwrap();
+    fs::set_permissions(&config, fs::Permissions::from_mode(0o700)).unwrap();
+    let source = config.join("profiles.json");
+    fs::write(&source, b"synthetic exact bytes").unwrap();
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o600)).unwrap();
+    let destination = base.join("original.json");
+    let (read, write) = nix::unistd::pipe().unwrap();
+    drop(read);
+    let mut child = isolated_command(&base)
+        .arg("store-preserve-original")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::from(write))
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(
+            serde_json::json!({
+                "destination":destination,"confirmUnencrypted":true
+            })
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(73));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("outcome is unknown")
+    );
+    assert_eq!(fs::read(&destination).unwrap(), b"synthetic exact bytes");
+    assert_eq!(fs::read(&source).unwrap(), b"synthetic exact bytes");
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn store_preserve_original_cli_refuses_terminal_before_reading_or_file_effects() {
+    let base = file_base();
+    prepare_isolated_daemon_environment(&base);
+    let isolated = isolated_command(&base);
+    let output = Command::new("python3")
+        .args([
+            "-I",
+            "-B",
+            "-c",
+            r#"
+import os, pty, subprocess, sys
+master, slave = pty.openpty()
+try:
+    result = subprocess.run([sys.argv[1], 'store-preserve-original'],
+                            stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=2)
+    assert result.returncode == 2
+    assert result.stdout == b''
+    assert b'non-terminal stdin' in result.stderr
+finally:
+    os.close(master)
+    os.close(slave)
+"#,
+        ])
+        .arg(env!("CARGO_BIN_EXE_omavless"))
+        .envs(isolated.get_envs().filter_map(|(k, v)| v.map(|v| (k, v))))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "PTY control failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(fs::read_dir(&base).unwrap().count(), 3);
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
 fn store_compatibility_cli_is_bounded_read_only_and_requires_no_external_tools() {
     use omavless_runtime::cutover::{CutoverPaths, MigrationLock};
     use std::os::unix::fs::{MetadataExt, symlink};
@@ -1638,6 +2004,7 @@ fn help_exposes_only_fixed_semantic_commands() {
         "profile export PROFILE_ID qr|file",
         "profile edit-input PROFILE_ID",
         "store-compatibility",
+        "store-preserve-original",
         "subscription list",
         "subscription edit-input SUBSCRIPTION_ID",
         "subscription usage SUBSCRIPTION_ID",
@@ -1652,7 +2019,15 @@ fn help_exposes_only_fixed_semantic_commands() {
         assert!(help.contains(command));
     }
     assert!(!help.contains("METHOD"));
-    assert!(!help.contains("JSON"));
+    // One fixed local-file schema is not a generic method/JSON RPC entry.
+    assert_eq!(
+        help.lines()
+            .filter(|line| line.contains("JSON"))
+            .collect::<Vec<_>>(),
+        [
+            "    stdin JSON object: destination (absolute new private file), confirmUnencrypted: true"
+        ]
+    );
 }
 
 #[test]

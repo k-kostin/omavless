@@ -170,6 +170,7 @@ pub mod startup_protocol;
 mod startup_validation;
 pub mod store_bootstrap;
 pub mod store_preflight;
+pub mod store_preservation;
 pub mod subscription_batch_work;
 pub mod subscription_mutation;
 pub mod subscription_mutation_protocol;
@@ -182,6 +183,7 @@ pub mod subscription_transport;
 mod subscription_usage;
 mod support_diagnostics;
 pub mod traffic;
+mod traffic_statistics;
 pub mod tun_ping;
 mod tun_scope;
 mod ui_snapshot;
@@ -334,9 +336,10 @@ pub struct RuntimeServer {
     batch_scheduler: batch_scheduler::BatchScheduler,
     remote_fetches: remote_fetch::RemoteFetchPool,
     ping_read: Mutex<()>,
+    statistics: std::sync::OnceLock<Option<traffic_statistics::worker::Worker>>,
     // Full Quit excludes every admitted unary handler, including detached
     // remote completion, before disconnecting and sealing new admission.
-    quit_gate: RwLock<bool>,
+    quit_gate: Arc<RwLock<bool>>,
     quit_requested: AtomicBool,
     _owner: OwnerLock,
 }
@@ -345,6 +348,7 @@ const READ_ONLY_METHODS: &[&str] = &["system.hello", "status.get", "capabilities
 const NATIVE_READ_METHODS: &[&str] = &[
     "runtime.connection_test",
     "runtime.traffic",
+    "stats.get",
     "runtime.connections",
     "runtime.connection_overview",
     "runtime.connection_rows",
@@ -377,6 +381,8 @@ const NATIVE_MUTATION_METHODS: &[&str] = &[
     "onboarding.complete",
     "startup.configure",
     "dns.configure",
+    "stats.configure",
+    "stats.reset",
     "subscriptions.schedule.configure",
     "profiles.replace",
     "profiles.import",
@@ -583,6 +589,23 @@ trait NativeRuntimeOwner: Send {
         request: &Value,
         deadline: std::time::Instant,
     ) -> std::result::Result<tun_ping::Context, StableErrorCode>;
+    fn stats_off_context(
+        &self,
+        capture: &traffic_statistics::collection::Capture,
+    ) -> Option<native_host::StatsOffContext>;
+    fn stats_off_current(&self, capture: &traffic_statistics::collection::Capture) -> bool;
+    fn stats_capture(&self) -> Option<traffic_statistics::collection::Capture>;
+    fn stats_context(
+        &self,
+        capture: &traffic_statistics::collection::Capture,
+        desired: &desired::DesiredState,
+    ) -> Option<native_host::StatsReadContext>;
+    fn stats_current(
+        &self,
+        capture: &traffic_statistics::collection::Capture,
+        desired: &desired::DesiredState,
+        context: &native_host::StatsReadContext,
+    ) -> bool;
     fn traffic(
         &mut self,
         request: &Value,
@@ -1098,6 +1121,33 @@ where
         self.owner
             .ping_plan(request, deadline)
             .map_err(|e| e.stable_code())
+    }
+    fn stats_off_context(
+        &self,
+        capture: &traffic_statistics::collection::Capture,
+    ) -> Option<native_host::StatsOffContext> {
+        self.owner.stats_off_context(capture)
+    }
+    fn stats_off_current(&self, capture: &traffic_statistics::collection::Capture) -> bool {
+        self.owner.stats_off_current(capture)
+    }
+    fn stats_capture(&self) -> Option<traffic_statistics::collection::Capture> {
+        self.owner.stats_capture()
+    }
+    fn stats_context(
+        &self,
+        capture: &traffic_statistics::collection::Capture,
+        desired: &desired::DesiredState,
+    ) -> Option<native_host::StatsReadContext> {
+        self.owner.stats_context(capture, desired)
+    }
+    fn stats_current(
+        &self,
+        capture: &traffic_statistics::collection::Capture,
+        desired: &desired::DesiredState,
+        context: &native_host::StatsReadContext,
+    ) -> bool {
+        self.owner.stats_current(capture, desired, context)
     }
     fn traffic(
         &mut self,
@@ -1635,7 +1685,8 @@ impl RuntimeServer {
             batch_scheduler: batch_scheduler::BatchScheduler::default(),
             remote_fetches: remote_fetch::RemoteFetchPool::default(),
             ping_read: Mutex::new(()),
-            quit_gate: RwLock::new(false),
+            statistics: std::sync::OnceLock::new(),
+            quit_gate: Arc::new(RwLock::new(false)),
             quit_requested: AtomicBool::new(false),
             _owner: owner,
         })
@@ -1726,6 +1777,35 @@ impl RuntimeServer {
         self.dispatcher = Arc::new(Mutex::new(RuntimeDispatcher::Native(Box::new(registered))));
     }
 
+    fn reconcile_statistics(&self) {
+        if product_scope::backup_only() {
+            return;
+        }
+        if self.statistics.get().is_none() {
+            let capture =
+                self.dispatcher
+                    .try_lock()
+                    .ok()
+                    .and_then(|dispatcher| match &*dispatcher {
+                        RuntimeDispatcher::Native(owner) => owner.stats_capture(),
+                        RuntimeDispatcher::ReadOnly => None,
+                    });
+            if let Some(capture) = capture {
+                let dispatcher = Arc::downgrade(&self.dispatcher);
+                let worker = traffic_statistics::worker::Worker::spawn(
+                    capture.desired.directory,
+                    capture.uid,
+                    move || traffic_statistics::collection::collect(&dispatcher),
+                )
+                .ok();
+                let _ = self.statistics.set(worker);
+            }
+        }
+        if let Some(Some(worker)) = self.statistics.get() {
+            worker.reconcile_due();
+        }
+    }
+
     #[must_use]
     pub fn socket_path(&self) -> &Path {
         &self.paths.socket
@@ -1764,6 +1844,7 @@ impl RuntimeServer {
         let server = &self;
         thread::scope(|scope| {
             while !stop.load(Ordering::Relaxed) && !self.quit_requested.load(Ordering::Acquire) {
+                self.reconcile_statistics();
                 if let Ok(gate) = self.quit_gate.try_read()
                     && !*gate
                 {
@@ -1865,6 +1946,12 @@ impl RuntimeServer {
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         if request["method"] == "runtime.quit" {
             return self.dispatch_quit(request);
+        }
+        // Statistics performs slow preflight on its existing detached worker.
+        // It owns a separate short seal/admission fence, never this unary gate.
+        if traffic_statistics::protocol::METHODS.contains(&request["method"].as_str().unwrap_or(""))
+        {
+            return self.dispatch_statistics(request);
         }
         let Ok(gate) = self.quit_gate.try_read() else {
             return error_response(
@@ -3589,6 +3676,7 @@ mod tests {
         fresh_result: std::result::Result<lifecycle::NativeLocalObservation, HostStepError>,
         on_fresh: Option<Box<dyn FnMut() + Send>>,
         connection_details_payload: Option<Value>,
+        statistics_off: Option<native_host::StatsOffContext>,
     }
 
     struct BlockingTransport {
@@ -3656,6 +3744,17 @@ mod tests {
                 epoch: slot.epoch().unwrap(),
                 slot,
             })
+        }
+        fn statistics_off_context(&self) -> Option<native_host::StatsOffContext> {
+            self.statistics_off
+                .clone()
+                .filter(|_| self.statistics_off_current())
+        }
+        fn statistics_off_current(&self) -> bool {
+            self.statistics_off.is_some()
+                && !self.observation.service_active
+                && self.observation.core_count == 0
+                && self.observation.tun_count == 0
         }
         fn traffic_counters(
             &mut self,
@@ -4055,6 +4154,7 @@ mod tests {
             fresh_calls: Arc::new(AtomicUsize::new(0)),
             fresh_result: Err(HostStepError::Observation),
             connection_details_payload: None,
+            statistics_off: None,
             on_fresh: None,
             route_config: if route {
                 let path = config.join("route.yaml");
@@ -4102,6 +4202,397 @@ mod tests {
         Arc<AtomicUsize>,
     ) {
         owner_fixture(base, OwnershipPhase::Rust)
+    }
+
+    #[test]
+    fn traffic_statistics_real_ipc_controls_reconcile_two_clients_and_never_touch_lifecycle() {
+        let base = temporary_base("stats-ipc");
+        let (mut owner, _, calls) = native_owner_fixture(&base);
+        let proc = base.join("stats-proc");
+        let sys = base.join("stats-sys");
+        fs::create_dir(&proc).unwrap();
+        fs::create_dir(&sys).unwrap();
+        owner.batch_coordinator().host_mut().statistics_off = Some(
+            native_host::StatsOffContext::fixture(proc, sys, base.join("absent-controller")),
+        );
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        server.reconcile_statistics();
+        let finished = server
+            .statistics
+            .get()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .completion();
+        let before_store = fs::read(base.join("config/profiles.json")).unwrap();
+        let before_desired = fs::read(base.join("state/omavless/desired.json")).unwrap();
+        let before_calls = calls.load(Ordering::Relaxed);
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let initial = loop {
+            // Serve the actual socket handler serially until the lost-request
+            // control has finished. A concurrent GET is allowed to win the
+            // nonblocking dispatcher gate and refuse a mutation before write.
+            let value = thread::scope(|scope| {
+                let client = scope.spawn(|| call(&paths, "stats.get", json!({})).unwrap());
+                let (mut peer, _) = server.listener.accept().unwrap();
+                server.handle(&mut peer).unwrap();
+                drop(peer); // Complete the unary EOF before joining its client.
+                client.join().unwrap()
+            });
+            if value["result"]["availability"] == "recorded" {
+                break value;
+            }
+            assert!(std::time::Instant::now() < deadline);
+            thread::yield_now();
+        };
+        assert_eq!(initial["result"]["enabled"], false);
+        assert!(!base.join("state/omavless/traffic-statistics.json").exists());
+        let instance = initial["result"]["instanceId"].clone();
+        let params = json!({"instanceId":instance,"operationId":"stats-enable","expectedRevision":0,"statisticsRevision":0,"enabled":true});
+        // Sensitive negative control: a fully written request with a lost
+        // response can be refused before admission. This does not diagnose
+        // the historical CI interleaving or retry an uncertain operation.
+        let mut refused_params = params.clone();
+        refused_params["operationId"] = "stats-known-contention".into();
+        let refused_request =
+            make_request("stats-refused-reply", "stats.configure", refused_params).unwrap();
+        let mut refused_peer = UnixStream::connect(&paths.socket).unwrap();
+        write_unary_frame(
+            &mut refused_peer,
+            &encode_request(&refused_request).unwrap(),
+            FrameKind::Request,
+        )
+        .unwrap();
+        // Retain this peer just long enough to prove the original refusal.
+        refused_peer.shutdown(std::net::Shutdown::Write).unwrap();
+        let (mut incoming, _) = server.listener.accept().unwrap();
+        let held = server.dispatcher.lock().unwrap();
+        server.handle(&mut incoming).unwrap();
+        drop(held);
+        drop(incoming);
+        let refusal =
+            decode_response(&read_unary_frame(&mut refused_peer, FrameKind::Response).unwrap())
+                .unwrap();
+        assert_eq!(refusal["error"]["code"], "busy");
+        assert!(!base.join("state/omavless/traffic-statistics.json").exists());
+        // Write the complete original request, then close its real Unix peer
+        // without reading any response. Reconcile by GET, not mutation retry.
+        let original_request =
+            make_request("stats-lost-reply", "stats.configure", params.clone()).unwrap();
+        let mut lost = UnixStream::connect(&paths.socket).unwrap();
+        write_unary_frame(
+            &mut lost,
+            &encode_request(&original_request).unwrap(),
+            FrameKind::Request,
+        )
+        .unwrap();
+        drop(lost);
+        let (mut incoming, _) = server.listener.accept().unwrap();
+        assert!(
+            matches!(server.handle(&mut incoming), Err(RuntimeError::Io)),
+            "the closed original peer cannot receive its reply"
+        );
+        let committed = traffic_statistics::State::decode(
+            &fs::read(base.join("state/omavless/traffic-statistics.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            committed.projection()["controlRevision"],
+            1,
+            "prove this control reached durable admission before GET reconciliation"
+        );
+        let serving = RunningSocketFixture::start(server);
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            let observed = call(&paths, "stats.get", json!({})).unwrap();
+            if observed["result"]["controlRevision"] == 1 {
+                assert_eq!(observed["result"]["enabled"], true);
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline);
+            thread::yield_now();
+        }
+        // Separate inert protocol control: the now-known committed operation
+        // must return its retained receipt, with no second write.
+        let enabled = call(&paths, "stats.configure", params.clone()).unwrap();
+        assert_eq!(enabled["ok"], true);
+        assert_eq!(enabled["revision"], 0);
+        assert_eq!(enabled["result"]["controlRevision"], 1);
+        // Lost-response reconciliation uses a distinct read, never mutation retry.
+        let current = call(&paths, "stats.get", json!({})).unwrap();
+        assert_eq!(current["result"]["controlRevision"], 1);
+        assert_eq!(current["result"]["enabled"], true);
+        let disk = fs::read(base.join("state/omavless/traffic-statistics.json")).unwrap();
+        let replay = call(&paths, "stats.configure", params.clone()).unwrap();
+        assert_eq!(replay["result"], enabled["result"]);
+        assert_eq!(
+            fs::read(base.join("state/omavless/traffic-statistics.json")).unwrap(),
+            disk
+        );
+        let mut other = params.clone();
+        other["operationId"] = "second-client".into();
+        assert_eq!(
+            call(&paths, "stats.configure", other).unwrap()["error"]["code"],
+            "conflict"
+        );
+        let mut conflicting = params.clone();
+        conflicting["enabled"] = false.into();
+        assert_eq!(
+            call(&paths, "stats.configure", conflicting).unwrap()["error"]["code"],
+            "conflict"
+        );
+        let reset = call(&paths, "stats.reset", json!({"instanceId":instance,"operationId":"stats-reset","expectedRevision":0,"statisticsRevision":1})).unwrap();
+        assert_eq!(reset["ok"], true);
+        assert_eq!(reset["result"]["receivedBytes"], "0");
+        assert_eq!(reset["result"]["controlRevision"], 2);
+        let disabled = call(&paths, "stats.configure", json!({"instanceId":instance,"operationId":"stats-disable","expectedRevision":0,"statisticsRevision":2,"enabled":false})).unwrap();
+        assert_eq!(disabled["ok"], true);
+        assert_eq!(disabled["result"]["controlRevision"], 3);
+        assert_eq!(call(&paths, "stats.reset", json!({"instanceId":"other-runtime","operationId":"wrong","expectedRevision":0,"statisticsRevision":3})).unwrap()["error"]["code"], "daemon_restarting");
+        assert_eq!(
+            fs::read(base.join("config/profiles.json")).unwrap(),
+            before_store
+        );
+        assert_eq!(
+            fs::read(base.join("state/omavless/desired.json")).unwrap(),
+            before_desired
+        );
+        assert_eq!(calls.load(Ordering::Relaxed), before_calls);
+        let connected = call(&paths, "connection.connect", json!({"profileId":PROFILE_ID,"operationId":"stats-connected-refusal","expectedRevision":0})).unwrap();
+        assert_eq!(connected["ok"], true);
+        let before_replay = fs::read(base.join("state/omavless/traffic-statistics.json")).unwrap();
+        let replay_after_connect = call(&paths, "stats.configure", params).unwrap();
+        assert_eq!(replay_after_connect["result"], enabled["result"]);
+        assert_eq!(
+            fs::read(base.join("state/omavless/traffic-statistics.json")).unwrap(),
+            before_replay
+        );
+        let refused = call(&paths, "stats.reset", json!({"instanceId":instance,"operationId":"active-reset","expectedRevision":connected["revision"],"statisticsRevision":3})).unwrap();
+        assert_eq!(refused["error"]["code"], "busy");
+        assert_eq!(
+            call(
+                &paths,
+                "connection.disconnect",
+                json!({"operationId":"stats-final-down","expectedRevision":connected["revision"]})
+            )
+            .unwrap()["ok"],
+            true
+        );
+        serving.finish();
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while !finished.load(Ordering::Acquire) {
+            assert!(std::time::Instant::now() < deadline);
+            thread::yield_now();
+        }
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn traffic_statistics_actual_owner_and_quit_fences_span_candidate_selection() {
+        use traffic_statistics::{State, admission::Admission};
+        let base = temporary_base("stats-admit-owner");
+        let (mut owner, _, _) = native_owner_fixture(&base);
+        let proc = base.join("stats-proc");
+        let sys = base.join("stats-sys");
+        fs::create_dir(&proc).unwrap();
+        fs::create_dir(&sys).unwrap();
+        owner.batch_coordinator().host_mut().statistics_off = Some(
+            native_host::StatsOffContext::fixture(proc, sys, base.join("absent-controller")),
+        );
+        let server = RuntimeServer::bind_with_owner_factory(
+            RuntimePaths::below(&base.join("runtime")),
+            move |_| Ok(owner),
+        )
+        .unwrap();
+        let capture = {
+            let dispatcher = server.dispatcher.lock().unwrap();
+            let RuntimeDispatcher::Native(owner) = &*dispatcher else {
+                panic!()
+            };
+            owner.stats_capture().unwrap()
+        };
+        let mut candidate = State::default();
+        Admission::current_owner(
+            Arc::clone(&server.quit_gate),
+            Arc::downgrade(&server.dispatcher),
+            capture,
+            false,
+        )
+        .run(|| {
+            assert!(
+                server.dispatcher.try_lock().is_err(),
+                "Connect/revision owner cannot interleave before candidate selection"
+            );
+            assert!(
+                server.quit_gate.try_write().is_err(),
+                "Quit cannot interleave admission"
+            );
+            candidate.configure(true, 100).unwrap();
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(candidate.projection()["enabled"], true);
+        assert!(
+            server.dispatcher.try_lock().is_ok(),
+            "no owner guard survives selection into storage"
+        );
+        assert!(server.quit_gate.try_write().is_ok());
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn traffic_statistics_blocked_preflight_does_not_retain_server_or_write_after_quit_seal() {
+        use traffic_statistics::{
+            admission::Admission,
+            worker::{Error, Worker},
+        };
+        let base = temporary_base("stats-quit-preflight");
+        let (mut owner, _, _) = native_owner_fixture(&base);
+        owner.batch_coordinator().host_mut().fresh_result = Ok(fresh_empty_facts());
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let stats_path = base.join("state/omavless/traffic-statistics.json");
+        let store =
+            traffic_statistics::file::Store::new(&base.join("state/omavless"), server.uid).unwrap();
+        let stats = Worker::start(store, || None).unwrap();
+        let finished = stats.completion();
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while stats.view()["availability"] == "unavailable" {
+            assert!(std::time::Instant::now() < deadline);
+            thread::yield_now();
+        }
+        let request = make_request("enable", "stats.configure", json!({
+            "instanceId":server.instance_id,"operationId":"blocked-preflight", "expectedRevision":0,
+            "statisticsRevision":0,"enabled":true
+        })).unwrap();
+        let parsed = traffic_statistics::protocol::parse(&request).unwrap();
+        let gate = Arc::clone(&server.quit_gate);
+        let (entered, blocked) = std::sync::mpsc::sync_channel(1);
+        let (release, waiting) = std::sync::mpsc::sync_channel(1);
+        let result = stats
+            .submit(
+                &parsed,
+                100,
+                Box::new(move || {
+                    entered.send(()).unwrap();
+                    waiting.recv_timeout(Duration::from_secs(8)).unwrap();
+                    Ok(Admission {
+                        gate,
+                        verify: Box::new(|select| select()),
+                    })
+                }),
+            )
+            .unwrap();
+        blocked.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(server.statistics.set(Some(stats)).is_ok());
+        let instance = server.instance_id.clone();
+        let serving = RunningSocketFixture::start(server);
+        // The ordinary unary response remains bounded while the same statistics
+        // worker is blocked before admission; no second observer/worker is made.
+        let unavailable =
+            call_with_timeout(&paths, "stats.get", json!({}), Duration::from_secs(4)).unwrap();
+        assert_eq!(unavailable["error"]["code"], "capability_unavailable");
+        let quit = call(
+            &paths,
+            "runtime.quit",
+            json!({"instanceId":instance,"expectedRevision":0,"operationId":"quit-preflight"}),
+        )
+        .unwrap();
+        assert_eq!(quit["ok"], true, "{quit}");
+        serving.finish();
+        assert!(
+            !finished.load(Ordering::Acquire),
+            "original preflight is still blocked after server return"
+        );
+        assert!(!stats_path.exists());
+        release.send(()).unwrap();
+        assert_eq!(
+            result.recv_timeout(Duration::from_secs(2)).unwrap(),
+            Err(Error::Restarting)
+        );
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while !finished.load(Ordering::Acquire) {
+            assert!(std::time::Instant::now() < deadline);
+            thread::yield_now();
+        }
+        assert!(
+            !stats_path.exists(),
+            "pre-seal queued operation was never admitted"
+        );
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn traffic_statistics_blocked_writer_does_not_delay_real_socket_disconnect() {
+        use traffic_statistics::worker::{Control, Worker};
+        let base = temporary_base("stats-disconnect");
+        let (owner, _, _) = native_owner_fixture(&base);
+        let paths = RuntimePaths::below(&base.join("runtime"));
+        let server =
+            RuntimeServer::bind_with_owner_factory(paths.clone(), move |_| Ok(owner)).unwrap();
+        let store =
+            traffic_statistics::file::Store::new(&base.join("state/omavless"), server.uid).unwrap();
+        let weak = Arc::downgrade(&server.dispatcher);
+        let (entered, blocked) = std::sync::mpsc::sync_channel(1);
+        let (release, waiting) = std::sync::mpsc::sync_channel(1);
+        let stats = Worker::start_with(
+            store,
+            move || traffic_statistics::collection::collect(&weak),
+            move || {
+                entered.send(()).unwrap();
+                waiting.recv_timeout(Duration::from_secs(5)).unwrap();
+            },
+        )
+        .unwrap();
+        let finished = stats.completion();
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while stats.view()["availability"] == "unavailable" {
+            assert!(std::time::Instant::now() < deadline);
+            thread::yield_now();
+        }
+        let enabled = stats.control(0, Control::Configure(true), 100).unwrap();
+        blocked.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(server.statistics.set(Some(stats)).is_ok());
+        let original = thread::spawn(move || server.serve(Some(2)).unwrap());
+        let connect = call(&paths, "connection.connect", json!({"profileId":PROFILE_ID,"mode":"global","operationId":"stats-connect","expectedRevision":0})).unwrap();
+        assert_eq!(connect["ok"], true);
+        let down = call(
+            &paths,
+            "connection.disconnect",
+            json!({"operationId":"stats-down","expectedRevision":connect["revision"]}),
+        )
+        .unwrap();
+        assert_eq!(down["ok"], true);
+        assert!(
+            !finished.load(Ordering::Acquire),
+            "checkpoint must still be blocked until AFTER Disconnect reply"
+        );
+        assert!(
+            !crate::desired::read_desired_snapshot(
+                &crate::desired::DesiredPaths::below(&base.join("state")),
+                nix::unistd::getuid().as_raw()
+            )
+            .unwrap()
+            .connected
+        );
+        release.send(()).unwrap();
+        assert!(
+            enabled
+                .recv_timeout(Duration::from_secs(2))
+                .unwrap()
+                .is_ok()
+        );
+        original.join().unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while !finished.load(Ordering::Acquire) {
+            assert!(std::time::Instant::now() < deadline);
+            thread::yield_now();
+        }
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[cfg(feature = "t4-manager-actor-service")]
@@ -8347,6 +8838,7 @@ mod tests {
                 fresh_calls: Arc::new(AtomicUsize::new(0)),
                 fresh_result: Err(HostStepError::Observation),
                 connection_details_payload: None,
+                statistics_off: None,
                 on_fresh: None,
                 route_config: None,
                 observation: OwnedObservation {

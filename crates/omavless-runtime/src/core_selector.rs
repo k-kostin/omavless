@@ -31,6 +31,16 @@ enum Request<'a> {
 }
 
 fn exchange(path: &Path, pid: u32, request: Request<'_>, deadline: Instant) -> Option<Value> {
+    exchange_guarded(path, pid, request, deadline, None)
+}
+
+fn exchange_guarded(
+    path: &Path,
+    pid: u32,
+    request: Request<'_>,
+    deadline: Instant,
+    lifetime: Option<&crate::core::ReadLifetime>,
+) -> Option<Value> {
     let remaining = || {
         deadline
             .checked_duration_since(Instant::now())
@@ -104,16 +114,23 @@ fn exchange(path: &Path, pid: u32, request: Request<'_>, deadline: Instant) -> O
         "{method} {endpoint} HTTP/1.0\r\nHost: localhost\r\nAccept: application/json\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
-    stream.set_nonblocking(false).ok()?;
+    // A detached statistics reader never holds its revocation gate across a
+    // potentially blocking write. All ordinary callers retain their transport.
+    stream.set_nonblocking(lifetime.is_some()).ok()?;
     let mut pending = request.as_bytes();
     while !pending.is_empty() {
         stream.set_write_timeout(Some(remaining()?)).ok()?;
-        let count = stream.write(pending).ok()?;
+        let count = if let Some(lifetime) = lifetime {
+            lifetime.write(&mut stream, pending)?
+        } else {
+            stream.write(pending).ok()?
+        };
         if count == 0 {
             return None;
         }
         pending = &pending[count..];
     }
+    stream.set_nonblocking(false).ok()?;
     let mut response = Vec::new();
     let mut chunk = [0; 8192];
     loop {
@@ -128,6 +145,9 @@ fn exchange(path: &Path, pid: u32, request: Request<'_>, deadline: Instant) -> O
         response.extend_from_slice(&chunk[..count]);
     }
     remaining()?;
+    if lifetime.is_some_and(|lifetime| !lifetime.live()) {
+        return None;
+    }
     let parsed = parse_controller_response(&response).ok()?;
     if running_report {
         if parsed.status != 200 {
@@ -199,6 +219,43 @@ pub(crate) fn read_configuration(
         _ => return None,
     };
     exchange(path, pid, request, deadline)
+}
+
+/// Internal fixed read-only endpoints, fenced against the original child's
+/// revocation. No numeric-PID-only detached caller or mutation endpoint.
+pub(crate) fn read_retained(
+    path: &Path,
+    pid: u32,
+    endpoint: omavless_mihomo::ReadOnlyEndpoint,
+    deadline: Instant,
+    lifetime: &crate::core::ReadLifetime,
+) -> Option<Value> {
+    use omavless_mihomo::ReadOnlyEndpoint;
+    let request = match endpoint {
+        ReadOnlyEndpoint::Configs => Request::Configs,
+        ReadOnlyEndpoint::Rules => Request::Rules,
+        ReadOnlyEndpoint::RuleProviders => Request::Providers,
+        ReadOnlyEndpoint::Proxies => Request::Proxies,
+        _ => return None,
+    };
+    if !lifetime.live() {
+        return None;
+    }
+    exchange_guarded(path, pid, request, deadline, Some(lifetime))
+}
+
+pub(crate) fn running_retained(
+    path: &Path,
+    pid: u32,
+    kind: crate::core_readiness::TrafficReadiness,
+    deadline: Instant,
+    lifetime: &crate::core::ReadLifetime,
+) -> Option<bool> {
+    if !lifetime.live() {
+        return None;
+    }
+    exchange_guarded(path, pid, Request::Running(kind), deadline, Some(lifetime))?["ready"]
+        .as_bool()
 }
 
 /// One bounded attempt; caller retains the single startup deadline and child

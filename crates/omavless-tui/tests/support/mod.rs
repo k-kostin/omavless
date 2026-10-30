@@ -20,6 +20,10 @@ pub fn response(request: Read) -> Value {
                 {"id":"fixture-b","name":"Fixture Frankfurt","protocol":"vless","subscriptionId":"fixture-sub","missing":false,"favorite":false}
             ],"subscriptions":[{"id":"fixture-sub","name":"Fixture subscription"}]
         }),
+        Read::Statistics => {
+            json!({"schemaVersion":1,"scope":"private_recorded_tun_bytes","availability":"recorded","instanceId":"fixture-runtime",
+            "enabled":false,"periodStartedAtUtc":100,"receivedBytes":"18446744073709551615","sentBytes":"9007199254740993","partial":true,"controlRevision":2})
+        }
         Read::Traffic => {
             json!({"schemaVersion":1,"scope":"controller_attributed_tun_counters","availability":"observed",
             "sample":{"identity":"a".repeat(64),"rxBytes":4096,"txBytes":8192,"sampledAtMs":1000}})

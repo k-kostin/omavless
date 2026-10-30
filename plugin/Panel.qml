@@ -69,6 +69,9 @@ Panel {
     vless.nativeActionRunning, vless.nativePending !== null, vless.nativeOutcomeUnknown))
   readonly property bool coreComponentMissing: setupPage.state !== "ready"
   property string focusSection: "header"
+  property double statisticsResetRevision: -1
+  property string statisticsResetInstance: ""
+  property double statisticsResetSince: 0
   property string page: "main"
   property var helpReturnFocus: null
   property var removalReturnFocus: null
@@ -1044,10 +1047,13 @@ Panel {
     if (root.bootstrapRequired) return setupPage.focusTargets
     if (page === "diagnostics") return advancedDiagnosticsPage.focusTargets
     if (vless.nativeOwner) {
-      var targets = page === "settings" ? [nativeSettingsBack, nativeRefresh, nativeLanguageRow.focusTarget, nativeThroughputSetting.focusTarget, nativeGlobal, nativeRule, nativeDirect, nativeRoutingPresetSetting.focusTarget, nativeDnsDefault, nativeDnsGoogle, nativeDnsCloudflare, nativeRoutingToolsSetting.focusTarget, nativeProvidersRefresh.focusTarget, nativeSubscriptionsSetting.focusTarget, nativeCoreSetupRow.focusTarget, nativeOnboardingSetting.focusTarget, nativeAppStartupRow.focusTarget, nativeStartupSummaryRow.focusTarget, nativeHelpersRefresh.focusTarget, nativeFileImportRow.focusTarget, nativeProfileEditorRow.focusTarget, nativeQrExportRow.focusTarget, nativeDiagnosticsSetting.focusTarget, nativeHelpSetting.focusTarget, nativeSupportSetting.focusTarget, nativeSupportSetting.exportFocusTarget, nativeExitIpSetting.focusTarget, nativeQuitSetting.focusTarget]
+      var targets = page === "settings" ? [nativeSettingsBack, nativeRefresh, nativeLanguageRow.focusTarget, nativeThroughputSetting.focusTarget, nativeGlobal, nativeRule, nativeDirect, nativeRoutingPresetSetting.focusTarget, nativeDnsDefault, nativeDnsGoogle, nativeDnsCloudflare, nativeStatisticsToggle, nativeStatisticsCheck, nativeStatisticsReviewReset, nativeRoutingToolsSetting.focusTarget, nativeProvidersRefresh.focusTarget, nativeSubscriptionsSetting.focusTarget, nativeCoreSetupRow.focusTarget, nativeOnboardingSetting.focusTarget, nativeAppStartupRow.focusTarget, nativeStartupSummaryRow.focusTarget, nativeHelpersRefresh.focusTarget, nativeFileImportRow.focusTarget, nativeProfileEditorRow.focusTarget, nativeQrExportRow.focusTarget, nativeDiagnosticsSetting.focusTarget, nativeHelpSetting.focusTarget, nativeSupportSetting.focusTarget, nativeSupportSetting.exportFocusTarget, nativeExitIpSetting.focusTarget, nativeQuitSetting.focusTarget]
         : page === "subscriptions" ? [nativeSettingsBack, nativeRefresh, nativeRecoveryDisconnect, nativeSubscriptionAdd, nativeSubscriptionRefreshAll]
         : page === "subscription" ? [nativeSettingsBack, nativeSubscriptionTest, nativeSubscriptionSort, nativeSubscriptionRefresh, nativeSubscriptionUsage, nativeSubscriptionEdit, nativeSubscriptionDelete, nativeSearch]
         : [nativeSettingsControl, nativePowerControl, nativeGlobal, nativeRule, nativeDirect, nativeSubscriptionsButton, nativeImportEntry, nativeImportClipboard, nativeImportFile, nativeSearch]
+      if (page === "settings" && nativeStatisticsResetReview.visible)
+        targets.splice(targets.indexOf(nativeRoutingToolsSetting.focusTarget), 0,
+                       nativeStatisticsCancelReset, nativeStatisticsConfirmReset)
       if (page === "settings") targets.push(nativeRemoveSetting.focusTarget)
       targets = targets.concat([nativeBatchCheck, nativeBatchCancel, nativeBatchDismiss, nativeBatchAbandon])
       var searchIndex = targets.indexOf(nativeSearch)
@@ -1877,6 +1883,7 @@ Panel {
     nativeRoutingToolsVisible: root.opened && routingToolsPrompt.visible
     nativeCoreSetupVisible: root.opened && (root.page === "settings" || onboardingWizard.visible || root.componentSetupReview) && vless.nativeOwner
     nativeStartupSettingsVisible: root.opened && (root.page === "settings" || startupPrompt.visible) && vless.nativeOwner
+    nativeStatisticsVisible: root.opened && root.page === "settings" && vless.nativeOwner
     nativeAppStartupVisible: root.opened && root.page === "settings" && vless.nativeOwner
     nativeUsageSubscriptionId: root.opened && root.page === "subscription" && subscriptionUsagePrompt.visible
       && root.nativeUsageTargetId === root.nativeSubscriptionId ? root.nativeUsageTargetId : ""
@@ -2597,6 +2604,40 @@ Panel {
               Button { id: nativeDnsDefault; Layout.fillWidth: true; Layout.preferredWidth: 1; text: root.textFor("dns.preset-default"); foreground: vless.nativeFactsCurrent && vless.nativeSnapshot.dns && vless.nativeSnapshot.dns.source === "bundled" && vless.nativeSnapshot.dns.preset === "preset-default" ? Commons.Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanSaveDns && vless.nativeSnapshot.dns.preset !== "preset-default"; onClicked: vless.requestNativeDns("preset-default") }
               Button { id: nativeDnsGoogle; Layout.fillWidth: true; Layout.preferredWidth: 1; text: root.textFor("dns.google"); foreground: vless.nativeFactsCurrent && vless.nativeSnapshot.dns && vless.nativeSnapshot.dns.source === "bundled" && vless.nativeSnapshot.dns.preset === "google" ? Commons.Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanSaveDns && vless.nativeSnapshot.dns.preset !== "google"; onClicked: vless.requestNativeDns("google") }
               Button { id: nativeDnsCloudflare; Layout.fillWidth: true; Layout.preferredWidth: 1; text: root.textFor("dns.cloudflare"); foreground: vless.nativeFactsCurrent && vless.nativeSnapshot.dns && vless.nativeSnapshot.dns.source === "bundled" && vless.nativeSnapshot.dns.preset === "cloudflare" ? Commons.Color.accent : root.foreground; focusable: true; bordered: true; enabled: vless.nativeCanSaveDns && vless.nativeSnapshot.dns.preset !== "cloudflare"; onClicked: vless.requestNativeDns("cloudflare") }
+            }
+          }
+          ColumnLayout {
+            id: recordedTrafficSetting
+            Layout.fillWidth: true
+            visible: root.page === "settings"
+            spacing: Style.space(6)
+            PlainText { Layout.fillWidth: true; text: root.textFor("stats.title"); font.family: root.fontFamily; font.pixelSize: Style.font.body; color: root.foreground; wrapMode: Text.Wrap }
+            PlainText { Layout.fillWidth: true; text: root.textFor("stats.scope"); font.family: root.fontFamily; font.pixelSize: Style.font.caption; color: root.dim; wrapMode: Text.Wrap }
+            PlainText {
+              Layout.fillWidth: true
+              text: vless.nativeStatisticsPending !== null ? root.textFor("stats.saving")
+                : vless._nativeStatisticsRead !== null && !vless.nativeStatisticsCurrent ? root.textFor("stats.checking")
+                : !vless.nativeStatisticsCurrent ? root.textFor("stats.unavailable")
+                : root.textFor(vless.nativeStatisticsFact.enabled ? "stats.enabled" : "stats.disabled")
+              font.family: root.fontFamily; font.pixelSize: Style.font.body; color: root.foreground; wrapMode: Text.Wrap
+            }
+            PlainText { Layout.fillWidth: true; visible: vless.nativeStatisticsCurrent && vless.nativeStatisticsFact.since > 0; text: visible ? root.textFor("stats.since", {date:NativeSnapshot.statisticsSince(vless.nativeStatisticsFact.since)}) : ""; font.family: root.fontFamily; font.pixelSize: Style.font.caption; color: root.dim; wrapMode: Text.Wrap }
+            PlainText { Layout.fillWidth: true; visible: vless.nativeStatisticsCurrent; text: visible ? root.textFor("stats.received", {bytes:NativeSnapshot.statisticsBytes(vless.nativeStatisticsFact.received, root.uiLocale)}) : ""; font.family: root.fontFamily; font.pixelSize: Style.font.body; color: root.foreground; wrapMode: Text.WrapAnywhere }
+            PlainText { Layout.fillWidth: true; visible: vless.nativeStatisticsCurrent; text: visible ? root.textFor("stats.sent", {bytes:NativeSnapshot.statisticsBytes(vless.nativeStatisticsFact.sent, root.uiLocale)}) : ""; font.family: root.fontFamily; font.pixelSize: Style.font.body; color: root.foreground; wrapMode: Text.WrapAnywhere }
+            PlainText { Layout.fillWidth: true; visible: vless.nativeStatisticsCurrent && vless.nativeStatisticsFact.partial; text: root.textFor(vless.nativeStatisticsFact && vless.nativeStatisticsFact.overflow ? "stats.overflow" : "stats.partial"); font.family: root.fontFamily; font.pixelSize: Style.font.caption; color: root.dim; wrapMode: Text.Wrap }
+            PlainText { Layout.fillWidth: true; visible: !!vless.nativeSnapshot && (vless.nativeSnapshot.desired.connected || vless.nativeSnapshot.lastKnownActual !== "disconnected") && vless.nativeStatisticsCurrent; text: root.textFor("stats.disconnect_first"); font.family: root.fontFamily; font.pixelSize: Style.font.caption; color: root.dim; wrapMode: Text.Wrap }
+            PlainText { Layout.fillWidth: true; visible: vless.nativeStatisticsError !== ""; text: visible ? root.textFor(vless.nativeStatisticsError) : ""; font.family: root.fontFamily; font.pixelSize: Style.font.caption; color: root.urgent; wrapMode: Text.Wrap }
+            Button { id: nativeStatisticsToggle; Layout.fillWidth: true; text: root.textFor(vless.nativeStatisticsFact && vless.nativeStatisticsFact.enabled ? "stats.disable" : "stats.enable"); foreground: Commons.Color.accent; bordered: true; focusable: true; enabled: vless.nativeCanSaveStatistics; onClicked: { root.statisticsResetRevision = -1; vless.requestNativeStatistics(vless.nativeStatisticsFact.enabled ? "off" : "on", vless.nativeStatisticsFact.revision) } }
+            Button { id: nativeStatisticsCheck; Layout.fillWidth: true; text: root.textFor("stats.check"); bordered: true; focusable: true; enabled: vless.nativeStatisticsEligible && vless.nativeStatisticsPending === null && vless._nativeStatisticsRead === null; onClicked: vless.readNativeStatistics(true) }
+            Button { id: nativeStatisticsReviewReset; Layout.fillWidth: true; text: root.textFor("stats.reset_review"); bordered: true; focusable: true; enabled: vless.nativeCanSaveStatistics && vless.nativeStatisticsFact.since > 0; onClicked: { root.statisticsResetRevision = vless.nativeStatisticsFact.revision; root.statisticsResetInstance = vless.nativeSnapshot.instanceId; root.statisticsResetSince = vless.nativeStatisticsFact.since; nativeStatisticsCancelReset.forceActiveFocus() } }
+            ColumnLayout {
+              id: nativeStatisticsResetReview
+              Layout.fillWidth: true
+              visible: root.statisticsResetRevision >= 0 && vless.nativeStatisticsCurrent && vless.nativeSnapshot !== null && vless.nativeSnapshot.instanceId === root.statisticsResetInstance && vless.nativeStatisticsFact.revision === root.statisticsResetRevision && vless.nativeStatisticsFact.since === root.statisticsResetSince
+              Keys.onEscapePressed: function(event) { root.statisticsResetRevision = -1; nativeStatisticsReviewReset.forceActiveFocus(); event.accepted = true }
+              PlainText { Layout.fillWidth: true; text: root.textFor("stats.reset_notice"); font.family: root.fontFamily; font.pixelSize: Style.font.body; color: root.foreground; wrapMode: Text.Wrap }
+              Button { id: nativeStatisticsCancelReset; Layout.fillWidth: true; text: root.textFor("common.cancel"); bordered: true; focusable: true; onClicked: { root.statisticsResetRevision = -1; nativeStatisticsReviewReset.forceActiveFocus() } }
+              Button { id: nativeStatisticsConfirmReset; Layout.fillWidth: true; text: root.textFor("stats.reset"); foreground: root.urgent; bordered: true; focusable: true; enabled: vless.nativeCanSaveStatistics && vless.nativeStatisticsFact.revision === root.statisticsResetRevision; onClicked: { var revision = root.statisticsResetRevision; root.statisticsResetRevision = -1; vless.requestNativeStatistics("reset", revision); nativeStatisticsReviewReset.forceActiveFocus() } }
             }
           }
           SettingsActionRow {
