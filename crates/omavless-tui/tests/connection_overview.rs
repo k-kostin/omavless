@@ -135,6 +135,11 @@ fn bad_overview_is_unavailable_not_zero_or_private_and_rendered_in_both_language
             load_page(&mut |r| Ok(read(r, &methods)), Page::Traffic),
             now,
         );
+        // The recorded-statistics section precedes the live overview. Use the
+        // same bounded End scrolling as the client rather than assuming all
+        // traffic content fits into the initial 95x30 viewport.
+        app.inspection_scroll = u16::MAX;
+        view::clamp_scroll(&mut app, 95, 30, now);
         let screen = render(&app, now);
         assert!(screen.contains(locale.text("tui.connection_categories_scope")));
         assert!(screen.contains("DIRECT 1"));
