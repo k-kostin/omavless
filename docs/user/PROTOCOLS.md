@@ -1,5 +1,8 @@
 # Supported protocols
 
+> Development guide for the proposed **0.9.9** snapshot. For the published
+> release, use the [current main guide](https://github.com/k-kostin/omavless/blob/main/docs/user/NATIVE_INSTALL.md).
+
 OmaVLESS parses supported share links into a bounded internal model. It does
 not copy unknown link fields or arbitrary provider configuration into Mihomo.
 
@@ -60,7 +63,8 @@ Official `hysteria2://` and `hy2://` links support authentication/userpass,
 multi-port hopping, SNI, certificate verification, SHA-256 pinning, ECH and
 `salamander`/`gecko` obfuscation where representable by Mihomo.
 
-Realm mode is not supported, and provider links cannot set local bandwidth.
+Realm mode and a local handshake-timeout control are not offered. Provider
+links cannot set local bandwidth or handshake tuning.
 
 ## TUIC v5 — Experimental
 
@@ -73,15 +77,40 @@ rejected. 0-RTT remains disabled.
 
 One HTTPS subscription may contain plain-text or standard/URL-safe base64 lists
 of supported links. Unrelated protocols are ignored; arbitrary Clash/Mihomo
-YAML is not parsed. Refresh is manual and atomic in the current release.
+YAML is not parsed. Refresh saves a validated replacement atomically. Manual
+refresh is the default; an explicit Daily schedule is available through the
+local CLI. Refresh never connects a VPN.
+
+## WireGuard and AmneziaWG — Experimental
+
+The native importer accepts bounded single-peer `.conf` files and supported
+offline AmneziaVPN guest inputs containing such a configuration. Review the
+redacted preview before saving. Native private export produces a `.conf`;
+WG/AWG QR export is not offered. The supported input/export limit is 32 KiB.
+
+The connectable subset is narrower than the imported data: standard WireGuard
+and the supported AWG3 configuration shape, with IPv4 interface, peer
+AllowedIPs, endpoint transport and imported DNS addresses. Dual-stack/IPv6
+records can remain private data but are not IPv6 connection support. Other
+AWG generations are not generally guaranteed.
+
+A scalar keepalive, including explicit zero (disabled), is representable.
+Variable ranges remain private data and refuse connection rather than silently
+choosing a value. Unsupported AWG headers, padding and junk expressions also
+refuse connection. MTU and DNS must fit the supported core contract; imported
+AllowedIPs never become arbitrary host route commands. OmaVLESS's Full VPN,
+Routing and Direct modes still determine its routing policy.
+
+Multiple peers, duplicate or conflicting settings and executable directives
+such as `PreUp`, `PostUp`, `PreDown`, `PostDown`, `Table` and `SaveConfig` are
+rejected. Keep private/preshared keys, configuration and guest inputs private.
+An accepted import is not a successful connection or server compatibility test.
 
 ## Not yet supported
 
 OmaVLESS does not currently import:
 
-- standard WireGuard `.conf`;
-- native AmneziaWG `.conf`;
-- AmneziaVPN `vpn://` guest keys;
+- signed/API-based AmneziaVPN guest or subscription keys;
 - Amnezia server-management/full-access keys;
 - arbitrary remote Mihomo/Clash YAML.
 
@@ -89,10 +118,7 @@ Mihomo core support alone is not sufficient. These formats require bounded
 parsing, structured private storage, redacted preview, installed-core checks
 and representative server acceptance before they can be advertised.
 
-The repository contains an in-development Rust parser/model foundation for
-these formats. It is not connected to the current plugin runtime, so users
-should not expect `.conf` or `vpn://` import until the remaining P4 gates land.
-Signed Amnezia API/subscription guest keys require remote provider access and
-are intentionally outside the current offline-only importer boundary.
+Embedded server-management credentials and remote provider APIs are never
+contacted to make an otherwise unsupported key work.
 
 Protocol roadmap details live in [PROTOCOL_ROADMAP.md](../../PROTOCOL_ROADMAP.md).

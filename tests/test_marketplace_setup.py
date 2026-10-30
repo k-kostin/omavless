@@ -21,15 +21,15 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "plugin/setup-runtime.sh"
-# This suite exercises the unchanged public fix.8 provisioning entry. A new
-# NONPUBLIC candidate must not silently retarget its immutable download URLs.
-VERSION = "0.9.8"
+# Explicit next-snapshot selection. This tests the fixed 0.9.9 entry with inert
+# providers, not publication or successful downloads of an unavailable release.
+VERSION = "0.9.9"
 CANDIDATE_VERSION = json.loads((ROOT / "manifest.json").read_text())["version"]
 PKGVER = subprocess.check_output(
     ["bash", str(ROOT / "packaging/release/version-mode.sh"), VERSION], text=True
 ).split()[1]
 SOURCE = "b" * 40
-RELEASE_TAG = "v0.9.8-fix.8"
+RELEASE_TAG = "v0.9.9"
 
 
 class MarketplaceSetupTests(unittest.TestCase):
@@ -338,7 +338,7 @@ app_archive_identity synthetic-archive {source} {arch} {version}
 '''
             self.assertNotEqual(self.run_shell(code).returncode, 0)
 
-    def test_corrected_delivery_has_fixed_tag_and_unchanged_product_version(self):
+    def test_selected_delivery_has_fixed_tag_and_product_version(self):
         self.env["release_tag"] = "v0.8.2/caller-selected"
         result = self.run_shell('printf "%s\\n" "$release_tag" "$release_version" "$package_version"')
         self.assertEqual(result.returncode, 0)
@@ -348,10 +348,10 @@ app_archive_identity synthetic-archive {source} {arch} {version}
 
     def test_frontend_archive_help_matches_selected_delivery(self):
         help_text = (ROOT / "packaging/release/FRONTEND_README.md").read_text()
-        tags = set(re.findall(r"v\d+\.\d+\.\d+-fix\.\d+", help_text))
+        tags = set(re.findall(r"v\d+\.\d+\.\d+(?:-fix\.\d+)?", help_text))
         self.assertEqual(tags, {RELEASE_TAG})
         self.assertIn("docs/user/NATIVE_INSTALL.md", help_text)
-        self.assertIn("docs/user/CLEAN_REINSTALL_098.md", help_text)
+        self.assertIn("docs/user/NATIVE_INSTALL.md#remove", help_text)
         self.assertIn("only the panel files", help_text)
 
     def test_selected_candidate_has_matching_bounded_pair_pins(self):
@@ -372,20 +372,12 @@ app_archive_identity synthetic-archive {source} {arch} {version}
             records[filename] = metadata
             shutil.copyfile(ROOT / "plugin" / filename, self.directory / filename)
         self.assertEqual(manifest["version"], CANDIDATE_VERSION)
-        self.assertIn(CANDIDATE_VERSION, ("0.9.8", "0.9.9"))
+        self.assertEqual(CANDIDATE_VERSION, VERSION)
         self.assertEqual(set(records["runtime-release.json"]["packages"]),
                          set(records["dns-release.json"]["packages"]))
         for arch, app in records["runtime-release.json"]["packages"].items():
             dns = records["dns-release.json"]["packages"][arch]
             self.assertEqual(app["sourceCommit"], dns["sourceCommit"])
-        if CANDIDATE_VERSION == "0.9.9":
-            # Real candidate pins are still validated above. Public provisioning
-            # must REFUSE them: 0.9.9 has no authorized public release/tag here.
-            for arch in ("aarch64", "x86_64"):
-                self.assertNotEqual(self.run_shell(f'uname() {{ echo {arch}; }}; release_fields').returncode, 0)
-                self.assertEqual(self.run_shell(f'uname() {{ echo {arch}; }}; setup_status').stdout,
-                                 "release_unavailable\n")
-            return
         if not records["runtime-release.json"]["packages"]:
             for arch in ("aarch64", "x86_64"):
                 self.assertNotEqual(self.run_shell(f'uname() {{ echo {arch}; }}; release_fields').returncode, 0)
@@ -413,17 +405,17 @@ app_archive_identity synthetic-archive {source} {arch} {version}
             self.assertEqual(self.run_shell(f'uname() {{ echo {arch}; }}; setup_status').stdout,
                              "release_unavailable\n")
 
-    def test_nonpublic_restore_metadata_cannot_retarget_public_downloads(self):
-        self.pins(app="a" * 64, dns="c" * 64, version="0.9.9")
+    def test_prior_version_metadata_cannot_retarget_selected_099_downloads(self):
+        self.pins(app="a" * 64, dns="c" * 64, version="0.9.8")
         for arch in ("aarch64", "x86_64"):
             result = self.run_shell(f'uname() {{ echo {arch}; }}; release_fields')
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(result.stdout, "")
         result = self.run_shell('printf "%s\\n" "$release_tag" "$release_version" "$package_version"')
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout, "v0.9.8-fix.8\n0.9.8\n0.9.8\n")
+        self.assertEqual(result.stdout, f"{RELEASE_TAG}\n{VERSION}\n{PKGVER}\n")
 
-    def test_nonpublic_candidate_still_requires_same_producer_before_public_refusal(self):
+    def test_selected_candidate_still_requires_same_producer_before_handoff(self):
         fixture = self.directory / "synthetic-candidate"
         (fixture / "plugin").mkdir(parents=True)
         (fixture / "manifest.json").write_text(json.dumps({"version": "0.9.9"}))
@@ -434,8 +426,8 @@ app_archive_identity synthetic-archive {source} {arch} {version}
         (fixture / "plugin/runtime-release.json").write_text(json.dumps(app))
         path = fixture / "plugin/dns-release.json"
         with patch(f"{__name__}.ROOT", fixture), patch(f"{__name__}.CANDIDATE_VERSION", "0.9.9"):
-            # Coherent synthetic NONPUBLIC metadata earns only public refusal,
-            # not real producer provenance or installed acceptance.
+            # Coherent synthetic metadata earns only parsing/handoff, not real
+            # producer provenance, a published download or installed admission.
             path.write_text(json.dumps(dns))
             self.test_selected_candidate_has_matching_bounded_pair_pins()
             for arch in ("aarch64", "x86_64"):
@@ -581,7 +573,7 @@ setup_components
         identity = {key: 'a' * 64 for key in ['appSha','coreSha','brokerSha','dnsReceiptSha']}
         good = {'schemaVersion': 2, 'sourceCommit': source, 'updatePair': True,
                 'identities': {'x86_64': identity, 'aarch64': identity}}
-        fixture = f'release_fields() {{ printf "0.9.8\\tx86_64\\t%s\\t%s\\t%s\\n" "{source}" "{source}" "{source}"; }}; pair_update_available'
+        fixture = f'release_fields() {{ printf "{VERSION}\\tx86_64\\t%s\\t%s\\t%s\\n" "{source}" "{source}" "{source}"; }}; pair_update_available'
         metadata.write_text(json.dumps(good))
         self.assertEqual(self.run_shell(fixture).returncode, 0)
         for wrong in [{**good, 'updatePair': False}, {**good, 'updatePair': 'true'},
@@ -874,10 +866,12 @@ curl() {
         source = "8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524"
         report = (ROOT / "docs/testing/SETUP_082_UPGRADE_VM_2026-10-13.md").read_text()
         for identity in (app, dns, source): self.assertIn(identity, report)
-        self.pins(app=app, dns=dns, source=source)
+        self.pins(app=app, dns=dns, source=source, version="0.9.8")
         result = self.run_shell('uname() { echo x86_64; }; release_fields')
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, f"{VERSION}\tx86_64\t{app}\t{dns}\t{source}\n")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        # Historical hashes still select their own cache namespace; they do
+        # not become a 0.9.9 target by changing displayed version text.
         result = self.run_shell(f'setup_release_cache {app} {dns}')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), str(

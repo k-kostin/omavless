@@ -21,9 +21,9 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-# The copied public controller deliberately remains fixed to the published
-# 0.9.8/fix.8 delivery, independently of a NONPUBLIC development candidate.
-VERSION = "0.9.8"
+# Proposed 0.9.9 controller/helper composition. These inert leaves prove the
+# destination handoff, not publication, downloads or installed predecessor admission.
+VERSION = "0.9.9"
 SOURCE = "b" * 40
 
 
@@ -205,6 +205,42 @@ touch "$TEST_DIR/upgraded"
         self.assertNotIn('omarchy plugin enable kdk.omavless', output)
         self.assertFalse((self.directory / "omavless-first-run.lock").exists())
 
+    def test_previous_version_update_state_keeps_the_same_separate_consents(self):
+        self.pair_helper()
+        extra = self.pair_fixture() + '''
+setup_status() {
+  if [[ -f "$TEST_DIR/upgraded" || -f "$TEST_DIR/prepared" ]]; then echo needs_broker_stopped
+  else echo needs_pair_update; fi
+}
+'''
+        status, output = self.run_script(extra=extra, action="update-pair", response="PREPARE\nUPGRADE\n")
+        self.assertEqual(status, 0, output)
+        self.assertEqual(self.trace(), ["preparation", "package", "reload"])
+        self.assertEqual(self.store.read_bytes(), b"synthetic private-store sentinel")
+
+    def test_real_status_maps_verified_previous_version_without_missing_core_claim(self):
+        for delivery, expected in [
+            ("stale", "needs_pair_update\tpresent\tstale\n"),
+            ("missing", "needs_pair_install\tmissing\n"),
+            ("mismatch", "needs_pair_mismatch\tmissing\n"),
+            ("unknown", "needs_attention\tmissing\n"),
+        ]:
+            with self.subTest(delivery=delivery):
+                code = '''source "$1"
+native_present() { return 0; }
+package_installed() { echo 'omavless 0.9.8-1'; }
+native_target() { echo rust; }
+pair_installed() { return 1; }
+pair_update_available() { return 0; }
+installed_pair_delivery() { echo "$2"; }
+'''  # Replace only the leaf observation, retaining the real status functions.
+                code = code.replace('echo "$2"', 'echo ' + delivery) + '\nsetup_components\n'
+                result = subprocess.run(["/bin/bash", "-c", code, "fixture", str(self.script)],
+                                        env=self.env, capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, expected)
+                self.assertEqual(self.trace(), [])
+
     def test_controller_language_reaches_the_pinned_helper_and_return_labels(self):
         self.pair_helper()
         self.env['OMAVLESS_LOCALE'] = 'unrelated-ambient-locale'
@@ -317,9 +353,9 @@ curl() {{
     shift
   done
   case "$url" in
-    'https://github.com/k-kostin/omavless/releases/download/v0.9.8-fix.8/omavless-{VERSION}-1-x86_64.pkg.tar.zst')
+    'https://github.com/k-kostin/omavless/releases/download/v0.9.9/omavless-{VERSION}-1-x86_64.pkg.tar.zst')
       /usr/bin/cp "$TEST_DIR/download-app" "$output"; echo download-app >> "$TEST_DIR/trace";;
-    'https://github.com/k-kostin/omavless/releases/download/v0.9.8-fix.8/omavless-dns-{VERSION}-1-x86_64.pkg.tar.zst')
+    'https://github.com/k-kostin/omavless/releases/download/v0.9.9/omavless-dns-{VERSION}-1-x86_64.pkg.tar.zst')
       /usr/bin/cp "$TEST_DIR/download-dns" "$output"; echo download-dns >> "$TEST_DIR/trace";;
     *) return 99;;
   esac
@@ -373,6 +409,25 @@ setup_status() { if [[ -d "$TEST_DIR/omavless-first-run.lock" ]]; then echo need
                 self.assertFalse((self.directory / "metadata").exists())
                 self.assertEqual(self.trace(), [])
             target.write_bytes(original)
+
+    def test_previous_or_mixed_target_versions_refuse_without_helper_or_fallback(self):
+        names = ("runtime-release.json", "dns-release.json")
+        original = {name: (self.directory / name).read_bytes() for name in names}
+        for changed in ((names[0],), (names[1],), names):
+            with self.subTest(changed=changed):
+                for name in names:
+                    (self.directory / name).write_bytes(original[name])
+                for name in changed:
+                    path = self.directory / name
+                    value = json.loads(path.read_text())
+                    value["version"] = "0.9.8"
+                    path.write_text(json.dumps(value))
+                status, _ = self.run_script()
+                self.assertEqual(status, 1)
+                self.assertEqual(self.trace(), [])
+                self.assertFalse((self.directory / "metadata").exists())
+                self.assertFalse((self.directory / "upgraded").exists())
+                self.assertEqual(self.store.read_bytes(), b"synthetic private-store sentinel")
 
     def test_upgrade_refuses_wrong_receipt_binary_and_archive_metadata(self):
         for extra in (

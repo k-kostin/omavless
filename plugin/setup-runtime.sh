@@ -8,11 +8,11 @@ umask 077
 setup_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 setup_locale=en
 setup_failure_reported=false
-release_version=0.9.8
-package_version=0.9.8
-# Corrected validation delivery; the original v0.9.8 assets stay immutable.
+release_version=0.9.9
+package_version=0.9.9
+# Next-snapshot release preparation; publication remains a separate gate.
 # A fixed repository/tag plus exact archive pins, never caller-supplied URLs.
-readonly release_tag=v0.9.8-fix.8
+readonly release_tag=v0.9.9
 
 say() { if [[ "$setup_locale" == ru ]]; then printf '%s\n' "$2"; else printf '%s\n' "$1"; fi; }
 native() { /usr/bin/omavless "$@"; }
@@ -238,6 +238,15 @@ setup_status() {
     local target selected installed
     installed=$(package_installed) || { printf 'needs_attention\n'; return; }
     if [[ "$installed" != "omavless $package_version-1" ]]; then
+      if [[ "$release_version" == 0.9.9 && "$installed" == 'omavless 0.9.8-1' && $(native_target) == rust ]]; then
+        case "$(installed_pair_delivery)" in
+          stale) if pair_update_available; then printf 'needs_pair_update\n'; else printf 'needs_pair_update_manual\n'; fi ;;
+          missing) if pair_update_available; then printf 'needs_pair_install\n'; else printf 'needs_companion\n'; fi ;;
+          mismatch) printf 'needs_pair_mismatch\n' ;;
+          *) printf 'needs_attention\n' ;;
+        esac
+        return
+      fi
       # Navigation/diagnosis only, NOT updater admission or byte provenance.
       # The prior public Rust application cannot answer managed-DNS commands.
       if [[ "$installed" == 'omavless 0.8.2-1' ]] && [[ $(native_target) == rust ]]; then
@@ -314,7 +323,7 @@ installed_pair_delivery() {
   [[ "$version" == "$release_version" && "$source" =~ ^[0-9a-f]{40}$ ]] \
     || { printf 'unknown\n'; return; }
   source "$setup_dir/setup-predecessor.sh"
-  delivery=$(omavless_pair_delivery_status "$source")
+  delivery=$(omavless_pair_delivery_status "$source" "$release_version")
   # Absence of payloads is not absence of a package registration.
   if [[ "$delivery" == missing ]] && dns_package_registered; then delivery=unknown; fi
   printf '%s\n' "$delivery"
@@ -341,6 +350,9 @@ setup_components() {
   local state core=missing delivery=current
   state=$(setup_status)
   if pair_installed; then core=present; fi
+  # A verified previous-version pair needs the update action, not a missing-core
+  # installation claim. The native updater independently revalidates admission.
+  if [[ "$state" == needs_pair_update ]]; then core=present; delivery=stale; fi
   if [[ $(package_installed) == "omavless $package_version-1" ]] && [[ $(native_target) == rust ]] \
       && [[ $(installed_pair_delivery) == stale ]]; then
     if pair_update_available; then delivery=stale; else delivery=stale_manual; fi
@@ -743,7 +755,7 @@ setup_main() {
     return
   fi
   if [[ "$1" == upgrade && "$state" != needs_update ]] \
-      || [[ "$1" == update-pair && "$state" != needs_pair_install && ! ( "$state" =~ ^(ready|needs_broker_stopped|needs_runtime_start|needs_selection|needs_dns_setup|needs_runtime_stop)$ && $(installed_pair_delivery) == stale ) ]] \
+      || [[ "$1" == update-pair && "$state" != needs_pair_install && ! ( "$state" =~ ^(ready|needs_pair_update|needs_broker_stopped|needs_runtime_start|needs_selection|needs_dns_setup|needs_runtime_stop)$ && $(installed_pair_delivery) == stale ) ]] \
       || [[ "$1" == finish-selection && "$state" != needs_selection ]] \
       || [[ "$1" == start-broker && "$state" != needs_broker_stopped ]] \
       || [[ "$1" == restore-enrollment && "$state" != needs_broker_stopped ]] \

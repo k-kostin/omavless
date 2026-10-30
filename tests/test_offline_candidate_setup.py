@@ -27,8 +27,12 @@ class OfflineCandidateSetupTests(unittest.TestCase):
         self.plugin = self.directory / 'plugin'
         self.plugin.mkdir(mode=0o700)
         for name in ('setup-channel.sh', 'setup-entry.sh', 'setup-runtime.sh',
-                     'setup-offline-candidate.sh', 'setup-predecessor.sh', 'setup-channel.json'):
+                     'setup-offline-candidate.sh', 'setup-predecessor.sh'):
             shutil.copyfile(ROOT / 'plugin' / name, self.plugin / name)
+        # The historical offline lane remains testable without selecting it in
+        # the proposed public 0.9.9 frontend.
+        (self.plugin / 'setup-channel.json').write_bytes(CHANNEL)
+        (self.plugin / 'setup-channel.json').chmod(0o644)
         (self.directory / 'manifest.json').write_text(json.dumps({
             'schemaVersion': 1, 'id': 'kdk.omavless', 'version': '0.9.9'}))
         self.input = self.directory / 'archives'
@@ -174,7 +178,7 @@ curl() { echo UNEXPECTED_NETWORK >&2; return 99; }
                 self.assertEqual(result.stdout, 'needs_activation\tpresent\toffline-candidate\n')
 
     def test_explicit_channel_and_real_pair_acquisition(self):
-        self.assertEqual((ROOT / 'plugin/setup-channel.json').read_bytes(), CHANNEL)
+        self.assertFalse((ROOT / 'plugin/setup-channel.json').exists())
         result = self.acquire()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('Nothing will be downloaded', result.stdout)
@@ -280,11 +284,25 @@ install_package
         path.chmod(0o666)
         self.assertNotEqual(self.acquire().returncode, 0)
 
-    def test_public_entry_still_refuses_real_nonpublic_pins(self):
+    def test_public_entry_accepts_only_matching_099_metadata_shape(self):
         result = self.shell('release_fields', public=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(result.stdout, '')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, '0.9.9\tx86_64\t' + '\t'.join(self.hashes)
+                         + '\t' + 'b' * 40 + '\n')
         self.assertEqual(result.stderr, '')
+        # Parsed metadata is not archive authenticity or installed admission.
+        # A prior version or mixed pair must refuse before any native/package
+        # helper, regardless of the otherwise well-formed synthetic digests.
+        for filename in ('runtime-release.json', 'dns-release.json'):
+            path = self.plugin / filename
+            original = path.read_bytes()
+            metadata = json.loads(original)
+            metadata['version'] = '0.9.8'
+            path.write_text(json.dumps(metadata))
+            result = self.shell('release_fields', public=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stdout + result.stderr, '')
+            path.write_bytes(original)
         self.assertEqual(self.shell('candidate_main status').stdout, 'needs_package\n')
         self.assertEqual(self.shell('candidate_main components').stdout, 'needs_package\tmissing\toffline-candidate\n')
 

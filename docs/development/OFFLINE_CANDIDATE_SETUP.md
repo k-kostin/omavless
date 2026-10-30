@@ -2,8 +2,15 @@
 
 Owner-selected October19 for bounded fresh-install stabilization. This is a
 nonpublic developer path, not a release, Marketplace installation or anonymous
-download test. Public main/fix.8 and `setup-runtime.sh`'s direct public entry
-remain unchanged. Do not publish or retarget their immutable asset URLs.
+download test. The original October19 selection kept public main/fix.8 and
+`setup-runtime.sh`'s direct public entry unchanged. Their immutable published
+asset URLs must not be retargeted.
+
+The proposed 0.9.9 install/guide source successor removes the committed marker
+to select its ordinary fixed-version public entry. That source change is not a
+published release or an anonymous-download result. The historical offline lane
+below remains explicit fixture data in its tests; adding its marker back to a
+successor is not an allowed fallback after an update refusal.
 
 ## Selection and inputs
 

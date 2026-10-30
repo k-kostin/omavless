@@ -1,5 +1,8 @@
 # Help a user operate OmaVLESS
 
+> Development guide for the proposed **0.9.9** snapshot. The published 0.9.8
+> guide remains on [current main](https://github.com/k-kostin/omavless/blob/main/docs/user/USER_AGENT_GUIDE.md).
+
 This is a guide for an agent helping an end user, not instructions for
 developing the repository. Read the [matching user guide](NATIVE_INSTALL.md)
 first. Match the guide to the user's installed release; an older panel may
@@ -34,7 +37,7 @@ the matching published guide; do not reinstall merely to recover instructions.
 
 The widget checkout, running shell, native application and DNS package can have
 different identities. Updating or reinstalling the widget does not update
-native packages. A `0.9.8-1` package label alone does not distinguish maintenance
+native packages. A package label alone does not distinguish maintenance
 deliveries.
 
 For a standard installation these are read-only metadata checks. Missing files
@@ -72,7 +75,8 @@ installed Mihomo is not its substitute and must be preserved.
 | Access removed by a completed clean reinstall | Use the offered **Restore helper access** path. This is not profile Restore or a universal retry. |
 | Update while keeping data | Update the widget, then follow [the offered component update](NATIVE_INSTALL.md#updates), including the ordinary shutdown/preparation prerequisites. |
 | User wants complete removal | Use the [checked full-removal helper](NATIVE_INSTALL.md#remove), including its restart and same-command continuation. No manual cleanup recipe is needed. |
-| Widget already removed | The same guide downloads and verifies the helper; no developer cache or working panel is required. |
+| Widget already removed | Follow the guide to add the current widget again and choose Remove; do not start a VPN merely to remove the application. |
+| Incompatible original store | Use the matching 0.9.9 pre-runtime [preservation procedure](NATIVE_INSTALL.md#preserve-an-incompatible-original-store). This saves exact whole-store bytes as private plaintext; it does not repair or admit a profile. |
 | Unknown or modified build / other account's setup | Retain the specific refusal and establish a separate explicit plan. Do not disguise it as a supported public installation. |
 
 `INSTALL`, `DNS`, `FIRST`, `START`, `SELECT`, `PREPARE`, `UPGRADE`, `REMOVE`
@@ -99,8 +103,15 @@ than bypassing package guards.
   it or pressing `q` leaves a running VPN and accepted background work alone.
 - **Shut down OmaVLESS** stops/disables the application and plugin but preserves
   data/packages. **Start OmaVLESS** is separate from connecting the VPN.
-- Backup creation is offered in the terminal application. **Restore is not
-  available in 0.9.8**; code in a development branch is not a supported control.
+- Backup and preview-bound Restore are offered in the matching 0.9.9 terminal
+  application. Restore needs fresh confirmed Off and idle; an offered Disconnect
+  is a separate confirmation followed by opening Restore again. Restore is not
+  available in 0.9.8; do not project this guide's controls onto an older package.
+- Recorded traffic is opt-in, machine-local tunnel accounting, not provider
+  billing or complete protection. Partial intervals remain labelled; enable,
+  disable and reset require Off, and reset discards the prior period.
+- Experimental WG/AWG import is not all-generation or IPv6 connection support.
+  Preserve a refusal rather than lowering keepalive ranges or dropping fields.
 
 ## Observe completion, not just a closed window
 
@@ -202,5 +213,5 @@ the user's agreement; do not present it as an unmodified public release. An
 open PR is not a shipped fix. End with the actual local result, any submitted
 issue/PR link, and the remaining limitation.
 
-[User guide](NATIVE_INSTALL.md) · [Short removal guide](CLEAN_REINSTALL_098.md) ·
+[User guide](NATIVE_INSTALL.md) · [Removal](NATIVE_INSTALL.md#remove) ·
 [Troubleshooting](TROUBLESHOOTING.md) · [Privacy and security](SECURITY.md)
