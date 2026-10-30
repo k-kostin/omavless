@@ -14,6 +14,9 @@ not replaced by this short entry point.
    For resumed work and cost retrospectives, apply its
    [outcome and cost budget](docs/development/AGENT_OPERATING_WORKFLOW.md#outcome-and-cost-budget)
    before selecting the next complete item.
+   Before allocating a checkout/cache/fixture and at phase closure, pause or
+   handoff, complete the [retention gate](docs/development/README.md#proactive-retention-gate).
+   The primary owns retirement; do not wait for an owner cleanup request.
 3. Read [delivery roadmap](DEVELOPMENT_ROADMAP.md),
    [current status](docs/roadmap/CURRENT_STATUS.md),
    [development workflow](docs/roadmap/DEVELOPMENT_WORKFLOW.md) and

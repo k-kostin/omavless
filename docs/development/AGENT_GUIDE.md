@@ -57,6 +57,9 @@ before final selection, without bypassing automatic Draft or merged-push CI.
 Keep one [compact operational checkpoint](README.md#compact-operational-checkpoints)
 with referenced original receipts; use its offline source-fixture preparation
 instead of another ad-hoc clone/mode/author helper. It grants no VM authority.
+Before new local allocations and at closure, pause or handoff, apply the
+[proactive retention gate](README.md#proactive-retention-gate). Keep source history
+in Git; a retained full copy needs a current consumer and release condition.
 The [source/distribution map](STABLE_DISTRIBUTION_TRANSITION.md) records the
 deployed October16 separation: main serves users and their support agents;
 this full-source checkout owns product development and developer rules.
