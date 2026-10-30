@@ -1,7 +1,7 @@
 # OmaVLESS 0.9.9 — frontend candidate
 
 These are the proposed Omarchy panel files for **v0.9.9**. This candidate is not
-a published release or permission to replace existing release assets. The same frontend works
+a published release. The same frontend works
 on x86-64 and ARM64; the application and DNS-helper packages must match your
 architecture and this delivery.
 

@@ -94,9 +94,20 @@ dns_archive_identity() {
 }
 package_install() { /usr/bin/sudo /usr/bin/pacman -U -- "$1" "$2"; }
 package_installed() { /usr/bin/pacman -Q omavless 2>/dev/null; }
-dns_package_registered() { /usr/bin/pacman -Q omavless-dns >/dev/null 2>&1; }
+dns_package_installed() { /usr/bin/pacman -Q omavless-dns 2>/dev/null; }
+dns_package_registered() { dns_package_installed >/dev/null; }
 pair_installed() {
-  [[ $(/usr/bin/pacman -Q omavless-dns 2>/dev/null) == "omavless-dns $package_version-1" ]] \
+  local installed
+  installed=$(dns_package_installed) || return 1
+  if [[ "$release_version" == 0.9.9 && "$installed" == 'omavless-dns 0.9.8-1' \
+        && $(package_installed) == 'omavless 0.9.8-1' ]]; then
+    # The stale classification checks the closed published source and actual
+    # app/core/broker/receipt bytes. Version labels alone never earn this path.
+    [[ $(installed_pair_delivery) == stale ]]
+    return
+  fi
+  [[ $(package_installed) == "omavless $package_version-1" \
+        && "$installed" == "omavless-dns $package_version-1" ]] \
     && [[ -f /usr/lib/omavless-dns/mihomo && -x /usr/lib/omavless-dns/mihomo \
           && ! -L /usr/lib/omavless-dns/mihomo \
           && -f /usr/lib/omavless-dns/omavless-dns-broker \
@@ -240,19 +251,19 @@ setup_status() {
     if [[ "$installed" != "omavless $package_version-1" ]]; then
       if [[ "$release_version" == 0.9.9 && "$installed" == 'omavless 0.9.8-1' && $(native_target) == rust ]]; then
         case "$(installed_pair_delivery)" in
-          stale) if pair_update_available; then printf 'needs_pair_update\n'; else printf 'needs_pair_update_manual\n'; fi ;;
-          missing) if pair_update_available; then printf 'needs_pair_install\n'; else printf 'needs_companion\n'; fi ;;
-          mismatch) printf 'needs_pair_mismatch\n' ;;
-          *) printf 'needs_attention\n' ;;
+          stale) : ;; # Preserve ordinary readiness and Start/Continue below.
+          missing) if pair_update_available; then printf 'needs_pair_install\n'; else printf 'needs_companion\n'; fi; return ;;
+          mismatch) printf 'needs_pair_mismatch\n'; return ;;
+          *) printf 'needs_attention\n'; return ;;
         esac
+      else
+        # Navigation/diagnosis only, NOT updater admission or byte provenance.
+        # The prior public Rust application cannot answer managed-DNS commands.
+        if [[ "$installed" == 'omavless 0.8.2-1' ]] && [[ $(native_target) == rust ]]; then
+          printf 'needs_update\n'
+        else printf 'needs_attention\n'; fi
         return
       fi
-      # Navigation/diagnosis only, NOT updater admission or byte provenance.
-      # The prior public Rust application cannot answer managed-DNS commands.
-      if [[ "$installed" == 'omavless 0.8.2-1' ]] && [[ $(native_target) == rust ]]; then
-        printf 'needs_update\n'
-      else printf 'needs_attention\n'; fi
-      return
     fi
     target=$(native_target) || { printf 'needs_attention\n'; return; }
     if [[ "$target" == rust ]]; then
@@ -347,13 +358,13 @@ pair_update_available() {
 
 # Fixed enums only. Freshness is independent of operational readiness.
 setup_components() {
-  local state core=missing delivery=current
+  local state core=missing delivery=current installed
   state=$(setup_status)
   if pair_installed; then core=present; fi
-  # A verified previous-version pair needs the update action, not a missing-core
-  # installation claim. The native updater independently revalidates admission.
-  if [[ "$state" == needs_pair_update ]]; then core=present; delivery=stale; fi
-  if [[ $(package_installed) == "omavless $package_version-1" ]] && [[ $(native_target) == rust ]] \
+  installed=$(package_installed) || installed=
+  if [[ "$installed" == "omavless $package_version-1" \
+        || ( "$release_version" == 0.9.9 && "$installed" == 'omavless 0.9.8-1' ) ]] \
+      && [[ $(native_target) == rust ]] \
       && [[ $(installed_pair_delivery) == stale ]]; then
     if pair_update_available; then delivery=stale; else delivery=stale_manual; fi
   fi

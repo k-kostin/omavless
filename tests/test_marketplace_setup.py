@@ -43,7 +43,7 @@ class MarketplaceSetupTests(unittest.TestCase):
         self.env = {"PATH": "/usr/bin:/bin", "HOME": str(self.directory),
                     "TEST_DIR": str(self.directory)}
 
-    def run_shell(self, code, input=""):
+    def run_shell(self, code, input="", *, production_pair_presence=False):
         prefix = '''
 source "$1"
 setup_dir="$TEST_DIR"
@@ -54,7 +54,6 @@ native() { echo UNEXPECTED_NATIVE_EFFECT >&2; return 99; }
 package_install() { echo UNEXPECTED_PACKAGE_EFFECT >&2; return 99; }
 package_installed() { return 1; }
 dns_package_registered() { return 1; }
-pair_installed() { return 1; }
 installed_pair_delivery() { echo current; }
 fresh_user_runtime_absent() { return 0; }
 pair_selection_status() { return 1; }
@@ -70,6 +69,8 @@ start_broker() { echo UNEXPECTED_BROKER_EFFECT >&2; return 99; }
 enable_runtime() { echo UNEXPECTED_ENABLE_EFFECT >&2; return 99; }
 curl() { echo UNEXPECTED_NETWORK_EFFECT >&2; return 99; }
 '''
+        if not production_pair_presence:
+            prefix += '\npair_installed() { return 1; }\n'
         return subprocess.run(["/bin/bash", "-c", prefix + code, "test", str(SCRIPT)],
                               env=self.env, input=input, text=True, capture_output=True,
                               timeout=10, check=False)
@@ -539,9 +540,8 @@ pair_installed() { return 0; }
                 self.assertEqual(result.stdout, expected + '\n')
 
     def test_stale_pair_freshness_preserves_ready_and_both_start_continuations(self):
-        fixture = '''
+        common = '''
 native_present() { return 0; }
-package_installed() { echo "omavless $package_version-1"; }
 native_target() { echo rust; }
 pair_installed() { return 0; }
 installed_pair_delivery() { echo stale; }
@@ -550,22 +550,47 @@ runtime_start_available() { return 0; }
 system_broker_stopped() { return 0; }
 no_broker_socket() { return 0; }
 '''
-        for stopped, broker, state in [(False, True, 'ready'),
-                                       (True, True, 'needs_runtime_start'),
-                                       (True, False, 'needs_broker_stopped')]:
-            for available in (False, True):
-                code = fixture + f'''
+        for version in (VERSION, '0.9.8'):
+            fixture = common + f'package_installed() {{ echo "omavless {version}-1"; }}\n'
+            for stopped, broker, state in [(False, True, 'ready'),
+                                           (True, True, 'needs_runtime_start'),
+                                           (True, False, 'needs_broker_stopped')]:
+                for available in (False, True):
+                    code = fixture + f'''
 user_runtime_stopped() {{ return {0 if stopped else 1}; }}
 system_broker_available() {{ return {0 if broker else 1}; }}
 pair_update_available() {{ return {0 if available else 1}; }}
 setup_status
 setup_components
 '''
-                result = self.run_shell(code)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                delivery = 'stale' if available else 'stale_manual'
-                self.assertEqual(result.stdout, f'{state}\n{state}\tpresent\t{delivery}\n')
-                self.assertEqual(result.stderr, '')
+                    with self.subTest(version=version, stopped=stopped, broker=broker, available=available):
+                        result = self.run_shell(code)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        delivery = 'stale' if available else 'stale_manual'
+                        self.assertEqual(result.stdout, f'{state}\n{state}\tpresent\t{delivery}\n')
+                        self.assertEqual(result.stderr, '')
+
+    def test_previous_pair_presence_requires_both_registered_versions_and_verified_bytes(self):
+        # Keep the production predicate, replacing only its three fixed
+        # read-only observations. Every refusal occurs before any payload probe.
+        for app, dns, delivery, accepted in [
+            ('0.9.8', '0.9.8', 'stale', True),
+            ('0.9.8', '0.9.8', 'unknown', False),
+            ('0.9.8', '0.9.8', 'mismatch', False),
+            ('0.9.8', '0.9.8', 'current', False),
+            ('0.9.8', VERSION, 'stale', False),
+            (VERSION, '0.9.8', 'stale', False),
+            ('0.8.2', '0.9.8', 'stale', False),
+        ]:
+            with self.subTest(app=app, dns=dns, delivery=delivery):
+                result = self.run_shell(f'''
+package_installed() {{ echo 'omavless {app}-1'; }}
+dns_package_installed() {{ echo 'omavless-dns {dns}-1'; }}
+installed_pair_delivery() {{ echo {delivery}; }}
+pair_installed
+''', production_pair_presence=True)
+                self.assertEqual(result.returncode == 0, accepted, result.stderr)
+                self.assertEqual(result.stdout + result.stderr, '')
 
     def test_target_capability_requires_matching_closed_delivery_metadata(self):
         metadata = self.directory / 'component-updates.json'

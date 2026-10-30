@@ -205,12 +205,12 @@ touch "$TEST_DIR/upgraded"
         self.assertNotIn('omarchy plugin enable kdk.omavless', output)
         self.assertFalse((self.directory / "omavless-first-run.lock").exists())
 
-    def test_previous_version_update_state_keeps_the_same_separate_consents(self):
+    def test_previous_version_operational_state_keeps_the_same_separate_consents(self):
         self.pair_helper()
         extra = self.pair_fixture() + '''
 setup_status() {
   if [[ -f "$TEST_DIR/upgraded" || -f "$TEST_DIR/prepared" ]]; then echo needs_broker_stopped
-  else echo needs_pair_update; fi
+  else echo needs_runtime_start; fi
 }
 '''
         status, output = self.run_script(extra=extra, action="update-pair", response="PREPARE\nUPGRADE\n")
@@ -220,7 +220,7 @@ setup_status() {
 
     def test_real_status_maps_verified_previous_version_without_missing_core_claim(self):
         for delivery, expected in [
-            ("stale", "needs_pair_update\tpresent\tstale\n"),
+            ("stale", "needs_runtime_start\tpresent\tstale\n"),
             ("missing", "needs_pair_install\tmissing\n"),
             ("mismatch", "needs_pair_mismatch\tmissing\n"),
             ("unknown", "needs_attention\tmissing\n"),
@@ -230,11 +230,15 @@ setup_status() {
 native_present() { return 0; }
 package_installed() { echo 'omavless 0.9.8-1'; }
 native_target() { echo rust; }
-pair_installed() { return 1; }
+pair_installed() { [[ "$2" == stale ]]; }
 pair_update_available() { return 0; }
 installed_pair_delivery() { echo "$2"; }
+pair_selection_status() { echo '{"schemaVersion":1,"scope":"local_pair_only","selected":true}'; }
+system_broker_available() { return 0; }
+user_runtime_stopped() { return 0; }
+runtime_start_available() { return 0; }
 '''  # Replace only the leaf observation, retaining the real status functions.
-                code = code.replace('echo "$2"', 'echo ' + delivery) + '\nsetup_components\n'
+                code = code.replace('"$2"', '"' + delivery + '"') + '\nsetup_components\n'
                 result = subprocess.run(["/bin/bash", "-c", code, "fixture", str(self.script)],
                                         env=self.env, capture_output=True, text=True, timeout=5)
                 self.assertEqual(result.returncode, 0, result.stderr)
