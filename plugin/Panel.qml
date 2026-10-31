@@ -16,6 +16,7 @@ import "I18n.js" as I18n
 import "NativePresentation.js" as NativePresentation
 import "NativeSnapshot.js" as NativeSnapshot
 import "SetupState.js" as SetupState
+import "GuideLinks.js" as GuideLinks
 
 Panel {
   id: root
@@ -4567,7 +4568,7 @@ Panel {
         anchors.fill: parent
         z: 20
         locale: root.uiLocale
-        onGuideRequested: function(section) { Qt.openUrlExternally("https://github.com/k-kostin/omavless/blob/main/docs/user/NATIVE_INSTALL.md#" + section) }
+        onGuideRequested: function(section) { Qt.openUrlExternally(GuideLinks.guideUrl(root.uiLocale, root.releaseManifest ? root.releaseManifest.version : "", section)) }
         onIssueRequested: Qt.openUrlExternally("https://github.com/k-kostin/omavless/issues/new")
         onCanceled: root.closeHelp()
       }

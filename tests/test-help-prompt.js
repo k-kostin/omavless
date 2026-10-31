@@ -214,4 +214,53 @@ test('public guide has the exact copied English template and both local guide fi
   assert(fs.readFileSync(__dirname + '/../packaging/release/export-distribution.py', 'utf8').includes("'docs/user/USER_AGENT_GUIDE.md'"));
   for (const section of ['install', 'updates', 'help']) assert(guide.includes('id="' + section + '"') || new RegExp('^## ' + section + '$', 'mi').test(guide));
 });
+function guideContext() {
+  const c = vm.createContext({});
+  vm.runInContext(fs.readFileSync(__dirname + '/../plugin/GuideLinks.js', 'utf8'), c);
+  return c;
+}
+function syntheticMeaningReview(c) {
+  // A test-only attestation exercises routing; it never approves actual prose.
+  const m = c.guideManifest;
+  m.russian.humanReview = {kind:'owner-human-meaning', version:m.version,
+    englishSha256:m.english.sha256, russianSha256:m.russian.sha256, reviewedOn:'2026-10-30'};
+}
+test('guide source hashes bind the complete actual pair, before export rewrites', () => {
+  const crypto = require('node:crypto');
+  const c = guideContext();
+  for (const language of ['english', 'russian']) {
+    const entry = c.guideManifest[language];
+    assert.equal(crypto.createHash('sha256').update(fs.readFileSync(__dirname + '/../' + entry.path)).digest('hex'), entry.sha256);
+  }
+});
+test('unreviewed or unavailable translations use English for every section', () => {
+  const c = guideContext();
+  c.guideManifest.russian.humanReview = null;
+  for (const section of ['install', 'updates', 'help']) {
+    assert.equal(c.guideUrl('ru', '0.9.9', section), 'https://github.com/k-kostin/omavless/blob/main/docs/user/NATIVE_INSTALL.md#' + section);
+  }
+  c.guideManifest.russian = null;
+  assert(c.guideUrl('ru', '0.9.9', 'install').endsWith('NATIVE_INSTALL.md#install'));
+});
+test('reviewed exact pair follows effective UI locale and closed section map', () => {
+  const c = guideContext(); syntheticMeaningReview(c);
+  for (const locale of ['en', 'ru']) for (const section of ['install', 'updates', 'help']) {
+    assert(c.guideUrl(locale, '0.9.9', section).endsWith((locale === 'ru' ? 'NATIVE_INSTALL_RU.md#' : 'NATIVE_INSTALL.md#') + section));
+  }
+  for (const locale of ['system', '', 'xx', null]) assert(c.guideUrl(locale, '0.9.9', 'help').endsWith('NATIVE_INSTALL.md#help'));
+  for (const section of ['', '../secret', 'https://example.invalid', null]) assert(c.guideUrl('ru', '0.9.9', section).endsWith('NATIVE_INSTALL_RU.md#help'));
+  assert(panel.includes('GuideLinks.guideUrl(root.uiLocale, root.releaseManifest ? root.releaseManifest.version : "", section)'));
+});
+test('stale version, source identity or review cannot activate Russian', () => {
+  for (const change of [c => {c.guideManifest.version = '0.9.8';},
+    c => {c.guideManifest.english.sha256 = 'a'.repeat(64);},
+    c => {c.guideManifest.russian.sha256 = 'b'.repeat(64);},
+    c => {c.guideManifest.russian.humanReview.kind = 'model-review';},
+    c => {c.guideManifest.russian.path = 'https://example.invalid';}]) {
+    const c = guideContext(); syntheticMeaningReview(c); change(c);
+    assert(c.guideUrl('ru', '0.9.9', 'updates').endsWith('NATIVE_INSTALL.md#updates'));
+  }
+  const c = guideContext(); syntheticMeaningReview(c);
+  for (const version of ['', null, '0.9.8', '1.0.0']) assert(c.guideUrl('ru', version, 'help').endsWith('NATIVE_INSTALL.md#help'));
+});
 console.log('Agent-first help: ' + count + ' production-function/navigation cases PASS; no clipboard/host effects.');

@@ -21,7 +21,7 @@ const files = ['AGENTS.md', 'CONTRIBUTING.md', 'docs/README.md',
   'docs/user/INSTALL.md', 'docs/user/SECURITY.md', 'docs/user/TROUBLESHOOTING.md',
   'docs/user/NATIVE_INSTALL_082_REFERENCE.md',
   'docs/user/INSTALL_082_REFERENCE.md', 'README.md',
-  'docs/user/USER_AGENT_GUIDE.md', 'docs/user/CLEAN_REINSTALL_098.md'];
+  'docs/user/USER_AGENT_GUIDE.md', 'docs/user/NATIVE_INSTALL_RU.md', 'docs/user/CLEAN_REINSTALL_098.md'];
 let links = 0;
 for (const file of files) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
@@ -41,7 +41,7 @@ const setupPage = fs.readFileSync(path.join(root, 'plugin/SetupPage.qml'), 'utf8
 const panel = fs.readFileSync(path.join(root, 'plugin/Panel.qml'), 'utf8');
 assert(setupPage.includes('function guide() { helpRequested(SetupState.hasUpdate(facts) ? "updates" : "install") }'));
 assert(panel.includes('onSetupGuideRequested: root.openHelp("install", onboardingWizard)'));
-assert(panel.includes('onGuideRequested: function(section) { Qt.openUrlExternally("' + setupGuide + '#" + section) }'));
+assert(panel.includes('onGuideRequested: function(section) { Qt.openUrlExternally(GuideLinks.guideUrl(root.uiLocale, root.releaseManifest ? root.releaseManifest.version : "", section)) }'));
 const installGuide = fs.readFileSync(path.join(root, 'docs/user/NATIVE_INSTALL.md'), 'utf8');
 const troubleshooting = fs.readFileSync(path.join(root, 'docs/user/TROUBLESHOOTING.md'), 'utf8');
 const security = fs.readFileSync(path.join(root, 'docs/user/SECURITY.md'), 'utf8');

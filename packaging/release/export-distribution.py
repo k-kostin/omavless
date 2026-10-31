@@ -15,6 +15,7 @@ import posixpath
 import re
 import stat
 import subprocess
+import textwrap
 import tomllib
 import urllib.parse
 import urllib.request
@@ -33,7 +34,7 @@ TOOLS = ('packaging/release/export-distribution.py',
          'tests/installed_native_package.py', 'tests/human_authorization.py')
 FILES = {'README.md', 'backend.sh', 'manifest.json', 'preview.png', 'LICENSE',
          'THIRD_PARTY_NOTICES.md', 'CHANGELOG.md', 'install.sh', 'tools/uninstall.sh',
-         'docs/user/NATIVE_INSTALL.md', 'docs/user/USER_AGENT_GUIDE.md',
+         'docs/user/NATIVE_INSTALL.md', 'docs/user/NATIVE_INSTALL_RU.md', 'docs/user/USER_AGENT_GUIDE.md',
          'docs/user/CLEAN_REINSTALL_098.md'}
 ASSETS = {'docs/marketing/images/' + name + '.png' for name in
           ('app-en', 'main-en', 'settings-en', 'setup-en', 'subscription-en')}
@@ -169,6 +170,62 @@ def anchors(data):
     return found
 
 
+def guide_manifest(entries, version):
+    """Validate original source identities before any allowed link rewrite."""
+    name = 'plugin/GuideLinks.js'
+    if name not in entries:
+        if version == '0.9.9':
+            raise ValueError('missing guide manifest')
+        return None  # Historical English-only source fixtures remain distinct.
+    data = entries[name][0].decode('utf-8')
+    start = '// BEGIN GUIDE MANIFEST\nvar guideManifest = '
+    end = ';\n// END GUIDE MANIFEST'
+    if data.count(start) != 1 or data.count(end) != 1:
+        raise ValueError('guide manifest framing')
+    value = decode(data.split(start, 1)[1].split(end, 1)[0])
+    if (set(value) != {'schemaVersion', 'version', 'english', 'russian'}
+            or type(value['schemaVersion']) is not int or value['schemaVersion'] != 1
+            or value['version'] != version):
+        raise ValueError('guide manifest version')
+    for language, path in (('english', 'docs/user/NATIVE_INSTALL.md'),
+                           ('russian', 'docs/user/NATIVE_INSTALL_RU.md')):
+        entry = value[language]
+        keys = {'path', 'sha256'} | ({'humanReview'} if language == 'russian' else set())
+        if (not isinstance(entry, dict) or set(entry) != keys or entry['path'] != path
+                or not isinstance(entry['sha256'], str) or not re.fullmatch(DIGEST, entry['sha256'])
+                or path not in entries or digest(entries[path][0]) != entry['sha256']):
+            raise ValueError('stale or missing guide source')
+    review = value['russian']['humanReview']
+    if review is not None:
+        if (not isinstance(review, dict)
+                or set(review) != {'kind', 'version', 'englishSha256', 'russianSha256', 'reviewedOn'}
+                or review['kind'] != 'owner-human-meaning' or review['version'] != version
+                or review['englishSha256'] != value['english']['sha256']
+                or review['russianSha256'] != value['russian']['sha256']
+                or not isinstance(review['reviewedOn'], str)
+                or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', review['reviewedOn'])):
+            raise ValueError('guide human review identity')
+    guide_structure(entries, value)
+    return value
+
+
+def guide_structure(entries, manifest):
+    """Also applies after export: anchors and copyable commands must survive."""
+    english = entries[manifest['english']['path']][0]
+    russian = entries[manifest['russian']['path']][0]
+    if not anchors(english) <= anchors(russian):
+        raise ValueError('missing translated guide anchor')
+    for data in (english, russian):
+        if not {'install', 'updates', 'help'} <= anchors(data):
+            raise ValueError('missing locale help destination')
+    def commands(data):
+        pattern = r'(?m)^([ \t]*)`{3}(bash|sh|text)\n(.*?)^\1`{3}'
+        return [(match[2], textwrap.dedent(match[3]))
+                for match in re.finditer(pattern, data.decode('utf-8'), re.S)]
+    if not commands(english) or commands(english) != commands(russian):
+        raise ValueError('translated guide commands differ')
+
+
 def links(root, sha, tree, entries):
     for name, (data, mode) in list(entries.items()):
         if not name.endswith('.md'):
@@ -253,6 +310,7 @@ def compose(root, sha):
             raise ValueError('exporter implementation differs from selected source')
     selected = FILES | ASSETS | {name for name in tree if name.startswith(('plugin/', 'templates/'))}
     entries = {name: blob(root, tree, name) for name in sorted(selected)}
+    guides = guide_manifest(entries, decode(entries['manifest.json'][0])['version'])
     for name in selected:
         if (not re.fullmatch(r'[A-Za-z0-9_./-]+', name) or name.startswith(('/', '.'))
                 or '..' in name.split('/') or name.endswith('.py')):
@@ -277,6 +335,8 @@ def compose(root, sha):
             page = page.replace('@ANCHORS@', '\n'.join('<a id="' + value + '"></a>' for value in sorted(old_anchors)))
             entries[name] = (page.replace('@REFERENCE@', WEB + sha + '/' + name).encode(), 0o644)
     links(root, sha, tree, entries)
+    if guides is not None:
+        guide_structure(entries, guides)
     members = inventory(entries)
     record = {'schemaVersion': 1, 'kind': 'omavless-stable-distribution', 'repository': REPO,
               'sourceCommit': sha, 'sourceTree': git(root, 'rev-parse', sha + '^{tree}').decode().strip(),
