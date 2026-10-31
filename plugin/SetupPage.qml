@@ -41,7 +41,7 @@ Item {
   signal closeRequested()
   signal terminalRequested()
   signal factsRefreshRequested()
-  signal helpRequested(string section)
+  signal helpRequested(string section, var returnFocus)
   signal removeRequested(var control)
   function tr(key) { return I18n.translate("setup." + key, locale, {}) }
   function check() {
@@ -57,11 +57,11 @@ Item {
   function handOffTerminal() {
     if (launching && launch.running && terminalOpened) terminalRequested()
   }
-  function guide() { helpRequested(SetupState.hasUpdate(facts) ? "updates" : "install") }
-  function install(action) {
+  function guide(returnFocus) { helpRequested(SetupState.hasUpdate(facts) ? "updates" : "install", returnFocus) }
+  function install(action, returnFocus) {
     var allowed = SetupState.canRunAction(facts, action)
     if (!allowed || busy || launching || terminalOpened) return
-    if (action === "update-help") { guide(); return }
+    if (action === "update-help") { guide(returnFocus); return }
     if (nativeEffectBlocked) return
     if (action === "start-app") { runtimeAttempt = "starting"; startApp.running = true; return }
     launchAction = action
@@ -148,10 +148,10 @@ Item {
       Layout.fillWidth: true
       locale: setup.locale; facts: setup.facts; busy: setup.busy; effectBlocked: setup.nativeEffectBlocked; terminalOpened: setup.terminalOpened
       busyMessage: startApp.running ? "starting_app" : setup.launching ? "opening_terminal" : "checking"
-      onInstallRequested: function(action) { setup.install(action) }
+      onInstallRequested: function(action, returnFocus) { setup.install(action, returnFocus) }
       onCheckRequested: { setup.check(); setup.factsRefreshRequested() }
       onTerminalClosed: setup.acknowledgeTerminalClosed()
-      onGuideRequested: setup.guide()
+      onGuideRequested: function(returnFocus) { setup.guide(returnFocus) }
     }
     PlainText {
       Layout.fillWidth: true
@@ -187,7 +187,7 @@ Item {
       Layout.fillWidth: true
       visible: setup.componentReview && !setup.needsAttention && !setup.reviewReady
       text: setup.tr("guide_short"); bordered: true; focusable: true
-      onClicked: setup.guide()
+      onClicked: setup.guide(reviewGuideButton)
     }
     Button {
       id: removeButton

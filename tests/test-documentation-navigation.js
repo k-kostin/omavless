@@ -21,7 +21,7 @@ const files = ['AGENTS.md', 'CONTRIBUTING.md', 'docs/README.md',
   'docs/user/INSTALL.md', 'docs/user/SECURITY.md', 'docs/user/TROUBLESHOOTING.md',
   'docs/user/NATIVE_INSTALL_082_REFERENCE.md',
   'docs/user/INSTALL_082_REFERENCE.md', 'README.md',
-  'docs/user/USER_AGENT_GUIDE.md', 'docs/user/CLEAN_REINSTALL_098.md'];
+  'docs/user/USER_AGENT_GUIDE.md', 'docs/user/NATIVE_INSTALL_RU.md', 'docs/user/CLEAN_REINSTALL_098.md'];
 let links = 0;
 for (const file of files) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
@@ -39,9 +39,9 @@ for (const file of files) {
 const setupGuide = 'https://github.com/k-kostin/omavless/blob/main/docs/user/NATIVE_INSTALL.md';
 const setupPage = fs.readFileSync(path.join(root, 'plugin/SetupPage.qml'), 'utf8');
 const panel = fs.readFileSync(path.join(root, 'plugin/Panel.qml'), 'utf8');
-assert(setupPage.includes('function guide() { helpRequested(SetupState.hasUpdate(facts) ? "updates" : "install") }'));
-assert(panel.includes('onSetupGuideRequested: root.openHelp("install", onboardingWizard)'));
-assert(panel.includes('onGuideRequested: function(section) { Qt.openUrlExternally("' + setupGuide + '#" + section) }'));
+assert(setupPage.includes('function guide(returnFocus) { helpRequested(SetupState.hasUpdate(facts) ? "updates" : "install", returnFocus) }'));
+assert(panel.includes('onSetupGuideRequested: function(returnFocus) { root.openHelp("install", returnFocus) }'));
+assert(panel.includes('onGuideRequested: function(section) { Qt.openUrlExternally(GuideLinks.guideUrl(root.uiLocale, root.releaseManifest ? root.releaseManifest.version : "", section)) }'));
 const installGuide = fs.readFileSync(path.join(root, 'docs/user/NATIVE_INSTALL.md'), 'utf8');
 const troubleshooting = fs.readFileSync(path.join(root, 'docs/user/TROUBLESHOOTING.md'), 'utf8');
 const security = fs.readFileSync(path.join(root, 'docs/user/SECURITY.md'), 'utf8');
@@ -110,15 +110,51 @@ for (const key of ['setup.install_all', 'setup.update_components', 'setup.prepar
     'guide must name the actual supported control: ' + key);
 }
 const quickBlocks = [...quickRemoval.matchAll(/```bash\n([\s\S]*?)\n```/g)].map(m => m[1].trim());
-const installBlocks = [...installGuide.matchAll(/```bash\n([\s\S]*?)\n\s*```/g)].map(m => m[1].trim());
-for (const block of quickBlocks.slice(0, 2)) {
-  assert(installBlocks.includes(block),
-    'unified and short guides must use the same checked remover and continuation');
-}
+// The next 0.9.9 guide uses the accepted all-state Remove UI, whose delivered
+// helper is checked separately. The frozen 0.9.8 download/checksum recipe is
+// still tested in test-clean-reinstall-guide.js and by the exporter; it must
+// not be presented as the helper for another release.
+assert(installGuide.includes('proposed **0.9.9** snapshot'));
+assert(installGuide.includes(i18n.translate('remove.entry', 'en', {})));
+assert(installGuide.includes('same cached helper command printed'));
+assert(installGuide.includes('[0.9.8 terminal-removal reference](CLEAN_REINSTALL_098.md)'));
+assert(!installGuide.includes('raw.githubusercontent.com/'),
+  'the 0.9.9 UI guide must not advertise a different release checksum/helper');
+assert(!quickBlocks.slice(0, 2).some(block => installGuide.includes(block)),
+  'historical 0.9.8 removal remains a separate reference');
 assert(installGuide.includes(quickBlocks[2]), 'reinstall and initial install must agree');
 for (const text of [installGuide, assistantGuide]) {
   assert(/Restore is not\s+available in 0\.9\.8/.test(text), 'do not advertise development-only Restore');
   assert(text.includes('without a backup'), 'full removal must disclose private-data deletion');
+}
+// Exercise the exact copyable Bash/jq request framing. The fixed CLI leaf is
+// inert; this is not another store export or installed preservation acceptance.
+const preserveBlocks = [...installGuide.matchAll(/^```sh\n([\s\S]*?)\n```$/gm)]
+  .map(match => match[1]).filter(block => block.includes('store-preserve-original'));
+assert.equal(preserveBlocks.length, 1);
+const preserveBlock = preserveBlocks[0];
+assert(preserveBlock.startsWith("bash -c '\n") && preserveBlock.endsWith("\n'"));
+const preserveSyntax = spawnSync('bash', ['-n'], { input: preserveBlock, encoding: 'utf8', timeout: 2000 });
+assert.equal(preserveSyntax.status, 0, 'qualify the complete guide block before executing it');
+const inertPreserve = 'omavless() { [[ "$#" == 1 && "$1" == store-preserve-original ]] || return 9; '
+  + 'jq -e \'keys == ["confirmUnencrypted", "destination"] and '
+  + '.destination == "/home/example/private/original-profiles.json" and '
+  + '.confirmUnencrypted == true\' >/dev/null || return 10; '
+  + 'printf REQUEST_ADMITTED; return "$OV_GUIDE_TEST_EXIT"; }; export -f omavless;\n'
+  + 'omarchy() { return 99; }; sudo() { return 99; }; pacman() { return 99; }; curl() { return 99; }; '
+  + 'export -f omarchy sudo pacman curl;\n';
+for (const [input, exit, expected] of [
+  ['/home/example/private/original-profiles.json\n', '0', 0],
+  ['/home/example/private/original-profiles.json\n', '73', 73],
+  ['\n', '0', 2],
+]) {
+  const result = spawnSync('bash', ['--noprofile', '--norc', '-c', inertPreserve + preserveBlock], {
+    input, env: { PATH: '/usr/bin:/bin', OV_GUIDE_TEST_EXIT: exit },
+    encoding: 'utf8', timeout: 2000,
+  });
+  assert.equal(result.status, expected, 'preservation guide must retain the original CLI result');
+  assert.equal(result.stdout.includes('REQUEST_ADMITTED'), expected !== 2);
+  assert(!result.stdout.includes('/home/example/') && !result.stderr.includes('/home/example/'));
 }
 // Check links/anchors on the affected user entry points, including in-page links.
 // This is navigation/content coverage, not installed or visual acceptance.

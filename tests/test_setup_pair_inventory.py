@@ -48,12 +48,13 @@ class PairInventoryTests(unittest.TestCase):
         self.fixture_pins = '\t'.join(hashlib.sha256(path.read_bytes()).hexdigest()
                                       for path in (self.app, self.core, self.broker, self.receipt))
 
-    def inspect(self, published=False, candidate=False):
+    def inspect(self, published=False, candidate=False, release099=False):
         # Only this inert test replaces the compiled/public expected identity;
         # the production caller has no pin/path override.
         # Capture fixture pins before entering the two-argument helper.
         override = '' if published else 'fixture_pins=$9; _omavless_pair_pins() { printf "%s\\n" "$fixture_pins"; }; '
-        command = 'set -euo pipefail; source "$1"; ' + override + '_omavless_pair_delivery_inspect "$2" "$3" "$4" "$5" "$6" x86_64 "$7" "$8"' + (' 0.9.9' if candidate else '')
+        mode = ' public-099' if release099 else (' 0.9.9' if candidate else '')
+        command = 'set -euo pipefail; source "$1"; ' + override + '_omavless_pair_delivery_inspect "$2" "$3" "$4" "$5" "$6" x86_64 "$7" "$8"' + mode
         result = subprocess.run(
             ["/bin/bash", "-c", command, "fixture", str(INSPECTOR),
              str(self.identity), str(self.app), str(self.receipt), str(self.core), str(self.broker),
@@ -89,6 +90,20 @@ class PairInventoryTests(unittest.TestCase):
             path.unlink()
         self.assertEqual(self.inspect(candidate=True), 'missing')
 
+    def test_public099_recognizes_exact_target_and_released098_without_relabelling(self):
+        self.assertEqual(self.inspect(release099=True), 'stale')
+        self.delivery(TARGET)
+        self.assertEqual(self.inspect(release099=True), 'unknown')
+        self.identity.write_text(self.identity.read_text().replace('productVersion=0.9.8', 'productVersion=0.9.9'))
+        self.assertEqual(self.inspect(release099=True), 'current')
+        self.assertEqual(self.inspect(), 'unknown')
+        self.delivery(OLD)
+        self.identity.write_text(self.identity.read_text().replace('productVersion=0.9.8', 'productVersion=0.9.9'))
+        self.assertEqual(self.inspect(release099=True), 'unknown')
+        self.assertEqual(self.inspect(candidate=True), 'unknown')
+        self.delivery('a' * 40)
+        self.assertEqual(self.inspect(release099=True), 'unknown')
+
     def test_known_public_source_does_not_admit_a_self_consistent_local_rebuild(self):
         self.assertEqual(self.inspect(published=True), 'unknown')
         self.delivery('99c556e5c966e1e1dae04f2d8babd2ca2dec9375')
@@ -97,9 +112,9 @@ class PairInventoryTests(unittest.TestCase):
     def test_real_public_pin_lookup_is_closed_and_shared_with_native_updater(self):
         data = json.loads((ROOT / 'plugin/published-pairs.json').read_text())
         self.assertEqual(data['schemaVersion'], 1)
-        self.assertEqual(len(data['pairs']), 12)
+        self.assertEqual(len(data['pairs']), 14)
         self.assertEqual(len({(pair['sourceCommit'], pair['architecture'])
-                              for pair in data['pairs']}), 12)
+                              for pair in data['pairs']}), 14)
         for pair in data['pairs']:
             result = subprocess.run(['/bin/bash', '-c', 'source "$1"; _omavless_pair_pins "$2" "$3"',
                                      'fixture', str(INSPECTOR), pair['sourceCommit'], pair['architecture']],
@@ -156,7 +171,7 @@ class PairInventoryTests(unittest.TestCase):
         app = json.loads((ROOT / 'plugin/runtime-release.json').read_text())
         dns = json.loads((ROOT / 'plugin/dns-release.json').read_text())
         self.assertEqual(metadata['schemaVersion'], 2)
-        self.assertEqual(metadata['sourceCommit'], 'fa7b68922b9eef046d8c006af01f54a0348ad889')
+        self.assertEqual(metadata['sourceCommit'], '6159aa66b9a6e9c9a8cfa7c558a6006c5b08070f')
         self.assertIs(metadata['updatePair'], True)
         self.assertEqual(set(metadata['identities']), {'x86_64', 'aarch64'})
         for arch in ('x86_64', 'aarch64'):

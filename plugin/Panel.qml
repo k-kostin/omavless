@@ -16,6 +16,7 @@ import "I18n.js" as I18n
 import "NativePresentation.js" as NativePresentation
 import "NativeSnapshot.js" as NativeSnapshot
 import "SetupState.js" as SetupState
+import "GuideLinks.js" as GuideLinks
 
 Panel {
   id: root
@@ -2341,7 +2342,7 @@ Panel {
             vless.refreshAfterChange()
           }
           onFactsRefreshRequested: if (vless.nativeOwner) vless.refreshNativeCoreSetup()
-          onHelpRequested: function(section) { root.openHelp(section, setupPage) }
+          onHelpRequested: function(section, returnFocus) { root.openHelp(section, returnFocus) }
           onRemoveRequested: function(control) { root.openRemoval(control) }
           onTerminalRequested: root.close()
           onCloseRequested: {
@@ -3189,10 +3190,10 @@ Panel {
             Layout.fillWidth: true
             visible: root.page === "main" && setupPage.needsAttention && root.runtimePanelState === ""
             locale: root.uiLocale; facts: setupPage.facts; busy: setupPage.busy; effectBlocked: setupPage.nativeEffectBlocked; terminalOpened: setupPage.terminalOpened
-            onInstallRequested: function(action) { setupPage.install(action) }
+            onInstallRequested: function(action, returnFocus) { setupPage.install(action, returnFocus) }
             onCheckRequested: setupPage.check()
             onTerminalClosed: setupPage.acknowledgeTerminalClosed()
-            onGuideRequested: setupPage.guide()
+            onGuideRequested: function(returnFocus) { setupPage.guide(returnFocus) }
           }
         }
       }
@@ -4538,7 +4539,7 @@ Panel {
           setupPage.check()
           if (vless.nativeOwner) { vless.refreshNativeCoreSetup(); vless.refreshNativeDesktopCapabilities() }
         }
-        onSetupGuideRequested: root.openHelp("install", onboardingWizard)
+        onSetupGuideRequested: function(returnFocus) { root.openHelp("install", returnFocus) }
         onComponentSetupRequested: root.reviewComponentSetup()
         onRemoveRequested: function(control) { root.openRemoval(control) }
         onPresetChosen: function(preset) { root.chooseOnboardingPreset(preset) }
@@ -4567,7 +4568,7 @@ Panel {
         anchors.fill: parent
         z: 20
         locale: root.uiLocale
-        onGuideRequested: function(section) { Qt.openUrlExternally("https://github.com/k-kostin/omavless/blob/main/docs/user/NATIVE_INSTALL.md#" + section) }
+        onGuideRequested: function(section) { Qt.openUrlExternally(GuideLinks.guideUrl(root.uiLocale, root.releaseManifest ? root.releaseManifest.version : "", section)) }
         onIssueRequested: Qt.openUrlExternally("https://github.com/k-kostin/omavless/issues/new")
         onCanceled: root.closeHelp()
       }

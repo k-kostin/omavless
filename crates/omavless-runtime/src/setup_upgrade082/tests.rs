@@ -157,6 +157,31 @@ fn fix7_is_retained_as_a_supported_predecessor_for_the_next_delivery() {
 }
 
 #[test]
+fn fix8_is_retained_as_a_supported_predecessor_for_099() {
+    let source = "2d54b430866fd5b2849cd815f8552a4e9e2d16a8";
+    assert!(PUBLIC_098_SOURCES.contains(&source));
+    for (arch, app, receipt) in [
+        (
+            "x86_64",
+            "d9e1c1a5cc455fe1bd84f4bf405b5cf8a0d03280a2fa2a134a26d914a40ab51e",
+            "40b3caa7cfa186cc40149bdc23cc304d2d9733e86c06d2e98d53cb06af1e626c",
+        ),
+        (
+            "aarch64",
+            "172dcc1abf5ceaca1d816941cc8662e7199c5d4d994df0a4687116f9ae02681a",
+            "00ae45e8375f2eda14958fd02ae48dc245c3da0ab33a1b572e9df2bfb67348e6",
+        ),
+    ] {
+        let pair = published098(source, arch).unwrap();
+        let previous = published098("d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b", arch).unwrap();
+        assert_eq!(pair.app_sha, app);
+        assert_eq!(pair.dns_receipt_sha, receipt);
+        assert_eq!(pair.core_sha, previous.core_sha);
+        assert_eq!(pair.broker_sha, previous.broker_sha);
+    }
+}
+
+#[test]
 fn selected_bundled_presets_and_modes_retain_setup_backup_during_package_update() {
     for bundle in [
         include_str!("../../../../templates/default.yaml"),

@@ -1,6 +1,7 @@
-# OmaVLESS 0.9.8 — fix.8 frontend
+# OmaVLESS 0.9.9 — frontend candidate
 
-These are the Omarchy panel files for **v0.9.8-fix.8**. The same frontend works
+These are the proposed Omarchy panel files for **v0.9.9**. This candidate is not
+a published release. The same frontend works
 on x86-64 and ARM64; the application and DNS-helper packages must match your
 architecture and this delivery.
 
@@ -32,7 +33,7 @@ connect a VPN. Use the user guide for any remaining setup or component update.
 Closing the panel does not disconnect your VPN. Use **Disconnect** to stop the
 connection or Settings → **Shut down OmaVLESS** to stop the application.
 
-For full removal, follow [Remove OmaVLESS](docs/user/CLEAN_REINSTALL_098.md).
+For full removal, follow [Remove OmaVLESS](docs/user/NATIVE_INSTALL.md#remove).
 It deletes OmaVLESS profiles and settings, but keeps other VPN clients and a
 separately installed Mihomo. The checked terminal helper is included in
 `tools/uninstall.sh`.

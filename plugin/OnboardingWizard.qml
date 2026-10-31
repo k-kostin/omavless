@@ -53,7 +53,7 @@ Item {
 
   signal copyCommand(string command)
   signal refreshRequested()
-  signal setupGuideRequested()
+  signal setupGuideRequested(var returnFocus)
   signal componentSetupRequested()
   signal removeRequested(var control)
   signal presetChosen(string preset)
@@ -340,13 +340,14 @@ Item {
               onClicked: wizard.refreshRequested()
             }
             WizardButton {
+              id: setupGuideButton
               objectName: "onboardingSetupGuide"
               visible: wizard.nativeContext && wizard.nativeCoreState !== "ready" && wizard.nativeCoreState !== "checking"
               text: wizard.textFor("native.onboarding.setup_guide")
               bordered: false
               foreground: wizard.dim
               fontFamily: wizard.fontFamily
-              onClicked: wizard.setupGuideRequested()
+              onClicked: wizard.setupGuideRequested(setupGuideButton)
             }
           }
 

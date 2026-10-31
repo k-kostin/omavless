@@ -89,7 +89,7 @@ omavless_predecessor_status() {
   _omavless_predecessor_inspect /usr/share/doc/omavless/build-identity.txt /usr/bin/omavless "$arch" "$digest" 0
 }
 
-# Advisory 0.9.8 delivery inventory only. Root receipts and actual payloads are
+# Advisory release delivery inventory only. Root receipts and actual payloads are
 # checked without executing either app/core. This never authorizes replacement.
 _omavless_pair_pins() {
   local pins
@@ -118,8 +118,8 @@ _omavless_pair_pins() {
 }
 _omavless_pair_delivery_inspect() (
   export LC_ALL=C
-  local app_receipt=$1 app=$2 dns_receipt=$3 core=$4 broker=$5 arch=$6 target=$7 owner=$8 version=${9:-0.9.8}
-  [[ $# == 8 || $# == 9 ]] && [[ "$version" == 0.9.8 || "$version" == 0.9.9 ]] \
+  local app_receipt=$1 app=$2 dns_receipt=$3 core=$4 broker=$5 arch=$6 target=$7 owner=$8 policy=${9:-0.9.8} version
+  [[ $# == 8 || $# == 9 ]] && [[ "$policy" == 0.9.8 || "$policy" == 0.9.9 || "$policy" == public-099 ]] \
     || { printf 'unknown\n'; return; }
   local app_id binary_id dns_id core_id broker_id source digest actual dns_source core_sha broker_sha
   local pinned_app pinned_core pinned_broker pinned_receipt
@@ -130,11 +130,18 @@ _omavless_pair_delivery_inspect() (
   digest=$(/usr/bin/sed -n 's/^binarySha256=//p' "$app_receipt")
   [[ $source =~ ^[0-9a-f]{40}$ && $digest =~ ^[0-9a-f]{64}$ ]] \
     || { printf 'unknown\n'; return; }
+  version=$policy
+  # The public 0.9.9 transition recognizes its exact current target as 0.9.9
+  # and only the closed released-source list below as 0.9.8 predecessors.
+  # Version comes from this source relation, never a receipt's own assertion.
+  if [[ "$policy" == public-099 ]]; then
+    if [[ "$source" == "$target" ]]; then version=0.9.9; else version=0.9.8; fi
+  fi
   # The nonpublic lane recognizes ONLY its exact current target, not public
   # predecessors relabelled with a newer package version.
-  [[ "$version" != 0.9.9 || "$source" == "$target" ]] || { printf 'unknown\n'; return; }
+  [[ "$policy" != 0.9.9 || "$source" == "$target" ]] || { printf 'unknown\n'; return; }
   case "$source" in
-    "$target"|4915ae4a8f4ec6cfb469ad6b38126bd70d5a1998|e3d2245966c725ee11b505899b22a20721ff2ddd|8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524|b65695ee0609c2a971289109975678b8da87c946|99c556e5c966e1e1dae04f2d8babd2ca2dec9375|d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b) ;;
+    "$target"|4915ae4a8f4ec6cfb469ad6b38126bd70d5a1998|e3d2245966c725ee11b505899b22a20721ff2ddd|8d02f9d7dd1a9063a82e9dcd93cb19cf4c5d8524|b65695ee0609c2a971289109975678b8da87c946|99c556e5c966e1e1dae04f2d8babd2ca2dec9375|d4d4310be6ade7e7e166f8b672cf90c7ad3e5b3b|2d54b430866fd5b2849cd815f8552a4e9e2d16a8) ;;
     *) printf 'unknown\n'; return ;;
   esac
   IFS=$'\t' read -r pinned_app pinned_core pinned_broker pinned_receipt < <(_omavless_pair_pins "$source" "$arch") \
@@ -227,11 +234,12 @@ _omavless_candidate_pair_delivery_status() {
 }
 
 omavless_pair_delivery_status() {
-  [[ $# == 1 && $1 =~ ^[0-9a-f]{40}$ ]] || { printf 'unknown\n'; return; }
-  local arch
+  [[ ( $# == 1 || $# == 2 ) && $1 =~ ^[0-9a-f]{40}$ ]] || { printf 'unknown\n'; return; }
+  local arch policy=${2:-0.9.8}
+  case "$policy" in 0.9.8) ;; 0.9.9) policy=public-099 ;; *) printf 'unknown\n'; return ;; esac
   arch=$(/usr/bin/uname -m) || { printf 'unknown\n'; return; }
   [[ $arch == x86_64 || $arch == aarch64 ]] || { printf 'unknown\n'; return; }
   _omavless_pair_delivery_inspect /usr/share/doc/omavless/build-identity.txt /usr/bin/omavless \
     /usr/share/omavless-dns/source-receipt.json /usr/lib/omavless-dns/mihomo \
-    /usr/lib/omavless-dns/omavless-dns-broker "$arch" "$1" 0
+    /usr/lib/omavless-dns/omavless-dns-broker "$arch" "$1" 0 "$policy"
 }

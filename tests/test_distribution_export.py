@@ -101,6 +101,69 @@ class DistributionTests(unittest.TestCase):
     def export(self):
         return EXPORT.export(self.repo, self.sha, self.output)
 
+    def localized_guide_fixture(self, version='0.9.8'):
+        # Synthetic prose/review only; never approves the real Russian guide.
+        english = b'## Install\n## Updates\n## Help\n```sh\nprintf fixture\n```\n'
+        russian = (b'<a id="install"></a>\n<a id="updates"></a>\n<a id="help"></a>\n'
+                   b'```sh\nprintf fixture\n```\n')
+        value = {'schemaVersion': 1, 'version': version,
+                 'english': {'path': 'docs/user/NATIVE_INSTALL.md', 'sha256': EXPORT.digest(english)},
+                 'russian': {'path': 'docs/user/NATIVE_INSTALL_RU.md', 'sha256': EXPORT.digest(russian),
+                             'humanReview': None}}
+        data = b'// BEGIN GUIDE MANIFEST\nvar guideManifest = ' + EXPORT.canonical(value).rstrip() + b';\n// END GUIDE MANIFEST\n'
+        self.write('plugin/GuideLinks.js', data)
+        self.write(value['english']['path'], english)
+        self.write(value['russian']['path'], russian)
+        return value
+
+    def test_localized_guide_source_and_export_structure_are_separate_checks(self):
+        value = self.localized_guide_fixture()
+        entries = {name: ((self.repo / name).read_bytes(), 0o644) for name in
+                   ('plugin/GuideLinks.js', value['english']['path'], value['russian']['path'])}
+        self.assertEqual(EXPORT.guide_manifest(entries, '0.9.8'), value)
+        # Allowed link rewrites may change bytes after source identity checking.
+        entries[value['english']['path']] = (entries[value['english']['path']][0] + b'\n[Ref](https://example.invalid/source)\n', 0o644)
+        EXPORT.guide_structure(entries, value)
+        with self.assertRaisesRegex(ValueError, 'stale or missing guide source'):
+            EXPORT.guide_manifest(entries, '0.9.8')
+
+    def test_current_complete_guide_pair_uses_the_actual_exporter_boundary(self):
+        entries = {name: ((ROOT / name).read_bytes(), 0o644) for name in
+                   ('plugin/GuideLinks.js', 'docs/user/NATIVE_INSTALL.md', 'docs/user/NATIVE_INSTALL_RU.md')}
+        version = json.loads((ROOT / 'manifest.json').read_bytes())['version']
+        value = EXPORT.guide_manifest(entries, version)
+        self.assertEqual(value['english']['path'], 'docs/user/NATIVE_INSTALL.md')
+        # Covers the H1 title as well as explicit section destinations.
+        self.assertIn('omavless-user-guide', EXPORT.anchors(entries[value['russian']['path']][0]))
+
+    def test_semantic_english_drift_invalidates_localized_source_before_export(self):
+        value = self.localized_guide_fixture()
+        self.write(value['english']['path'], (self.repo / value['english']['path']).read_bytes() + b'\nMeaning changed.\n')
+        self.sha = self.commit()
+        with self.assertRaisesRegex(ValueError, 'stale or missing guide source'):
+            self.export()
+        self.assertEqual(list(self.output.iterdir()), [])
+
+    def test_reviewed_russian_missing_destination_or_anchor_refuses_before_export(self):
+        value = self.localized_guide_fixture()
+        value['russian']['humanReview'] = {'kind': 'owner-human-meaning', 'version': value['version'],
+            'englishSha256': value['english']['sha256'], 'russianSha256': value['russian']['sha256'],
+            'reviewedOn': '2026-10-30'}
+        data = b'// BEGIN GUIDE MANIFEST\nvar guideManifest = ' + EXPORT.canonical(value).rstrip() + b';\n// END GUIDE MANIFEST\n'
+        self.write('plugin/GuideLinks.js', data)
+        entries = {name: ((self.repo / name).read_bytes(), 0o644) for name in
+                   ('plugin/GuideLinks.js', value['english']['path'], value['russian']['path'])}
+        del entries[value['russian']['path']]
+        with self.assertRaisesRegex(ValueError, 'stale or missing guide source'):
+            EXPORT.guide_manifest(entries, '0.9.8')
+        entries[value['russian']['path']] = (b'```sh\nprintf fixture\n```\n', 0o644)
+        value['russian']['sha256'] = EXPORT.digest(entries[value['russian']['path']][0])
+        value['russian']['humanReview']['russianSha256'] = value['russian']['sha256']
+        entries['plugin/GuideLinks.js'] = (b'// BEGIN GUIDE MANIFEST\nvar guideManifest = '
+            + EXPORT.canonical(value).rstrip() + b';\n// END GUIDE MANIFEST\n', 0o644)
+        with self.assertRaisesRegex(ValueError, 'missing translated guide anchor'):
+            EXPORT.guide_manifest(entries, '0.9.8')
+
     def test_real_export_is_reproducible_user_tree_not_working_files(self):
         self.write('README.md', b'UNCOMMITTED-MUST-NOT-SHIP')
         self.write('plugin/untracked-secret.txt', b'UNTRACKED-MUST-NOT-SHIP')
@@ -335,6 +398,7 @@ curl() {
             target.write_bytes(original)
 
     def test_product_version_disagreement_fails(self):
+        self.localized_guide_fixture(version='0.9.9')
         self.write('manifest.json', b'{"version":"0.9.9"}')
         self.sha = self.commit()
         with self.assertRaisesRegex(ValueError, 'product version'):

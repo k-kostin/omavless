@@ -1,5 +1,8 @@
 # Native OmaVLESS: everyday use
 
+> Development guide for the proposed **0.9.9** snapshot. For the published
+> release, use the [current main guide](https://github.com/k-kostin/omavless/blob/main/docs/user/NATIVE_INSTALL.md).
+
 For the accepted Rust-owned application with its matching Omarchy frontend.
 Start with [native installation](NATIVE_INSTALL.md) if the runtime is not yet
 installed and activated. This guide does not announce a marketplace release.
@@ -22,7 +25,7 @@ uncertain or rejected transition is not proof that the requested mode is active.
 
 ## Import and update subscriptions
 
-The main clipboard and file buttons accept either one supported profile link
+The main clipboard and file buttons accept a supported profile link/configuration
 or one supported subscription URL, then open the corresponding confirmation.
 They do not accept an arbitrary remote configuration file.
 
@@ -56,12 +59,13 @@ native keyboard parity; visible controls remain the primary action path.
 Use Settings for routing tools, Mihomo diagnostics and **Copy report / Save
 report**. Reports use a bounded privacy-safe projection. Raw CLI status and
 configuration files can contain private metadata and are not shareable reports.
-Main-screen Test and latency sections are intentionally hidden for later
-improvement; their absence is not evidence of a broken core.
+The main screen offers explicit HTTPS Test and bounded Ping measurements.
+Read the result and age; an unavailable result alone does not identify a bad
+provider, key or core. Batch profile/subscription checks use HTTPS delay.
 
 ## Open the terminal application
 
-OmaVLESS 0.9.8 includes the terminal application. **Open app** appears below the fixed
+OmaVLESS 0.9.9 includes the terminal application. **Open app** appears below the fixed
 Profile actions area on the main panel. It opens the terminal application or
 focuses its existing window. It does not start a second VPN or automatically
 start a stopped runtime. If unavailable, follow the displayed package/setup
@@ -104,7 +108,7 @@ the VPN or include the claim in ordinary diagnostic reports.
 
 <a id="encrypted-backup-098-candidate"></a>
 
-## Encrypted Backup (0.9.8)
+## Encrypted Backup and Restore (0.9.9)
 
 In the terminal application, press `b` or F2, or open Backup from session
 Settings. Enter a new absolute file path and repeat a passphrase of at least
@@ -121,9 +125,25 @@ refused; a refusal is not permission to reset your routing configuration.
 Keep both the archive and passphrase private: the encrypted archive contains
 reusable VPN access, and a lost passphrase cannot be recovered.
 
-The selected 0.9.8 scope does **not** offer Restore. Restore and interrupted-
-operation recovery remain separate development work. If a submitted operation
-has an unknown outcome, do not resubmit it or assume closing the client cancels it.
+In session Settings, `R` opens Restore when safely disconnected and idle. Select
+the private archive and enter its passphrase; review the authenticated preview
+before the separate replacement confirmation. It replaces the displayed
+profiles/subscriptions and routing template, not every Setting or OS state.
+If connected, Disconnect is a separate confirmed action; wait for fresh Off and
+open Restore again. If a submitted operation has an unknown outcome, preserve
+the input and follow recovery guidance; do not resubmit it or assume closing the
+client cancels it. Restore does not promise repair of every unsupported or
+interrupted state. See [the full procedure](NATIVE_INSTALL.md#restore-and-interrupted-operations).
+
+Settings and Traffic also offer local **Recorded traffic**, Off by default.
+Enable, disable and reset need confirmed Off. Totals survive an ordinary app
+restart; disabling keeps them, resetting discards the period after confirmation.
+Partial recording is labelled, not filled with invented values. These tunnel
+totals are separate from provider allowance and profile Backup/Restore.
+
+Subscription refresh is manual by default. The explicit local CLI Daily
+schedule refreshes server lists without connecting. Use `omavless --help` for
+the supported `subscription schedule` commands; missed days are not replayed.
 
 ## Close, disconnect, Quit
 
@@ -138,9 +158,11 @@ has an unknown outcome, do not resubmit it or assume closing the client cancels 
 If shutdown fails or needs recovery, do not interpret the closed UI as proof
 of successful cleanup. See [native recovery](NATIVE_INSTALL.md#updates-close-quit-and-removal).
 
-Login autoconnect is **Off by default**. Native Last/pinned fresh-login behavior
-remains under validation; leave it Off unless deliberately testing it. Changing
-the saved login preference does not disconnect the current session.
+Login autoconnect is **Off by default**. When deliberately enabled, Last or a
+pinned profile applies at a new login. Confirmed Disconnect in the current login
+is retained across an application restart. Changing the saved login preference
+does not disconnect the current session. After a network change, verify current
+state and access; a prior check is not a new result.
 
 ## Service identity
 
