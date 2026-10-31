@@ -2342,7 +2342,7 @@ Panel {
             vless.refreshAfterChange()
           }
           onFactsRefreshRequested: if (vless.nativeOwner) vless.refreshNativeCoreSetup()
-          onHelpRequested: function(section) { root.openHelp(section, setupPage) }
+          onHelpRequested: function(section, returnFocus) { root.openHelp(section, returnFocus) }
           onRemoveRequested: function(control) { root.openRemoval(control) }
           onTerminalRequested: root.close()
           onCloseRequested: {
@@ -3190,10 +3190,10 @@ Panel {
             Layout.fillWidth: true
             visible: root.page === "main" && setupPage.needsAttention && root.runtimePanelState === ""
             locale: root.uiLocale; facts: setupPage.facts; busy: setupPage.busy; effectBlocked: setupPage.nativeEffectBlocked; terminalOpened: setupPage.terminalOpened
-            onInstallRequested: function(action) { setupPage.install(action) }
+            onInstallRequested: function(action, returnFocus) { setupPage.install(action, returnFocus) }
             onCheckRequested: setupPage.check()
             onTerminalClosed: setupPage.acknowledgeTerminalClosed()
-            onGuideRequested: setupPage.guide()
+            onGuideRequested: function(returnFocus) { setupPage.guide(returnFocus) }
           }
         }
       }
@@ -4539,7 +4539,7 @@ Panel {
           setupPage.check()
           if (vless.nativeOwner) { vless.refreshNativeCoreSetup(); vless.refreshNativeDesktopCapabilities() }
         }
-        onSetupGuideRequested: root.openHelp("install", onboardingWizard)
+        onSetupGuideRequested: function(returnFocus) { root.openHelp("install", returnFocus) }
         onComponentSetupRequested: root.reviewComponentSetup()
         onRemoveRequested: function(control) { root.openRemoval(control) }
         onPresetChosen: function(preset) { root.chooseOnboardingPreset(preset) }

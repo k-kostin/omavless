@@ -37,7 +37,7 @@ test('update flow entry and return instructions use the same user-facing label',
     assert(terminal.includes(label),'Return guidance must name the actual visible control');
     if(locale==='en')assert(guide.includes('**'+label+'**'));
   }
-  assert(card.includes('onClicked: card.installRequested("update-pair")'));
+  assert(card.includes('onClicked: card.installRequested("update-pair", pairedUpdateButton)'));
   assert(guide.includes('`PREPARE`')&&guide.includes('`UPGRADE`'));
   assert(terminal.includes('setup_step upgrade-operation upgrade_package "$operation"'));
 });
@@ -106,8 +106,8 @@ test('every web-link label has the same trailing marker, local URL reveal does n
   for(const locale of ['en','ru'])for(const key of ['common.show_url','common.hide_url','setup.install_all','setup.prepare_update','setup.guide_short','setup.update_help','native.onboarding.setup_guide','help.copy_request'])assert(!i18n.translate(key,locale,{}).includes('↗'));
 });
 test('local setup Help keeps a neutral button boundary and its existing local destination', () => {
-  for (const [source, id, handler] of [[card, 'guideButton', 'card.guideRequested()'],
-      [page, 'reviewGuideButton', 'setup.guide()']]) {
+  for (const [source, id, handler] of [[card, 'guideButton', 'card.guideRequested(guideButton)'],
+      [page, 'reviewGuideButton', 'setup.guide(reviewGuideButton)']]) {
     const control = source.slice(source.indexOf('id: ' + id)).split('}')[0];
     assert(control.includes('bordered: true'), id + ' needs a visible button boundary');
     assert(control.includes('focusable: true'), id + ' remains keyboard reachable');
@@ -115,7 +115,7 @@ test('local setup Help keeps a neutral button boundary and its existing local de
     assert(control.includes('onClicked: ' + handler), id + ' preserves local navigation');
     assert(!/installRequested|openUrlExternally/.test(control));
   }
-  assert(page.includes('helpRequested(SetupState.hasUpdate(facts) ? "updates" : "install")'));
+  assert(page.includes('helpRequested(SetupState.hasUpdate(facts) ? "updates" : "install", returnFocus)'));
 });
 test('stopped app offers only explicit native start, never reinstall or terminal setup', () => {
   const facts={state:'needs_runtime_start',coreInstalled:true};
@@ -127,7 +127,7 @@ test('stopped app offers only explicit native start, never reinstall or terminal
   for(const action of ['install','start-broker','shell','restore-enrollment']) assert(!state.canRunAction(facts,action));
   for(const locale of ['en','ru']) for(const key of ['start_app','needs_runtime_start']) assert(!i18n.translate('setup.'+key,locale,{}).includes('Missing translation'));
   const vm=require('node:vm');
-  const start=page.indexOf('  function install(action)'),end=page.indexOf('\n  }',start)+4;
+  const start=page.indexOf('  function install(action, returnFocus)'),end=page.indexOf('\n  }',start)+4;
   const c=vm.createContext({SetupState:state,facts,busy:false,launching:false,terminalOpened:false,nativeEffectBlocked:false,startApp:{running:false},launch:{running:false}});
   vm.runInContext(page.slice(start,end),c);
   c.install('start-app');assert(c.startApp.running);assert(!c.launch.running);assert(!c.launching);
@@ -329,7 +329,7 @@ test('installed programs disappear from the required-components card; readiness 
     const control=card.slice(card.indexOf('id: '+id),card.indexOf('\n      }',card.indexOf('id: '+id)));
     assert(control.includes('Layout.fillWidth: true'));
   }
-  assert(card.includes('onClicked: card.installRequested("restore-enrollment")'));
+  assert(card.includes('onClicked: card.installRequested("restore-enrollment", restoreButton)'));
   assert(card.includes('card.facts.coreInstalled === true && !card.effectBusy'));
   assert(panel.includes('panelOpen: root.opened'));
   assert(panel.includes('id: nativeRequiredComponents'));
@@ -337,7 +337,7 @@ test('installed programs disappear from the required-components card; readiness 
 });
 test('real install handler rejects stale target, arbitrary action and repeated launch', () => {
   const vm=require('node:vm');
-  const start=page.indexOf('  function install(action)'), end=page.indexOf('\n  }',start)+4;
+  const start=page.indexOf('  function install(action, returnFocus)'), end=page.indexOf('\n  }',start)+4;
   const c=vm.createContext({SetupState:state,facts:{state:'needs_companion',coreInstalled:false},busy:false,launching:false,terminalOpened:false,nativeEffectBlocked:false,launch:{running:false}});
   vm.runInContext(page.slice(start,end),c);
   c.install('install');assert(!c.launch.running);
@@ -353,7 +353,7 @@ test('real install handler rejects stale target, arbitrary action and repeated l
 });
 test('setup effect handler blocks unresolved native work across both card locations', () => {
   const vm=require('node:vm');
-  const start=page.indexOf('  function install(action)'),end=page.indexOf('\n  }',start)+4;
+  const start=page.indexOf('  function install(action, returnFocus)'),end=page.indexOf('\n  }',start)+4;
   for(const action of ['resume-dns','start-app']) {
     const c=vm.createContext({SetupState:state,facts:{state:action==='resume-dns'?'needs_dns_setup':'needs_runtime_start',coreInstalled:true},
       busy:false,launching:false,terminalOpened:false,nativeEffectBlocked:true,
@@ -404,7 +404,7 @@ test('prior stable upgrade is explicit and help remains navigational', () => {
     assert(state.canRunAction(facts,'upgrade'));
     assert(state.canRunAction(facts,'update-help'));
     for(const action of ['install','shell','start-app','restore-enrollment']) assert(!state.canRunAction(facts,action));
-    const start=page.indexOf('  function install(action)'),end=page.indexOf('\n  }',start)+4;
+    const start=page.indexOf('  function install(action, returnFocus)'),end=page.indexOf('\n  }',start)+4;
     let guides=0;
     const c=vm.createContext({SetupState:state,facts,busy:false,launching:false,terminalOpened:false,
       nativeEffectBlocked:false,launch:{running:false},startApp:{running:false},guide(){guides++}});
@@ -421,8 +421,8 @@ test('prior stable upgrade is explicit and help remains navigational', () => {
     assert(text.length>0&&text.length<=512&&!text.includes('Missing translation'));
   }
   assert(card.includes('id: updateHelpButton'));
-  assert(card.includes('onClicked: card.installRequested("update-help")'));
-  assert(card.includes('onClicked: card.installRequested("upgrade")'));
+  assert(card.includes('onClicked: card.installRequested("update-help", updateHelpButton)'));
+  assert(card.includes('onClicked: card.installRequested("upgrade", updateButton)'));
   for(const busy of [false,true])for(const effectBlocked of [false,true])for(const terminalOpened of [false,true]) {
     const context={visible:true,card:{busy,effectBlocked,effectBusy:busy||effectBlocked,terminalOpened}};
     const update=card.slice(card.indexOf('id: updateButton')).match(/enabled: ([^\n]+)/)[1];

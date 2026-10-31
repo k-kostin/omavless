@@ -199,12 +199,67 @@ test('panel restores the originating focus and does not mark onboarding or termi
   assert(c.hidden && c.originFocus); assert(c.onboardingWizard.visible); assert.equal(c.helpReturnFocus, null);
   c.openHelp('install', null); c.closeHelp(); assert(c.wizardFocus);
   c.onboardingWizard.visible = false; c.closeHelp(); assert(c.panelFocus);
+  c.panelFocus=false; target.visible=false; c.openHelp('help',target); c.closeHelp(); assert(c.panelFocus);
   assert(panel.includes('readonly property bool modalInputActive: removeReview.visible || helpPrompt.visible || onboardingWizard.visible'));
   assert(panel.includes('blocked: removeReview.visible || helpPrompt.visible || subscriptionUsagePrompt.visible || root.quitConfirmation'));
   assert(panel.includes('helpPrompt.visible || subscriptionUsagePrompt.visible ? Style.space(600) : root.bootstrapRequired'));
-  assert(panel.includes('onHelpRequested: function(section) { root.openHelp(section, setupPage) }'));
-  assert(panel.includes('onSetupGuideRequested: root.openHelp("install", onboardingWizard)'));
+  assert(panel.includes('onHelpRequested: function(section, returnFocus) { root.openHelp(section, returnFocus) }'));
+  assert(panel.includes('onSetupGuideRequested: function(returnFocus) { root.openHelp("install", returnFocus) }'));
   assert(panel.includes('nativeHelpSetting.focusTarget'));
+});
+test('every setup Help route carries its initiating button through the real QML handlers', () => {
+  const page = fs.readFileSync(__dirname + '/../plugin/SetupPage.qml', 'utf8');
+  const card = fs.readFileSync(__dirname + '/../plugin/RequiredComponents.qml', 'utf8');
+  const wizard = fs.readFileSync(__dirname + '/../plugin/OnboardingWizard.qml', 'utf8');
+  const state = require('../plugin/SetupState.js');
+  function handler(code, name, c, args) {
+    const body = code.match(new RegExp(name + ': ([^\\n]+)'))[1];
+    if (body.startsWith('function')) return vm.runInContext('(' + body + ')', c)(...args);
+    assert(/^(?:card|setup|wizard|setupPage|root)\.[A-Za-z]+\([^{}]*\)(?: })?$/.test(body), 'closed QML expression');
+    return vm.runInContext(body.replace(/ }$/, ''), c);
+  }
+  for (const route of ['setup', 'component-review', 'update', 'main-components', 'main-update', 'wizard']) {
+    const controls = {};
+    for (const name of ['setup','component-review','update','main-components','main-update','wizard']) {
+      controls[name] = {visible:true, forceActiveFocus() { c.focused = controls[name]; }};
+    }
+    const origin = controls[route];
+    const container = {visible:true, forceActiveFocus() { c.focused = container; }};
+    const c = vm.createContext({SetupState:state, facts:{state:'needs_update',coreInstalled:true},
+      busy:false, launching:false, terminalOpened:false, nativeEffectBlocked:false,
+      launch:{running:false}, startApp:{running:false}, helpReturnFocus:null,
+      Qt:{callLater:f=>f()}, helpPrompt:{openHelp(section) { c.section=section; }, dismiss() {}},
+      onboardingWizard:container, keyCatcher:container, forceActiveFocus:container.forceActiveFocus,
+      guideButton:controls[route==='main-components'?'main-components':'setup'],
+      reviewGuideButton:controls['component-review'],
+      updateHelpButton:controls[route==='main-update'?'main-update':'update'], setupGuideButton:controls.wizard});
+    c.root=c; c.setup=c; c.setupPage=c;
+    for (const name of ['openHelp','closeHelp']) loadFunction(panel,name,c);
+    for (const name of ['guide','install']) loadFunction(page,name,c);
+    c.helpRequested=(...args)=>handler(panel,'onHelpRequested',c,args);
+    c.wizard={setupGuideRequested:(...args)=>handler(panel,'onSetupGuideRequested',c,args)};
+    c.card={
+      guideRequested:(...args)=>handler(route==='main-components'
+        ? panel.slice(panel.indexOf('id: nativeRequiredComponents')) : page,'onGuideRequested',c,args),
+      installRequested:(...args)=>handler(route==='main-update'
+        ? panel.slice(panel.indexOf('id: nativeRequiredComponents')) : page,'onInstallRequested',c,args)};
+    const code=route==='component-review' ? page.slice(page.indexOf('id: reviewGuideButton'))
+      : route==='wizard' ? wizard.slice(wizard.indexOf('objectName: "onboardingSetupGuide"'))
+      : card.slice(card.indexOf('id: '+(['update','main-update'].includes(route)?'updateHelpButton':'guideButton')));
+    handler(code,'onClicked',c,[]);
+    assert(c.helpReturnFocus===origin,route+' keeps the exact initiating control');
+    assert(!c.launch.running && !c.startApp.running,route+' is navigation only');
+    c.closeHelp(); assert(c.focused===origin,route+' restores button activation');
+    if (['update','main-update'].includes(route)) {
+      for (const guard of ['busy','launching','terminalOpened']) {
+        c[guard]=true; handler(code,'onClicked',c,[]);
+        assert.equal(c.helpReturnFocus,null,guard+' refuses before Help'); c[guard]=false;
+      }
+      c.facts={state:'ready',coreInstalled:true}; handler(code,'onClicked',c,[]);
+      assert.equal(c.helpReturnFocus,null,'unavailable update Help refuses');
+      assert(!c.launch.running && !c.startApp.running);
+    }
+  }
 });
 test('public guide has the exact copied English template and both local guide files ship', () => {
   const guide = fs.readFileSync(__dirname + '/../docs/user/NATIVE_INSTALL.md', 'utf8');

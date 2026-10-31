@@ -244,7 +244,7 @@ test('native onboarding wires fresh inventory and local help without installing 
  assert(panel.includes('nativeDesktopLoading: vless.nativeDesktopLoading'));
  const refresh=panel.slice(panel.indexOf('onRefreshRequested: {',panel.indexOf('OnboardingWizard {')),panel.indexOf('onPresetChosen:',panel.indexOf('OnboardingWizard {')));
  assert(refresh.includes('vless.refreshNativeDesktopCapabilities()'));
- assert(refresh.includes('onSetupGuideRequested: root.openHelp("install", onboardingWizard)'));
+ assert(refresh.includes('onSetupGuideRequested: function(returnFocus) { root.openHelp("install", returnFocus) }'));
  assert(!refresh.includes('execDetached'));assert(!refresh.includes('sudo'));assert(!refresh.includes('connect('));
  assert(wizard.includes('command: "omarchy pkg add wl-clipboard"'));
  assert(wizard.includes('command: "omarchy pkg add zenity"'));

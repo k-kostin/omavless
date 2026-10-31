@@ -28,10 +28,10 @@ ColumnLayout {
   readonly property bool showPreparation: !appMissing && ["needs_update", "needs_pair_update", "needs_pair_update_manual", "needs_pair_install", "needs_pair_mismatch", "needs_companion"].indexOf(facts.state) < 0 && (facts.state !== "ready" || facts.coreInstalled === null)
   readonly property bool optionalUpdate: (SetupState.hasUpdate(facts) && ["needs_update", "needs_pair_install", "needs_pair_mismatch", "needs_companion"].indexOf(facts.state) < 0) || ["needs_pair_update", "needs_pair_update_manual"].indexOf(facts.state) >= 0
   readonly property var focusTargets: [installButton, prepareButton, recoveryToggle, restoreButton, updateButton, pairedUpdateButton, updateHelpButton, retryButton, checkButton, guideButton]
-  signal installRequested(string action)
+  signal installRequested(string action, var returnFocus)
   signal checkRequested()
   signal terminalClosed()
-  signal guideRequested()
+  signal guideRequested(var returnFocus)
   function tr(key) { return I18n.translate("setup." + key, locale, {}) }
   onFactsChanged: if (!SetupState.canRestoreHelperAccess(facts)) recoveryExpanded = false
   visible: SetupState.needsAttention(facts)
@@ -74,7 +74,7 @@ ColumnLayout {
         text: card.tr(card.coreMissing ? "install_all" : "install_app")
         visible: card.appMissing && card.action === "install"
         enabled: visible && !card.effectBusy && !card.terminalOpened
-        onClicked: card.installRequested(card.action)
+        onClicked: card.installRequested(card.action, installButton)
       }
     }
   }
@@ -105,7 +105,7 @@ ColumnLayout {
         visible: card.operationalStep
         text: card.tr(card.facts.state === "needs_dns_setup" ? "resume_dns" : card.facts.state === "needs_runtime_start" ? "start_app" : card.facts.state === "needs_selection" ? "select_pair" : card.facts.state === "needs_broker_stopped" ? "start_broker" : "prepare")
         enabled: visible && card.facts.coreInstalled === true && !card.effectBusy && !card.terminalOpened
-        onClicked: card.installRequested(card.action)
+        onClicked: card.installRequested(card.action, prepareButton)
       }
       SetupButton {
         id: recoveryToggle
@@ -130,7 +130,7 @@ ColumnLayout {
         visible: recoveryToggle.visible && card.recoveryExpanded
         text: card.tr("restore_enrollment")
         enabled: visible && card.facts.coreInstalled === true && !card.effectBusy && !card.terminalOpened
-        onClicked: card.installRequested("restore-enrollment")
+        onClicked: card.installRequested("restore-enrollment", restoreButton)
       }
     }
   }
@@ -155,7 +155,7 @@ ColumnLayout {
         visible: card.facts.state === "needs_update"
         text: card.tr("update_components")
         enabled: visible && !card.effectBusy && !card.terminalOpened
-        onClicked: card.installRequested("upgrade")
+        onClicked: card.installRequested("upgrade", updateButton)
       }
       SetupButton {
         id: pairedUpdateButton
@@ -165,7 +165,7 @@ ColumnLayout {
         visible: card.pairUpdate
         text: card.tr(card.facts.state === "needs_pair_install" ? "complete_pair" : "prepare_update")
         enabled: visible && !card.effectBusy && !card.terminalOpened
-        onClicked: card.installRequested("update-pair")
+        onClicked: card.installRequested("update-pair", pairedUpdateButton)
       }
       SetupButton {
         id: updateHelpButton
@@ -175,7 +175,7 @@ ColumnLayout {
         text: card.tr("update_help")
         bordered: false
         enabled: visible && !card.busy && !card.terminalOpened
-        onClicked: card.installRequested("update-help")
+        onClicked: card.installRequested("update-help", updateHelpButton)
       }
     }
   }
@@ -188,6 +188,6 @@ ColumnLayout {
     Layout.fillWidth: true
     spacing: Style.space(8)
     Button { id: checkButton; Layout.fillWidth: true; text: card.tr("check"); bordered: true; focusable: true; enabled: !card.busy; onClicked: card.checkRequested() }
-    Button { id: guideButton; Layout.fillWidth: true; text: card.tr("guide_short"); bordered: true; focusable: true; onClicked: card.guideRequested() }
+    Button { id: guideButton; Layout.fillWidth: true; text: card.tr("guide_short"); bordered: true; focusable: true; onClicked: card.guideRequested(guideButton) }
   }
 }
