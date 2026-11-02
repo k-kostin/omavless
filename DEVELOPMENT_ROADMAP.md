@@ -1,6 +1,29 @@
 # OmaVLESS development delivery roadmap
 
-Status: full-source delivery ledger; stable release reconciled 2026-10-16.
+Status: full-source delivery ledger; 0.9.9 development readiness reconciled
+2026-11-02; stable release remains 0.9.8 fix.8.
+
+## Current 0.9.9 scope and next release gates
+
+The [28-row readiness matrix](docs/development/RELEASE_099_READINESS.md) is the
+current entry for selected scope, accepted development evidence, seven whole
+1.0.0 deferrals and the remaining owner/physical/public-delivery gates.
+Development source `ce0d3597f741780e1c6821e5e78ed540eeef755b` has completed its
+selected technical preparation through #843, including ordinary installed
+x86_64 0.9.8-to-0.9.9 update and fresh source/distribution admission. This does
+not close physical sleep/network/Tailscale, owner EN/RU meaning review or
+public 0.9.9 publication. Retain existing read-only/routing/probe behavior and
+the exact limits of its inherited evidence rather than rebuilding it.
+
+The accepted DNS, statistics and original-store preservation work is no longer
+an unimplemented feature queue. General YAML/editors, extra TUIC/Hysteria2
+options and manual core choice join new Single/Set Close, S1, K1 and persistent
+Lockdown in 1.0.0 by explicit owner choices. Deferral is not acceptance.
+The dated ledger below preserves original scope and failures; its older
+next-work statements do not reopen completed gates. No main, release or
+Marketplace change follows from this documentation reconciliation.
+
+## Stable release and historical delivery ledger
 
 **Current release:** immutable `v0.9.8-fix.8` is published; #795 promoted the
 generated user distribution into main. Exact full source is
@@ -1662,8 +1685,8 @@ separately and one host never proves another.
 
 ## 14. Current priority in one sentence
 
-**Preserve the accepted native R6/UI and RC 0.9.5 managed-DNS/T2/T3/explicit-T4
-checkpoint; stable/main and Marketplace promotion require separate owner
-authorization and release reconciliation. Track AUTO-1, unavailable V0 fixtures
-and excluded feature work without relabelling their unrun/failed checks or
-restarting unchanged accepted gates merely because the ledger changed.**
+**Preserve accepted 0.9.9 development evidence and retained native functionality;
+resolve the exact owner EN/RU meaning and physical sleep/network/Tailscale
+dependencies, then select and qualify public delivery under its separate
+authorization. Follow the readiness matrix above, not historical pending lists;
+do not restart closed gates or activate features deferred to 1.0.0.**

@@ -1,9 +1,13 @@
 # Recorded TUN traffic — selected 0.9.9 scope
 
-Status: local implementation, October30 (Moscow). No source, package or installed
-acceptance follows from this contract. The owning research reconciliation is
-`default/omavless/usage-statistics-research-review-2026-10-29`. The initial
-maintenance hold was released before canonical import.
+Status: selected development delivery accepted through
+[#842](https://github.com/k-kostin/omavless/pull/842), carried into the
+[#843](https://github.com/k-kostin/omavless/pull/843) installation/update
+composition. The [release readiness matrix](RELEASE_099_READINESS.md) separates
+earned source/package/installed evidence from public 0.9.9 readiness. This
+contract alone supplies no acceptance; original failed/unknown results remain
+in the owning PRs. Research reconciliation is
+`default/omavless/usage-statistics-research-review-2026-10-29`.
 
 One opt-in period records observed RX/TX deltas from the existing authenticated
 managed-TUN counter path. It is disabled by default. It is not provider quota,

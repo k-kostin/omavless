@@ -1,8 +1,12 @@
-# User DNS presets — selected 0.9.9 candidate
+# User DNS presets — selected 0.9.9 development scope
 
-Status: implementation candidate, October29. Source tests and isolated numeric
-core feasibility are separate from new-package, installed and final delivery
-acceptance. This does not change published main or qualify K1/App Proxy.
+Status: selected development delivery accepted through
+[#840](https://github.com/k-kostin/omavless/pull/840), including affected
+installed review and independent source/distribution admission. The
+[release readiness matrix](RELEASE_099_READINESS.md) records inherited scope and
+remaining public-delivery limits. Earlier isolated numeric core feasibility is
+not that installed proof. This does not change published main or qualify
+K1/App Proxy, arbitrary DNS editing or general leak safety.
 
 ## User outcome
 

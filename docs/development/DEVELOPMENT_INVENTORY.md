@@ -1,5 +1,10 @@
 # Development base and retained work
 
+For current 0.9.9 completion and remaining release work, start with the
+[November 2 readiness matrix](RELEASE_099_READINESS.md). The dated source/branch
+inventories below preserve provenance and distinct future research; their old
+missing-port statements are not a new implementation queue or deletion manifest.
+
 Owner-selected October16, after fix.8 delivery. `development` is the full-source
 integration home, created at released source
 `5edf4eb203926d8bd39a3ff80f611a19435c3787`. It does not start from the older

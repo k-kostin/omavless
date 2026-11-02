@@ -1,5 +1,37 @@
 # Current delivery status
 
+## November 2: 0.9.9 development preparation and release remainder
+
+The selected development composition is integrated through
+[#843](https://github.com/k-kostin/omavless/pull/843), source
+`ce0d3597f741780e1c6821e5e78ed540eeef755b`. Its full PR and independent
+merged-push CI, fresh source/distribution admission and ordinary installed
+x86_64 0.9.8-to-0.9.9 update completed with the recorded preservation and
+affected Help/Settings evidence. This is not a public 0.9.9 release or installed
+ARM64 acceptance. Main remains published 0.9.8 fix.8.
+
+Use the [complete 28-row readiness matrix](../development/RELEASE_099_READINESS.md)
+for current scope, earned evidence and concrete remaining proofs. Selected
+Restore recovery, WG/AWG, refresh/Daily/login, statistics, DNS presets,
+Test/Ping, original-store preservation and install/update development scopes
+have owning accepted results. Existing read-only/routing/probe features are
+retained, not new all-platform acceptance. Do not recreate them from historical
+pending lists below.
+
+Seven whole owner deferrals are 1.0.0: new Single/Set Close, S1, K1, persistent
+Lockdown, own-format YAML/editors, extra TUIC/Hysteria2 options and manual core
+choice. They are not PASS and no supporting placeholder work replaces them.
+
+Remaining owner-dependent gates are meaning review of the exact EN/RU guide
+pair and the explicit owner-ready physical sleep/network/Tailscale session.
+Russian guide activation remains guarded with English fallback. Final release
+scope, public downloads/guided installation, main, assets and Marketplace remain
+separate from the accepted development result. Support #773 still awaits its
+reporter; its missing reply is not missing Remove implementation.
+
+The dated entries below retain their original outcomes and failed/unrun limits;
+their old next-work statements are superseded by the readiness matrix above.
+
 ## October29: selected0.9.9 scope and earned boundaries
 
 The owner moved new Single/Set Close, all S1 App Proxy, all K1 and persistent
