@@ -1,5 +1,35 @@
 # Release notes
 
+## 0.9.9 — unreleased development preview
+
+These notes describe the proposed next snapshot. Public installation and
+downloads remain **0.9.8 fix.8** until a separately qualified release.
+
+- Add direct private link/key and local-bundle import using the existing
+  preview, validation and confirmation flow.
+- Add selected encrypted-backup Restore and explicit recovery after supported
+  interruptions, preserving the existing strict data and ownership checks.
+- Extend experimental one-peer IPv4 WireGuard/AmneziaWG support within its
+  documented subset; unsupported configurations remain refused.
+- Add subscription refresh progress/cancellation and the selected Daily CLI
+  schedule. Preserve explicit Disconnect across ordinary runtime restarts.
+- Add Preset default, Google and Cloudflare DNS choices, saved while disconnected
+  and applied on the next connection.
+- Add opt-in recorded TUN traffic for one period across restarts, with explicit
+  controls and a partial-data marker. This is not provider quota or a complete
+  history of internet traffic.
+- Restore the main-panel HTTPS Test and Ping sections with clear unavailable
+  results, and improve existing import, Connections and removal guidance.
+- Add explicit saving of the whole original profile store before normal startup
+  when strict validation refuses it. The copy is private and **unencrypted**;
+  saving does not repair profiles or enable connection.
+- Update the next-version guides and Help. The Russian guide is not active yet;
+  Help retains English fallback.
+
+Physical sleep/network and Tailscale acceptance remain open. New connection
+closing, App Proxy, kill switch, persistent Lockdown, YAML editors, extra
+TUIC/Hysteria2 options and manual core choice are deferred to 1.0.0.
+
 ## 0.9.8 — maintenance update
 
 - Add complete terminal removal, including profiles and settings. The helper
