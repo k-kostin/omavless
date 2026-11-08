@@ -52,6 +52,29 @@ Do not repeatedly reboot/reconnect merely to satisfy a checklist.
 
 ## Product and publication boundary
 
+### 0.9.9 correction for manual Start after reboot
+
+A stopped application with a fresh, unconsumed user-manager login and explicitly
+configured startup Off may retain Connected intent from the previous session.
+Manual Start must reach the existing packaged login-preparation service in this
+state. That service applies the established Off login policy and consumes the
+current receipt. Start then repeats admission and requires disconnected intent
+before starting the ordinary runtime. The read-only availability probe performs
+neither preparation nor service startup.
+
+A consumed login with Connected intent still refuses this manual Off-start
+path. Enabled or unresolved first-login preferences, pending transactions,
+unsafe/stale receipts and unavailable ownership keep their existing refusals.
+Recovery-only runtime start continues to require an already consumed Off login.
+
+The regression covers the production classifier and ordered executor. Installed
+acceptance must additionally start from saved prior-session Connected intent
+with autoconnect Off, earn a genuine new user-manager epoch, use the ordinary
+application Start entry, and verify Disconnected without an owned core. Check
+preserved profile/settings bytes and service enablement, plus a same-login
+restart remaining Off. A direct preparation command is fixture administration,
+not proof of the corrected user entry. Source tests alone do not close this gate.
+
 Enabled autoconnect is implemented but its connected fresh-login acceptance is
 incomplete. Keep this explicit in native installation guidance and future
 release notes. Do not advertise it as fully validated or silently enable it

@@ -82,13 +82,18 @@ fn execute_recovered_off(host: &mut impl Host) -> Result<()> {
     host.start_runtime()?;
     host.verify_ready()
 }
-fn classify(consumed: bool, configured: bool, enabled: bool) -> Result<Admission> {
-    if consumed {
-        Ok(Admission::Current)
-    } else if configured && !enabled {
-        Ok(Admission::PrepareLogin)
-    } else {
-        Err(Refused)
+fn classify(
+    consumed: bool,
+    configured: bool,
+    enabled: bool,
+    desired_connected: bool,
+) -> Result<Admission> {
+    match (consumed, configured, enabled, desired_connected) {
+        (true, _, _, false) => Ok(Admission::Current),
+        // Fresh configured-Off login preparation clears prior-session intent.
+        // execute re-admits the consumed, disconnected result before launch.
+        (false, true, false, _) => Ok(Admission::PrepareLogin),
+        _ => Err(Refused),
     }
 }
 fn systemctl() -> Command {
@@ -217,9 +222,6 @@ impl Host for Installed {
             return Err(Refused);
         }
         let desired = read_desired_snapshot(&desired_paths, uid.as_raw()).map_err(|_| Refused)?;
-        if desired.connected {
-            return Err(Refused);
-        }
         let epoch = crate::login_activation::manager_epoch().map_err(|_| Refused)?;
         let consumed = if let Some(lock) = &lock {
             crate::login_transaction::manual_start_receipt(
@@ -251,6 +253,7 @@ impl Host for Installed {
             consumed,
             store.startup_is_configured(),
             store.startup_preferences().enabled,
+            desired.connected,
         )?;
         stopped()?;
         // Leases end with this function, before either child service starts.
@@ -606,11 +609,52 @@ mod tests {
     }
     #[test]
     fn only_real_consumed_receipt_allows_enabled_preferences() {
-        assert_eq!(classify(true, true, true), Ok(Admission::Current));
-        assert_eq!(classify(false, true, false), Ok(Admission::PrepareLogin));
+        assert_eq!(classify(true, true, true, false), Ok(Admission::Current));
+        assert_eq!(
+            classify(false, true, false, false),
+            Ok(Admission::PrepareLogin)
+        );
         for (configured, enabled) in [(false, false), (false, true), (true, true)] {
-            assert_eq!(classify(false, configured, enabled), Err(Refused));
+            assert_eq!(classify(false, configured, enabled, false), Err(Refused));
         }
+    }
+    #[test]
+    fn fresh_configured_off_login_prepares_previous_connected_intent() {
+        let mut host = Fake {
+            admissions: vec![
+                classify(false, true, false, true),
+                classify(true, true, false, false),
+            ],
+            calls: vec![],
+            fail: false,
+        };
+        assert!(execute(&mut host).is_ok());
+        assert_eq!(host.calls, ["admit", "login", "admit", "runtime", "verify"]);
+    }
+    #[test]
+    fn connected_intent_requires_fresh_configured_off_preparation() {
+        for consumed in [false, true] {
+            for configured in [false, true] {
+                for enabled in [false, true] {
+                    let expected = if !consumed && configured && !enabled {
+                        Ok(Admission::PrepareLogin)
+                    } else {
+                        Err(Refused)
+                    };
+                    assert_eq!(classify(consumed, configured, enabled, true), expected);
+                }
+            }
+        }
+        let mut unchanged = Fake {
+            admissions: vec![
+                Ok(Admission::PrepareLogin),
+                classify(true, true, false, true),
+            ],
+            calls: vec![],
+            fail: false,
+        };
+        assert!(execute(&mut unchanged).is_err());
+        assert_eq!(unchanged.calls, ["admit", "login", "admit"]);
     }
     #[test]
     fn stages_recheck_before_runtime_and_never_retry_or_enable() {
