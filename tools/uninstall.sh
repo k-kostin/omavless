@@ -31,6 +31,7 @@ check_private_targets() {
 }
 
 say() { printf '%s\n' "$@"; }
+local_text() { if [[ ${OMAVLESS_LOCALE:-en} == ru ]]; then say "$2"; else say "$1"; fi; }
 prepare_maintenance_folders() {
   local directory owner mode
   folder="$HOME/.cache/omavless-maintenance/uninstall"
@@ -159,25 +160,34 @@ save_progress() {
   read_progress
 }
 confirm_removal() {
-  say '' 'Remove OmaVLESS' '' \
-    'OmaVLESS and its saved profiles and settings will be deleted. No backup is made.' \
-    'Other VPN clients and a separately installed Mihomo stay installed.' '' \
-    'Type REMOVE to continue, or press Enter to cancel:'
+  say ''
+  local_text 'Remove OmaVLESS' 'Удаление OmaVLESS'
+  local_text 'OmaVLESS and its saved profiles and settings will be deleted. No backup is made.' \
+    'OmaVLESS, сохранённые профили и настройки будут удалены. Резервная копия не создаётся.'
+  local_text 'Other VPN clients and a separately installed Mihomo stay installed.' \
+    'Другие VPN-клиенты и отдельно установленный Mihomo останутся.'
+  local_text 'Type REMOVE to continue, or press Enter to cancel:' \
+    'Введите REMOVE для продолжения или нажмите Enter для отмены:'
   local answer
   IFS= read -r answer || return 1
   [[ "$answer" == REMOVE ]]
 }
 restart_offer() {
-  say '' 'One restart is needed to finish removal.' \
-    'Save your work. Restarting interrupts all current connections.' \
-    'If VPN cleanup was interrupted, protection is not guaranteed while waiting.' \
-    'After logging back in, run this same command:' "bash \"$helper_path\"" '' \
-    'Type REBOOT to restart now, or press Enter to restart later:'
+  say ''
+  local_text 'One restart is needed to finish removal.' 'Для завершения удаления нужна перезагрузка.'
+  local_text 'Save your work. Restarting interrupts all current connections.' \
+    'Сохраните работу. Перезагрузка прервёт все текущие подключения.'
+  local_text 'If VPN cleanup was interrupted, protection is not guaranteed while waiting.' \
+    'Если очистка VPN была прервана, защита до перезагрузки не гарантируется.'
+  local_text 'After logging back in, run this same command:' 'После входа выполните ту же команду:'
+  say "OMAVLESS_LOCALE=$([[ ${OMAVLESS_LOCALE:-en} == ru ]] && echo ru || echo en) bash \"$helper_path\""
+  local_text 'Type REBOOT to restart now, or press Enter to restart later:' \
+    'Введите REBOOT для перезагрузки сейчас или нажмите Enter, чтобы перезагрузить позже:'
   local answer
   IFS= read -r answer || answer=
   if [[ "$answer" == REBOOT ]]; then
-    systemctl reboot || fail 'Restart from your desktop menu, then run the command above.'
-  else say 'Restart from your desktop when ready, then run the command above.'; fi
+    systemctl reboot || { local_text 'Restart from your desktop menu, then run the command above.' 'Перезагрузитесь через меню рабочего стола, затем выполните команду выше.'; return 1; }
+  else local_text 'Restart from your desktop when ready, then run the command above.' 'Перезагрузитесь, когда будете готовы, затем выполните команду выше.'; fi
 }
 take_setup_lock() {
   local temporary
@@ -546,7 +556,7 @@ check_supported_installation() {
   case "$app:$dns" in
     'omavless 0.8.2-1:absent'|'omavless 0.9.8-1:omavless-dns 0.9.8-1'|'omavless 0.9.8-1:absent'|'absent:omavless-dns 0.9.8-1'|'absent:absent') ;;
     'omavless 0.9.9-1:omavless-dns 0.9.9-1'|'omavless 0.9.9-1:absent'|'absent:omavless-dns 0.9.9-1') ;;
-    *) fail 'The installed package version is not supported by this remover. Restore an official 0.8.2 or 0.9.8 package before continuing.' ;;
+    *) fail 'The installed package combination is not supported by this remover. Use matching official packages for your release (0.8.2, 0.9.8 or 0.9.9) before continuing.' ;;
   esac
   installed_public_app=$app
   installed_public_dns=$dns
@@ -652,7 +662,7 @@ check_private_targets
 check_supported_installation
 check_user_units
 if [[ "$installed_public_app" == 'omavless 0.8.2-1' ]]; then check_legacy_selection; fi
-confirm_removal || { say 'Cancelled.'; exit 0; }
+confirm_removal || { local_text 'Cancelled.' 'Отменено.'; exit 0; }
 if [[ "$phase" == none ]]; then prepared_boot=$boot_id; phase=none; save_progress preparing; else save_progress "$phase"; fi
 
 read -r -d '' root_checks <<'ROOT_CHECKS' || true

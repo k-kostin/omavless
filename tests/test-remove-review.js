@@ -157,7 +157,7 @@ test('modal keys, focus and scroll remain local and skip disabled actions', () =
 });
 test('fixed local terminal entry and native/setup fences have no arbitrary argument or outcome reset', () => {
   const source = fs.readFileSync(__dirname + '/../plugin/RemoveReview.qml', 'utf8');
-  assert(source.includes('command: ["omarchy", "launch", "terminal", "/bin/bash", removal.script]'));
+  assert(source.includes('command: ["omarchy", "launch", "terminal", "/usr/bin/env", "OMAVLESS_LOCALE=" + (removal.locale === "ru" ? "ru" : "en"), "/bin/bash", removal.script]'));
   assert(!/sudo|curl|wget|vless\.|clipboard|stdinEnabled|execDetached/.test(source));
   const binding = panel.slice(panel.indexOf('      RemoveReview {')).match(/nativeEffectBlocked: ([\s\S]*?)\n        setupBusy:/)[1];
   const flags = ['nativeActionRunning', 'nativeOutcomeUnknown', 'nativeQuitting', 'nativeImportBusy',

@@ -258,6 +258,15 @@ for(const target of ['/usr/lib/systemd/user/omavless-runtime.service','../omavle
 userTest('custom runtime dependency target is retained',{},'mkdir "$HOME/.config/systemd/user/default.target.wants"; ln -s /other "$HOME/.config/systemd/user/default.target.wants/omavless-runtime.service"; clear_runtime_enablement',false,dir=>assert(fs.lstatSync(dir+'/home/user/.config/systemd/user/default.target.wants/omavless-runtime.service').isSymbolicLink()));
 userTest('redirected user-service ancestor never unlinks target',{},'mv "$HOME/.config/systemd/user" "$folder/foreign"; ln -s "$folder/foreign" "$HOME/.config/systemd/user"; mkdir "$folder/foreign/default.target.wants"; ln -s /usr/lib/systemd/user/omavless-runtime.service "$folder/foreign/default.target.wants/omavless-runtime.service"; clear_runtime_enablement',false,dir=>assert(fs.lstatSync(dir+'/home/user/.cache/omavless-maintenance/uninstall/foreign/default.target.wants/omavless-runtime.service').isSymbolicLink()));
 userTest('REMOVE does not ask connection history',{},'confirm_removal <<< REMOVE',true,(_,r)=>assert(!/never connected|used it before|ask for help|support/.test(r.stdout)));
+userTest('Russian removal confirmation preserves destructive scope and literal word',{},'OMAVLESS_LOCALE=ru; confirm_removal <<< REMOVE',true,(_,r)=>{
+ assert(r.stdout.includes('профили и настройки будут удалены'));
+ assert(r.stdout.includes('Резервная копия не создаётся'));
+ assert(r.stdout.includes('Введите REMOVE'));assert(!r.stdout.includes('Type REMOVE'));
+});
+userTest('unknown locale falls back to English without interpreting content',{},'OMAVLESS_LOCALE="ru;false"; confirm_removal <<< REMOVE',true,(_,r)=>assert(r.stdout.includes('Type REMOVE')));
+userTest('Russian restart cancellation retains language in continuation and never reboots',{},'OMAVLESS_LOCALE=ru; helper_path=/synthetic/uninstall.sh; systemctl() { exit 99; }; restart_offer <<< ""',true,(_,r)=>{
+ assert(r.stdout.includes('Введите REBOOT'));assert(r.stdout.includes('OMAVLESS_LOCALE=ru bash'));
+});
 userTest('cancel REMOVE has no removal phase',{},'confirm_removal <<< ""',false,dir=>assert(!fs.existsSync(dir+'/home/user/.cache/omavless-maintenance/uninstall/progress.json')));
 
 // Measured ARM64 failure: Quickshell exits0 but prefixes JSON with Qt's locale

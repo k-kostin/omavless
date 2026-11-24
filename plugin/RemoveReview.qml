@@ -107,7 +107,7 @@ Item {
   Keys.onPressed: function(event) { navigate(event) }
   Process {
     id: launch
-    command: ["omarchy", "launch", "terminal", "/bin/bash", removal.script]
+    command: ["omarchy", "launch", "terminal", "/usr/bin/env", "OMAVLESS_LOCALE=" + (removal.locale === "ru" ? "ru" : "en"), "/bin/bash", removal.script]
     stdout: StdioCollector { waitForEnd: true }
     stderr: StdioCollector { waitForEnd: true }
     onStarted: if (removal.launching && removal.terminalOpened) removal.terminalRequested()
