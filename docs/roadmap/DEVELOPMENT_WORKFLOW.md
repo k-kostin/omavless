@@ -279,7 +279,8 @@ exact-head host gates. Branch/tag filter semantics follow the
 
 #### Developer-Markdown PR allocation
 
-Owner-directed process follow-up, November24: a PR may omit its Rust step only
+Owner-directed process follow-up, November24: a PR targeting `development` may
+omit its Rust step only
 when the complete trees of its exact event base and checked-out head differ
 solely in the regular, non-executable Markdown instruction files enumerated by
 [`tests/ci_scope.py`](../../tests/ci_scope.py). User guides, tests, build inputs,
@@ -287,8 +288,10 @@ workflow/classifier changes and unknown paths retain full Rust. Compare base to
 head directly, not their merge base; check both sides of deletions/renames and
 mode changes. An empty/unknown diff or unavailable metadata selects full Rust.
 
-Before candidate tests run, execute only the classifier read from the accepted
-event base. A missing base classifier selects full Rust. Skip only on an explicit
+Before candidate tests run, fail the job for a missing/invalid event head or
+checkout mismatch. Execute only the classifier read from an exact event base
+on `development`; classifiers on intermediate PR bases are not executed and
+those PRs retain full Rust. A missing base classifier selects full Rust. Skip only on an explicit
 `rust_required=false`; missing output cannot skip. Keep the decision reason and
 the actual `skipped` Rust conclusion visible. All isolated checks still execute
 on the exact PR head. This changes PR evidence, not the implementation or result

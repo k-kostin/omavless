@@ -27,7 +27,7 @@ SHA = r'[0-9a-f]{40}'
 DIGEST = r'[0-9a-f]{64}'
 # Reviewed complete full-source workflow, not merely a job display name.
 # A workflow change needs an explicit corresponding trust-policy review.
-SOURCE_WORKFLOW_BLOB = '8ff26fc461083265c356801238a5395a50fc4788'
+SOURCE_WORKFLOW_BLOB = 'c195f6ce8552828873e8b38c89a3cd190e3c84ba'
 RECORD = 'distribution.json'
 TOOLS = ('packaging/release/export-distribution.py',
          'packaging/release/pair-frontend.py', 'packaging/release/build-candidate.py',

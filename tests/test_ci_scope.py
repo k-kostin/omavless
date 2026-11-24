@@ -19,7 +19,7 @@ SPEC.loader.exec_module(SCOPE)
 class CheckScopeTests(unittest.TestCase):
     def setUp(self):
         parent = Path.home() / '.cache/ovt'
-        parent.mkdir(exist_ok=True)
+        parent.mkdir(parents=True, exist_ok=True)
         self.tmp = tempfile.TemporaryDirectory(prefix='ci-scope-', dir=parent)
         self.addCleanup(self.tmp.cleanup)
         self.repo = Path(self.tmp.name).resolve()
@@ -122,14 +122,16 @@ class CheckScopeTests(unittest.TestCase):
         self.commit()
         self.assertTrue(self.decision(head=self.base)[0])
 
-    def scope_step(self, base, head):
+    def step_script(self, name):
         workflow = (ROOT / '.github/workflows/test.yml').read_text()
-        section = workflow.split('      - name: Select PR check scope\n', 1)[1].split('\n      - name:', 1)[0]
-        script = textwrap.dedent(section.split('        run: |\n', 1)[1])
+        section = workflow.split('      - name: ' + name + '\n', 1)[1].split('\n      - name:', 1)[0]
+        return textwrap.dedent(section.split('        run: |\n', 1)[1])
+
+    def scope_step(self, base, head, base_ref='development'):
         output = self.repo / 'scope-output'
-        env = dict(os.environ, EVENT_BASE=base, EVENT_HEAD=head,
+        env = dict(os.environ, EVENT_BASE=base, EVENT_HEAD=head, EVENT_BASE_REF=base_ref,
                    RUNNER_TEMP=str(self.repo), GITHUB_OUTPUT=str(output))
-        result = subprocess.run(['/bin/bash', '-c', script], cwd=self.repo,
+        result = subprocess.run(['/bin/bash', '-c', self.step_script('Select PR check scope')], cwd=self.repo,
                                 env=env, capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(list(self.repo.glob('ov-ci-scope.*.py')))
@@ -148,6 +150,30 @@ class CheckScopeTests(unittest.TestCase):
         head = self.commit()
         self.assertEqual(self.scope_step(base_without_classifier, head),
                          'rust_required=true\nreason=base_classifier_unavailable\n')
+
+    def test_intermediate_base_classifier_is_not_read_or_executed(self):
+        self.write('tests/ci_scope.py',
+                   "from pathlib import Path\nPath('unaccepted-base-executed').touch()\n"
+                   "print('rust_required=false')\nprint('reason=unsafe-base')\n")
+        unaccepted_base = self.commit()
+        self.write('AGENTS.md', 'changed\n')
+        head = self.commit()
+        self.assertEqual(self.scope_step(unaccepted_base, head, 'dev/stacked'),
+                         'rust_required=true\nreason=unaccepted_base\n')
+        self.assertFalse((self.repo / 'unaccepted-base-executed').exists())
+
+    def test_actual_checkout_guard_rejects_missing_or_wrong_pr_head(self):
+        for event, head, sha, expected in (
+                ('pull_request', self.base, self.base, 0),
+                ('push', '', self.base, 0),
+                ('pull_request', '', self.base, 1),
+                ('pull_request', '0' * 40, self.base, 1),
+                ('pull_request', '--help', self.base, 1)):
+            with self.subTest(event=event, head=head):
+                env = dict(os.environ, GITHUB_EVENT_NAME=event, EVENT_HEAD=head, EVENT_SHA=sha)
+                result = subprocess.run(['/bin/bash', '-c', self.step_script('Confirm exact source checkout')],
+                                        cwd=self.repo, env=env, capture_output=True, timeout=15)
+                self.assertEqual(result.returncode, expected)
 
     def test_real_cli_allows_exact_doc_only_head(self):
         self.write('AGENTS.md', 'changed\n')
@@ -168,9 +194,26 @@ class CheckScopeTests(unittest.TestCase):
         self.assertIn("if: github.event_name == 'push' && github.ref == 'refs/heads/development'", workflow)
         self.assertIn('run: test "$GITHUB_EVENT_NAME" = push && test "$GITHUB_REF" = refs/heads/development', workflow)
         self.assertIn('fetch-depth: 0', workflow)
+        self.assertLess(workflow.index('name: Confirm exact source checkout'), workflow.index('name: Select PR check scope'))
         self.assertLess(workflow.index('name: Select PR check scope'), workflow.index('name: Run isolated checks'))
         self.assertNotIn('pull_request_target', workflow)
         self.assertNotIn('paths-ignore:', workflow)
+
+
+class FixturePreparationTests(unittest.TestCase):
+    def test_cold_home_without_cache_can_prepare_and_retire_actual_fixture(self):
+        with tempfile.TemporaryDirectory(prefix='ci-cold-home-', dir=Path.home() / '.cache/ovt') as temp:
+            home = Path(temp) / 'home'
+            home.mkdir()
+            self.assertFalse((home / '.cache').exists())
+            with patch.object(Path, 'home', return_value=home):
+                case = CheckScopeTests('test_all_allowed_regular_markdown_changes_omit_pr_rust')
+                try:
+                    case.setUp()
+                    self.assertTrue((case.repo / '.git').is_dir())
+                finally:
+                    case.doCleanups()
+            self.assertFalse(list((home / '.cache/ovt').glob('ci-scope-*')))
 
 
 if __name__ == '__main__':

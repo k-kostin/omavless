@@ -24,11 +24,23 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Confirm exact source checkout
+        env:
+          EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
+          EVENT_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=$EVENT_SHA
+          if [[ $GITHUB_EVENT_NAME == pull_request ]]; then expected=$EVENT_HEAD; fi
+          [[ $expected =~ ^[0-9a-f]{40}$ ]]
+          [[ $(git rev-parse HEAD) == "$expected" ]]
       - name: Select PR check scope
         id: scope
         if: github.event_name == 'pull_request'
         env:
           EVENT_BASE: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
           EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
         shell: bash
         run: |
@@ -36,7 +48,9 @@ jobs:
           scope_script=$(mktemp "$RUNNER_TEMP/ov-ci-scope.XXXXXX.py")
           trap 'rm -f -- "$scope_script"' EXIT
           # Execute the accepted base classifier, never the candidate's copy.
-          if [[ $EVENT_BASE =~ ^[0-9a-f]{40}$ && $EVENT_HEAD =~ ^[0-9a-f]{40}$ ]] &&
+          if [[ $EVENT_BASE_REF != development ]]; then
+            printf '%s\n' 'rust_required=true' 'reason=unaccepted_base' | tee -a "$GITHUB_OUTPUT"
+          elif [[ $EVENT_BASE =~ ^[0-9a-f]{40}$ && $EVENT_HEAD =~ ^[0-9a-f]{40}$ ]] &&
              git show "$EVENT_BASE:tests/ci_scope.py" > "$scope_script"; then
             python3 -I -B "$scope_script" "$EVENT_BASE" "$EVENT_HEAD" | tee -a "$GITHUB_OUTPUT"
           else
