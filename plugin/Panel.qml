@@ -275,6 +275,8 @@ Panel {
   property string nativeSubscriptionId: ""
   readonly property var nativeSubscription: nativeView.subscriptions.find(function(s) { return s.id === nativeSubscriptionId }) || null
   property int nativeCursor: -1
+  property var nativeCursorTarget: null
+  onNativeCursorChanged: if (nativeCursor < 0) nativeCursorTarget = null
   property var nativeExpanded: ({})
   readonly property var nativeLifecyclePending: vless.nativePending
     && ["connect", "disconnect", "mode"].indexOf(vless.nativePending.action) >= 0 ? vless.nativePending : null
@@ -347,10 +349,11 @@ Panel {
     : textFor(nativeMetadataAction.indexOf("profile-") === 0 ? "native.progress.profileSave" : "native.progress.settingsSave")
   readonly property var nativeActiveProfile: NativePresentation.activeProfile(nativeView)
   readonly property var nativeActionProfile: nativeView.profiles.find(function(p) { return p.id === root.nativeSelectedProfile }) || null
-  readonly property bool nativeSelectionConnectable: nativeView.profiles.some(function(p) { return p.id === (root.nativeSelectedProfile || nativeView.lastProfileId) && !p.missing })
+  readonly property bool nativeSelectionConnectable: nativeView.profiles.some(function(p) { return p.id === root.nativeSelectedProfile && !p.missing })
   readonly property var nativeIpc: NativePresentation.ipc(vless.nativeSnapshot, vless.nativeObservation,
     vless.nativeSnapshotFailed, vless.nativePending, vless.nativeOutcomeUnknown)
   readonly property var nativeRows: buildNativeRows()
+  onNativeRowsChanged: reconcileNativeCursor()
   property var nativeSettingsControl: null
   property var nativePowerControl: null
 
@@ -512,12 +515,26 @@ Panel {
     return true
   }
 
+  function setNativeCursor(index) {
+    nativeCursor = index
+    var row = nativeRows[index]
+    nativeCursorTarget = row ? {kind:row.kind, id:row.kind === "profile" ? row.profile.id : row.subscription.id} : null
+    if (row && row.kind === "profile") nativeSelectedProfile = row.profile.id
+  }
+
+  function reconcileNativeCursor() {
+    if (nativeCursor < 0 || nativeCursorTarget === null) { nativeCursor = -1; return }
+    var target = nativeCursorTarget
+    nativeCursor = nativeRows.findIndex(function(row) {
+      return row.kind === target.kind && (row.kind === "profile" ? row.profile.id : row.subscription.id) === target.id
+    })
+  }
+
   function moveNativeCursor(direction) {
     if ((page !== "main" && page !== "subscription") || nativeRows.length === 0 || direction === 0) return
-    nativeCursor = nativeCursor < 0 ? (direction < 0 ? nativeRows.length - 1 : 0)
-      : Math.max(0, Math.min(nativeRows.length - 1, nativeCursor + direction))
-    var row = nativeRows[nativeCursor]
-    if (row.kind === "profile") nativeSelectedProfile = row.profile.id
+    reconcileNativeCursor()
+    setNativeCursor(nativeCursor < 0 ? (direction < 0 ? nativeRows.length - 1 : 0)
+      : Math.max(0, Math.min(nativeRows.length - 1, nativeCursor + direction)))
     var item = nativeProfiles.itemAt(nativeCursor)
     if (item) scrollPanelControlIntoView(item)
   }
@@ -539,6 +556,7 @@ Panel {
   }
 
   function activateNativeCursor() {
+    reconcileNativeCursor()
     if ((page !== "main" && page !== "subscription") || nativeCursor < 0 || nativeCursor >= nativeRows.length) return
     var row = nativeRows[nativeCursor]
     if (row.kind === "subscription") toggleNativeSubscription(row.subscription.id)
@@ -567,7 +585,7 @@ Panel {
     if (!vless.nativeCanAct) return false
     if (nativeView.connected) return vless.requestNativeAction("disconnect", "", "")
     else if (nativeView.state === "disconnected") {
-      var selected = nativeSelectedProfile || nativeView.lastProfileId
+      var selected = nativeSelectedProfile
       if (selected) return nativeActivateProfile(selected)
     }
     return false
@@ -1920,8 +1938,10 @@ Panel {
     function onNativeSnapshotChanged() {
       if (!vless.nativeOwner || !vless.nativeSnapshot) return
       if (root.page === "subscription" && !vless.nativeSnapshot.subscriptions.some(function(s) { return s.id === root.nativeSubscriptionId })) root.openSubscriptions()
-      if (!vless.nativeSnapshot.profiles.some(function(p) { return p.id === root.nativeSelectedProfile }))
-        root.nativeSelectedProfile = vless.nativeSnapshot.desired.connected ? vless.nativeSnapshot.desired.profileId : vless.nativeSnapshot.lastProfileId
+      if (!vless.nativeSnapshot.profiles.some(function(p) { return p.id === root.nativeSelectedProfile })) {
+        root.nativeSelectedProfile = ""
+        root.nativeCursor = -1
+      }
       root.syncNativeOnboarding()
     }
     // The exit handler publishes error fields after releasing nativePending.
@@ -3143,7 +3163,7 @@ Panel {
                       tooltipText: root.textFor("native.profile.selectActions")
                       focusable: true
                       enabled: nativeRow.isProfile
-                      onClicked: { root.nativeSelectedProfile = nativeRow.profile.id; root.nativeCursor = nativeRow.index }
+                      onClicked: { root.setNativeCursor(nativeRow.index) }
                       PlainText {
                         anchors.fill: parent
                         anchors.leftMargin: Style.space(8)
