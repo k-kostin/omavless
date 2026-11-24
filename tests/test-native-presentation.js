@@ -11,6 +11,19 @@ function fixture(){
   return {snapshot,observation};
 }
 let n=0;function test(name,f){try{f();n++;}catch(e){e.message=name+': '+e.message;throw e;}}
+test('shared panel and TUI connection health facts',()=>{
+ const cases=JSON.parse(fs.readFileSync(path.join(__dirname,'fixtures/native_connection_health.json'),'utf8'));
+ for(const row of cases){
+  const {snapshot:s,observation:o}=fixture();
+  s.desired.connected=o.desired.connected=row.connected;
+  s.lastKnownActual=o.lastKnownActual=row.connected?'connected':'disconnected';
+  Object.assign(o.facts,{ownedCoreRunning:row.connected,ownedControllerConfigVerified:row.connected,
+    desiredProfileMatchesOwned:row.connected,visibleMihomoCount:row.visible,ownedAuxiliaryMihomoCount:row.auxiliary,
+    visibleTunCount:row.managedTun,managedTunCount:row.managedTun});
+  const state=p.project(s,o,false).state;
+  assert.equal(state==='unavailable'?'unverified':state,row.expected,row.name);
+ }
+});
 test('connected is observed ownership, not desired intent alone',()=>{
   const {snapshot:s,observation:o}=fixture();const r=p.project(s,o,false);
   assert.equal(r.connected,true);assert.equal(r.activeId,'one');assert.equal(r.state,'connected');

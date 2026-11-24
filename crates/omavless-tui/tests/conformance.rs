@@ -296,13 +296,45 @@ fn disconnected_and_recovery_not_inferred_from_cache() {
     let f = s.observation.facts.as_mut().unwrap();
     f.owned_core_running = false;
     f.managed_tun_count = 0;
+    f.visible_mihomo_count = 0;
     assert_eq!(s.status(), Status::Disconnected);
+    s.observation.facts.as_mut().unwrap().visible_mihomo_count = 2;
     s.observation
         .facts
         .as_mut()
         .unwrap()
         .owned_auxiliary_mihomo_count = 1;
     assert_eq!(s.status(), Status::Unverified);
+}
+#[test]
+fn shared_panel_and_tui_connection_health_facts() {
+    let cases: Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/native_connection_health.json"
+    ))
+    .unwrap();
+    for case in cases.as_array().unwrap() {
+        let mut s = snapshot();
+        let connected = case["connected"].as_bool().unwrap();
+        s.metadata.desired.connected = connected;
+        s.metadata.last_known_actual = if connected {
+            omavless_tui::model::Actual::Connected
+        } else {
+            omavless_tui::model::Actual::Disconnected
+        };
+        let f = s.observation.facts.as_mut().unwrap();
+        f.owned_core_running = connected;
+        f.owned_controller_config_verified = connected;
+        f.desired_profile_matches_owned = connected;
+        f.visible_mihomo_count = case["visible"].as_u64().unwrap() as u32;
+        f.owned_auxiliary_mihomo_count = case["auxiliary"].as_u64().unwrap() as u32;
+        f.managed_tun_count = case["managedTun"].as_u64().unwrap() as u32;
+        let expected = match case["expected"].as_str().unwrap() {
+            "connected" => Status::Connected,
+            "disconnected" => Status::Disconnected,
+            _ => Status::Unverified,
+        };
+        assert_eq!(s.status(), expected, "{}", case["name"]);
+    }
 }
 #[test]
 fn locale_and_plain_text_safety() {

@@ -289,6 +289,9 @@ impl Snapshot {
         let Some(f) = &self.observation.facts else {
             return Status::Unverified;
         };
+        let tunnel_cores = f
+            .visible_mihomo_count
+            .checked_sub(f.owned_auxiliary_mihomo_count);
         match self.metadata.last_known_actual {
             Actual::Connected
                 if self.metadata.desired.connected
@@ -298,6 +301,7 @@ impl Snapshot {
                         .iter()
                         .any(|p| p.id == self.metadata.desired.profile_id)
                     && f.owned_core_running
+                    && tunnel_cores == Some(1)
                     && f.owned_controller_config_verified
                     && f.desired_profile_matches_owned
                     && f.managed_tun_count == 1 =>
@@ -308,7 +312,7 @@ impl Snapshot {
                 if !self.metadata.desired.connected
                     && !f.owned_core_running
                     && f.managed_tun_count == 0
-                    && f.owned_auxiliary_mihomo_count == 0 =>
+                    && tunnel_cores == Some(0) =>
             {
                 Status::Disconnected
             }

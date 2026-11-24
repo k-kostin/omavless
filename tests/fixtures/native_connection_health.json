@@ -1,0 +1,9 @@
+[
+  {"name":"owned connection","connected":true,"visible":1,"auxiliary":0,"managedTun":1,"expected":"connected"},
+  {"name":"extra foreign core while connected","connected":true,"visible":2,"auxiliary":0,"managedTun":1,"expected":"unverified"},
+  {"name":"owned probe beside connection","connected":true,"visible":2,"auxiliary":1,"managedTun":1,"expected":"connected"},
+  {"name":"clean Off","connected":false,"visible":0,"auxiliary":0,"managedTun":0,"expected":"disconnected"},
+  {"name":"foreign core while Off","connected":false,"visible":1,"auxiliary":0,"managedTun":0,"expected":"unverified"},
+  {"name":"owned probe while Off","connected":false,"visible":1,"auxiliary":1,"managedTun":0,"expected":"disconnected"},
+  {"name":"foreign core beside owned probe while Off","connected":false,"visible":2,"auxiliary":1,"managedTun":0,"expected":"unverified"}
+]
