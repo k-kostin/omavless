@@ -848,8 +848,10 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         self.startup
     }
 
-    pub(crate) const fn login_ready(&self) -> bool {
+    pub(crate) fn login_ready(&self) -> bool {
         self.login_ready
+            || matches!(self.ownership, ProductionOwnership::Committed { .. })
+                && self.coordinator.host().startup_configuration_available()
     }
 
     #[cfg(test)]
@@ -979,11 +981,13 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
                             rust_generation,
                             origin_preparing_generation: Some(bootstrap.preparing_generation()),
                         };
-                        // The restricted product may export the committed pair
-                        // from this SAME reconciled candidate. Full T4 Restore
-                        // still requires the ordinary current() issuer. Never
-                        // grant this origin before exact durable promotion.
-                        #[cfg(feature = "product-private-backup")]
+                        // Public Backup/Restore may use this SAME reconciled
+                        // candidate after exact durable promotion. Research T4
+                        // keeps its separate ordinary current() issuer.
+                        #[cfg(any(
+                            feature = "product-private-backup",
+                            feature = "product-private-restore"
+                        ))]
                         {
                             self.current_origin = Some(CurrentRestoreOrigin {
                                 generation: rust_generation,

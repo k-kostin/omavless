@@ -1417,6 +1417,9 @@ impl NativeLifecycleHost {
 }
 
 impl LifecycleHost for NativeLifecycleHost {
+    fn startup_configuration_available(&self) -> bool {
+        crate::login_activation::startup_configuration_available()
+    }
     #[cfg(feature = "developer-conditional-close")]
     fn close_registration(&self) -> crate::lifecycle::CloseRegistration {
         use crate::lifecycle::CloseRegistration;

@@ -174,6 +174,7 @@ run_check test-t4-restore cargo test "${crypto_test_profile[@]}" --locked -p oma
 run_check test-product-scope cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-backup --lib product_scope
 run_check test-product-restore-scope cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-restore --lib product_scope
 run_check test-product-restore-socket cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-restore --lib product_restore_socket_refuses
+run_check test-product-restore-pair cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-restore --lib normal_pair_promoted_candidate
 run_check test-production-owner cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-backup --lib production_owner::tests::
 run_check test-product-pair cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-backup --lib normal_pair_promoted_candidate
 run_check test-product-tui cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-backup --bin omavless normal_tui_

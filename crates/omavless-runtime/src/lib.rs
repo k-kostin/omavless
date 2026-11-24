@@ -3664,6 +3664,7 @@ mod tests {
     const SUBSCRIPTION_ID: &str = "10000000-0000-4000-8000-000000000001";
 
     struct FakeHost {
+        startup_ready: Arc<AtomicBool>,
         #[cfg(feature = "product-image-witness")]
         close_registration: lifecycle::CloseRegistration,
         auxiliary: Option<Arc<auxiliary_core::AuxiliarySlot>>,
@@ -3721,6 +3722,9 @@ mod tests {
     }
 
     impl lifecycle::LifecycleHost for FakeHost {
+        fn startup_configuration_available(&self) -> bool {
+            self.startup_ready.load(Ordering::Acquire)
+        }
         #[cfg(feature = "product-image-witness")]
         fn close_registration(&self) -> lifecycle::CloseRegistration {
             self.close_registration
@@ -4146,6 +4150,7 @@ mod tests {
         fs::set_permissions(&store_path, fs::Permissions::from_mode(0o600)).unwrap();
         let calls = Arc::new(AtomicUsize::new(0));
         let host = FakeHost {
+            startup_ready: Arc::default(),
             #[cfg(feature = "product-image-witness")]
             close_registration: lifecycle::CloseRegistration::Disabled,
             auxiliary: None,
@@ -4597,10 +4602,13 @@ mod tests {
 
     #[cfg(feature = "t4-manager-actor-service")]
     #[test]
-    fn normal_pair_promoted_candidate_backup_is_product_only_and_preserves_restore_refusal() {
+    fn normal_pair_promoted_candidate_has_selected_product_capabilities_without_restart() {
         let home = std::env::var_os("HOME").unwrap();
         let base = crate::test_temp::directory_under(Path::new(&home), "first-backup").unwrap();
-        let (owner, cutover, calls) = owner_fixture(&base, OwnershipPhase::CutoverPreparing);
+        let (mut owner, cutover, calls) = owner_fixture(&base, OwnershipPhase::CutoverPreparing);
+        owner.batch_coordinator().host_mut().fresh_result = Ok(fresh_empty_facts());
+        owner.batch_coordinator().host_mut().auxiliary = Some(Arc::default());
+        let login_ready = Arc::clone(&owner.batch_coordinator().host_mut().startup_ready);
         let store_path = base.join("config/profiles.json");
         let mut store: Value = serde_json::from_slice(&fs::read(&store_path).unwrap()).unwrap();
         store["routingPreset"] = "roscomvpn-default".into();
@@ -4670,13 +4678,31 @@ mod tests {
         let methods = promoted["result"]["methods"].as_array().unwrap();
         assert_eq!(
             methods.iter().any(|m| m == "backup.create"),
-            product_scope::backup_only()
+            cfg!(any(
+                feature = "product-private-backup",
+                feature = "product-private-restore"
+            ))
         );
-        assert!(!methods.iter().any(|m| matches!(
-            m.as_str(),
-            Some("backup.restore" | "backup.preview" | "backup.restore_previewed")
-        )));
+        for method in [
+            "backup.restore",
+            "backup.preview",
+            "backup.restore_previewed",
+        ] {
+            assert_eq!(
+                methods.iter().any(|m| m == method),
+                cfg!(feature = "product-private-restore") && !product_scope::backup_only()
+            );
+        }
         assert_eq!(wire(&caps), promoted);
+        assert!(!methods.iter().any(|m| m == "startup.configure"));
+        login_ready.store(true, Ordering::Release);
+        assert!(
+            wire(&caps)["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m == "startup.configure")
+        );
         let hello = wire(&make_request("hello", "system.hello", json!({"versions":[1]})).unwrap());
         assert_eq!(hello["result"]["instanceId"], server.instance_id);
         assert_eq!(hello["revision"], 0);
@@ -4692,7 +4718,10 @@ mod tests {
         )
         .unwrap();
         let exported = wire(&create);
-        if product_scope::backup_only() {
+        if cfg!(any(
+            feature = "product-private-backup",
+            feature = "product-private-restore"
+        )) {
             assert_eq!(exported["ok"], true);
             assert_eq!(
                 exported["result"],
@@ -4723,8 +4752,22 @@ mod tests {
         restore["method"] = "backup.restore".into();
         restore["params"]["confirmation"] = "replace-current-private-pair".into();
         restore["params"]["operationId"] = "restore-refused".into();
-        let refused = wire(&restore);
-        assert_eq!(refused["error"]["code"], "capability_unavailable");
+        let refused = if cfg!(feature = "product-private-restore") && !product_scope::backup_only()
+        {
+            let response =
+                wire(&make_request("restore-admitted", "backup.restore", json!({})).unwrap());
+            assert_eq!(response["error"]["code"], "invalid_argument");
+            let preview = wire(&make_request("preview", "backup.preview", json!({
+                "schema":1,"archive":destination,"passphrase":"synthetic private passphrase",
+                "instanceId":server.instance_id,"expectedRevision":0
+            })).unwrap());
+            assert_eq!(preview["ok"], true, "{preview}");
+            preview
+        } else {
+            let response = wire(&restore);
+            assert_eq!(response["error"]["code"], "capability_unavailable");
+            response
+        };
         if product_scope::backup_only() {
             for method in [
                 "backup.preview",
@@ -8910,6 +8953,7 @@ mod tests {
             }
             let effects = Arc::new(AtomicUsize::new(0));
             let host = FakeHost {
+                startup_ready: Arc::default(),
                 #[cfg(feature = "product-image-witness")]
                 close_registration: lifecycle::CloseRegistration::Disabled,
                 auxiliary: None,

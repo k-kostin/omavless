@@ -434,10 +434,10 @@ class RustCiIsolationTests(unittest.TestCase):
         # original recipe below after independently requiring all new gates.
         restore = [row for row in commands if "--features" in row
                    and row[row.index("--features") + 1].startswith("product-private-restore")]
-        self.assertEqual(len(restore), 3)
-        self.assertEqual([row[1] for row in restore], ["clippy", "test", "test"])
+        self.assertEqual(len(restore), 4)
+        self.assertEqual([row[1] for row in restore], ["clippy", "test", "test", "test"])
         self.assertEqual([row[-1] for row in restore[1:]],
-                         ["product_scope", "product_restore_socket_refuses"])
+                         ["product_scope", "product_restore_socket_refuses", "normal_pair_promoted_candidate"])
         commands = [row for row in commands if row not in restore]
         static = [c for c in commands if c[:2] in
                   [["cargo", "fmt"], ["cargo", "clippy"], ["cargo", "check"]]
