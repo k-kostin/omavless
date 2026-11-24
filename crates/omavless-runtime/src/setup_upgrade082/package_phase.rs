@@ -1010,24 +1010,7 @@ fn run_qualified_update(
             previous.recheck()?;
         }
     }
-    let mut command = Command::new("/usr/bin/sudo");
-    command.stdin(Stdio::from(
-        tty.try_clone().map_err(|_| Blocker::TtyUnavailable)?,
-    ));
-    command
-        .args(["/usr/bin/pacman", "-U", "--"])
-        .arg(&pair.app.path)
-        .arg(&pair.dns.path);
-    consume(
-        &mut context,
-        &cancel,
-        || {
-            command
-                .spawn()
-                .map_err(|_| Blocker::PackageSubmissionUnavailable)
-        },
-        |context| after_packages(context, &pair),
-    )?;
+    install_pair(&mut context, &cancel, &pair)?;
     // Original exclusions end only here, after known exit and independent
     // verification. The result is DATA; NEW DNS setup must re-earn admission.
     let selected = managed098
@@ -1042,6 +1025,89 @@ fn run_qualified_update(
         "dnsSetupRequired":!selected,"startAllowed":false,
         "cancellationRequested":cancel.load(Ordering::Acquire)}),
     )
+}
+
+const INSTALL_PAIR: &str = include_str!("../../../../plugin/install-package-pair.sh");
+
+fn package_command(app_size: u64, app_hash: &str, dns_size: u64, dns_hash: &str) -> Command {
+    let mut command = Command::new("/usr/bin/sudo");
+    command
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("LC_ALL", "C")
+        .args([
+            "/usr/bin/env",
+            "-i",
+            "PATH=/usr/bin:/bin",
+            "LC_ALL=C",
+            "/usr/bin/bash",
+            "--noprofile",
+            "--norc",
+            "-c",
+            INSTALL_PAIR,
+            "omavless-install-pair",
+        ])
+        .arg(app_size.to_string())
+        .arg(app_hash)
+        .arg(dns_size.to_string())
+        .arg(dns_hash)
+        .stdin(Stdio::piped());
+    command
+}
+
+fn install_pair(context: &mut UpgradeContext, cancel: &AtomicBool, pair: &Pair) -> Result<()> {
+    // The original authenticated descriptors supply an unprivileged stream.
+    // The root program rehashes its private copies after authentication, so a
+    // same-UID cache mutation cannot select different pacman input bytes.
+    let mut app = pair
+        .app
+        .file
+        .try_clone()
+        .map_err(|_| Blocker::StagingUnavailable)?;
+    let mut dns = pair
+        .dns
+        .file
+        .try_clone()
+        .map_err(|_| Blocker::StagingUnavailable)?;
+    app.seek(SeekFrom::Start(0))
+        .map_err(|_| Blocker::StagingUnavailable)?;
+    dns.seek(SeekFrom::Start(0))
+        .map_err(|_| Blocker::StagingUnavailable)?;
+    let app_size = pair.app.identity.len();
+    let dns_size = pair.dns.identity.len();
+    let mut command = package_command(app_size, &pair.app.digest, dns_size, &pair.dns.digest);
+    std::thread::scope(|scope| {
+        let mut writer = None;
+        let result = consume(
+            context,
+            cancel,
+            || {
+                let mut child = command
+                    .spawn()
+                    .map_err(|_| Blocker::PackageSubmissionUnavailable)?;
+                let mut input = child
+                    .stdin
+                    .take()
+                    .expect("fixed package command has piped stdin");
+                writer = Some(scope.spawn(move || -> std::io::Result<()> {
+                    if std::io::copy(&mut app.take(app_size), &mut input)? != app_size
+                        || std::io::copy(&mut dns.take(dns_size), &mut input)? != dns_size
+                    {
+                        return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
+                    }
+                    Ok(())
+                }));
+                Ok(child)
+            },
+            |context| after_packages(context, pair),
+        );
+        let streamed = writer.is_none_or(|worker| worker.join().is_ok_and(|result| result.is_ok()));
+        result?;
+        if !streamed {
+            return Err(Blocker::PackageOutcomeUnverified);
+        }
+        Ok(())
+    })
 }
 
 #[cfg(test)]

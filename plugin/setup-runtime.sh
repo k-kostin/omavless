@@ -92,7 +92,16 @@ dns_archive_identity() {
     (.schema == 1 or traffic_pair) and .omavless_commit == $source and .architecture == $arch and .package_flavor == "release" and .broker_feature == "release-package"' \
     >/dev/null 2>&1 <<< "$receipt"
 }
-package_install() { /usr/bin/sudo /usr/bin/pacman -U -- "$1" "$2"; }
+package_install() {
+  local program app_size dns_size
+  program=$(cat -- "$setup_dir/install-package-pair.sh") || return 1
+  app_size=$(stat -c '%s' -- "$1") && dns_size=$(stat -c '%s' -- "$2") || return 1
+  # Source reads remain unprivileged. The fixed root program accepts bytes,
+  # checks the selected hashes again, then installs only its protected copies.
+  /usr/bin/cat -- "$1" "$2" | /usr/bin/sudo /usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C \
+    /usr/bin/bash --noprofile --norc -c "$program" omavless-install-pair \
+    "$app_size" "$3" "$dns_size" "$4"
+}
 package_installed() { /usr/bin/pacman -Q omavless 2>/dev/null; }
 dns_package_installed() { /usr/bin/pacman -Q omavless-dns 2>/dev/null; }
 dns_package_registered() { dns_package_installed >/dev/null; }
@@ -579,7 +588,7 @@ install_package() {
     && upgrade_archive_safe "$cache/$dns_package" "$dns_hash" || return 1
   # Normal dependency and user confirmation checks. No --nodeps/--overwrite,
   # --noconfirm, package hooks added by this script, or background sudo.
-  package_install "$cache/$app_package" "$cache/$dns_package" || return 1
+  package_install "$cache/$app_package" "$cache/$dns_package" "$app_hash" "$dns_hash" || return 1
   [[ $(package_installed) == "omavless $package_version-1" ]] && pair_installed
 }
 
