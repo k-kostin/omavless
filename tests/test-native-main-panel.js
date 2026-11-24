@@ -655,6 +655,20 @@ test('keyboard activation retains the selected identity across inventory reorder
   c.activateNativeCursor();assert.deepEqual(c.calls,[['connect','local','rule']]);
   assert.equal(c.nativeSelectedProfile,'local');
 });
+test('ordinary snapshot polling preserves a group keyboard target without profile selection',()=>{
+ for(const selected of ['', 'removed-profile']) {
+  const c=context();c.nativeSelectedProfile=selected;
+  const index=c.nativeRows.findIndex(row=>row.kind==='subscription');assert(index>=0);
+  c.setNativeCursor(index);const target=JSON.stringify(c.nativeCursorTarget);
+  c.syncNativeOnboarding=()=>{};
+  c.vless.nativeSnapshot={instanceId:'instance',revision:4,subscriptions:c.nativeView.subscriptions,profiles:c.nativeView.profiles};
+  const start=source.indexOf('    function onNativeSnapshotChanged() {'),end=source.indexOf('\n    }',start)+6;
+  vm.runInContext(source.slice(start,end),c);c.onNativeSnapshotChanged();
+  assert.equal(c.nativeCursor,index);assert.equal(JSON.stringify(c.nativeCursorTarget),target);
+  assert.equal(c.nativeSelectedProfile,'');c.activateNativeCursor();
+  assert.equal(c.nativeExpanded.sub,true);assert.equal(c.calls.length,0);
+ }
+});
 test('removed keyboard selection never activates the replacement row or last profile',()=>{
   const c=context();c.scrollPanelControlIntoView=()=>{};
   const other={...standalone,id:'other',name:'Other'};

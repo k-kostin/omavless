@@ -7,7 +7,7 @@ c.root=c;
 function load(name,indent){const start=source.indexOf(indent+'function '+name+'('),end=source.indexOf('\n'+indent+'}',start)+indent.length+2;assert(start>=0);vm.runInContext(source.slice(start,end).replace(/\): string/g,')'),c);}
 load('nativeActivateProfile','  ');load('nativeToggleConnection','  ');load('toggle','    ');load('down','    ');
 assert.equal(c.toggle(),'ok');assert.deepEqual(calls.pop(),['connect','selected','rule']);
-c.nativeSelectedProfile='';assert.equal(c.toggle(),'ok');assert.deepEqual(calls.pop(),['connect','last','rule']);
+c.nativeSelectedProfile='';assert.equal(c.toggle(),'error: native action unavailable');assert.equal(calls.length,0);
 c.nativeView.connected=true;assert.equal(c.toggle(),'ok');assert.deepEqual(calls.pop(),['disconnect','','']);
 c.nativeView.connected=false;c.nativeView.state='unavailable';assert.equal(c.toggle(),'error: native action unavailable');assert.equal(calls.length,0);
 assert.equal(c.down(),'ok');assert.deepEqual(calls.pop(),['disconnect','','']);

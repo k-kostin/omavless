@@ -1941,7 +1941,9 @@ Panel {
       if (root.page === "subscription" && !vless.nativeSnapshot.subscriptions.some(function(s) { return s.id === root.nativeSubscriptionId })) root.openSubscriptions()
       if (!vless.nativeSnapshot.profiles.some(function(p) { return p.id === root.nativeSelectedProfile })) {
         root.nativeSelectedProfile = ""
-        root.nativeCursor = -1
+        // A group is a separate keyboard target. Losing/no profile selection
+        // must not clear that still-present group during ordinary polling.
+        if (root.nativeCursorTarget && root.nativeCursorTarget.kind === "profile") root.nativeCursor = -1
       }
       root.syncNativeOnboarding()
     }
