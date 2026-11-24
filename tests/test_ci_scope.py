@@ -2,6 +2,7 @@
 """Real committed-tree controls for the narrow developer-Markdown PR gate."""
 import importlib.util
 import os
+import stat
 from pathlib import Path
 import subprocess
 import sys
@@ -19,7 +20,7 @@ SPEC.loader.exec_module(SCOPE)
 class CheckScopeTests(unittest.TestCase):
     def setUp(self):
         parent = Path.home() / '.cache/ovt'
-        parent.mkdir(parents=True, exist_ok=True)
+        parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.tmp = tempfile.TemporaryDirectory(prefix='ci-scope-', dir=parent)
         self.addCleanup(self.tmp.cleanup)
         self.repo = Path(self.tmp.name).resolve()
@@ -203,7 +204,7 @@ class CheckScopeTests(unittest.TestCase):
 class FixturePreparationTests(unittest.TestCase):
     def test_cold_home_without_cache_can_prepare_and_retire_actual_fixture(self):
         parent = Path.home() / '.cache/ovt'
-        parent.mkdir(parents=True, exist_ok=True)
+        parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix='ci-cold-home-', dir=parent) as temp:
             home = Path(temp) / 'home'
             home.mkdir()
@@ -213,6 +214,9 @@ class FixturePreparationTests(unittest.TestCase):
                 try:
                     case.setUp()
                     self.assertTrue((case.repo / '.git').is_dir())
+                    # Shared DNS/socket and visual-staging consumers require
+                    # the OVT parent to be private; existing warm caches hide this.
+                    self.assertEqual(stat.S_IMODE((home / '.cache/ovt').stat().st_mode), 0o700)
                 finally:
                     case.doCleanups()
             self.assertFalse(list((home / '.cache/ovt').glob('ci-scope-*')))
