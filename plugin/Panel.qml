@@ -66,7 +66,8 @@ Panel {
   readonly property string runtimePanelState: setupPage.runtimePanelState
   onRuntimePanelStateChanged: if (runtimePanelState !== "") vless.enterNativeReadOnly()
   readonly property bool bootstrapRequired: componentSetupReview || (runtimePanelState === "" && SetupState.bootstrapRequired(
-    setupPage.facts, vless.nativeOwner, vless.nativeSnapshot !== null,
+    setupPage.facts, vless.nativeOwner, vless.nativeSnapshot !== null
+      || !!(vless.nativeObservation && vless.nativeObservation.availability === "observed"),
     vless.nativeActionRunning, vless.nativePending !== null, vless.nativeOutcomeUnknown))
   readonly property bool coreComponentMissing: setupPage.state !== "ready"
   property string focusSection: "header"
@@ -2579,7 +2580,7 @@ Panel {
           PlainText { Layout.fillWidth: true; visible: vless.nativeActionCode !== ""; text: vless.nativeActionCode ? root.textFor("error." + vless.nativeActionCode) : ""; textFormat: Text.PlainText; color: vless.nativeActionCode === "dns_pair_required" ? root.foreground : root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeImportBusy; text: root.textFor("native.importBusy"); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
           PlainText { Layout.fillWidth: true; visible: vless.nativeImportCode !== ""; text: vless.nativeImportCode ? root.nativeImportErrorText() : ""; color: root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.body; wrapMode: Text.Wrap }
-          Button { id: nativeRecoveryDisconnect; visible: vless.nativeSnapshot !== null && !vless.nativeSnapshotFailed && root.nativeTransitionKind === "" && !vless.nativeMetadataBusy && root.nativeView.state !== "disconnected" && !root.nativeView.connected; text: root.textFor("action.disconnect"); focusable: true; bordered: true; enabled: vless.nativeCanStop; onClicked: vless.requestNativeAction("disconnect", "", "") }
+          Button { id: nativeRecoveryDisconnect; visible: vless.nativeCanStop && root.nativeTransitionKind === "" && !vless.nativeMetadataBusy && root.nativeView.state !== "disconnected" && !root.nativeView.connected; text: root.textFor("action.disconnect"); focusable: true; bordered: true; enabled: vless.nativeCanStop; onClicked: vless.requestNativeAction("disconnect", "", "") }
           PanelSectionHeader { Layout.fillWidth: true; visible: root.page === "settings"; text: root.textFor("settings.connections"); foreground: root.foreground; fontFamily: root.fontFamily }
           // Primary connection controls stay on the main page, like the
           // reference frontend. Settings reuses this same action surface.

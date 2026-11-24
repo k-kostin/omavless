@@ -5951,6 +5951,41 @@ mod tests {
     }
 
     #[test]
+    fn full_quit_with_damaged_catalog_still_requires_independent_clean_host_proof() {
+        for foreign_core in [false, true] {
+            let base = temporary_base("quit-damaged-catalog");
+            let (mut owner, _, _) = native_owner_fixture(&base);
+            let mut facts = fresh_empty_facts();
+            facts.visible_mihomo_count = u8::from(foreign_core);
+            owner.batch_coordinator().host_mut().fresh_result = Ok(facts);
+            let server = RuntimeServer::bind_with_owner_factory(
+                RuntimePaths::below(&base.join("runtime")),
+                move |_| Ok(owner),
+            )
+            .unwrap();
+            let connected = server.dispatch(&make_request("connect", "connection.connect", json!({
+                "profileId":PROFILE_ID,"expectedRevision":0,"operationId":"before-damage"
+            })).unwrap()).unwrap();
+            assert_eq!(connected["ok"], true, "{connected}");
+            let store = base.join("config/profiles.json");
+            fs::write(&store, b"invalid catalog").unwrap();
+            let request = make_request("quit", "runtime.quit", json!({
+                "instanceId":server.instance_id,"expectedRevision":1,"operationId":"quit-damaged"
+            })).unwrap();
+            let response = server.dispatch(&request).unwrap();
+            assert_eq!(response["ok"], !foreign_core, "{response}");
+            assert_eq!(server.quit_requested.load(Ordering::Acquire), !foreign_core);
+            assert_eq!(fs::read(store).unwrap(), b"invalid catalog");
+            let desired: Value = serde_json::from_slice(
+                &fs::read(base.join("state/omavless/desired.json")).unwrap(),
+            ).unwrap();
+            assert_eq!(desired["connected"], false);
+            drop(server);
+            fs::remove_dir_all(base).unwrap();
+        }
+    }
+
+    #[test]
     fn full_quit_uncertain_cleanup_keeps_runtime_and_ui_recovery_path_alive() {
         let base = temporary_base("full-quit-uncertain");
         let (owner, _, _) = native_owner_fixture(&base);

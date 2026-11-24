@@ -297,7 +297,7 @@ test('Subscriptions actions form one compact group and preserve actual targets a
   assert.match(group,/onClicked: vless.refreshAllSubscriptions\(\)/);
   assert.match(source,/onAction: root.browseNativeSubscription\(nativeSubscriptionRow.modelData.id\)/);
 });
-test('recovery Disconnect is not offered for missing or failed reads but remains for parsed recovery',()=>{
+test('recovery Disconnect follows independent stop admission even when profile metadata failed',()=>{
   const line=source.split('\n').find(s=>s.includes('id: nativeRecoveryDisconnect;'));
   const visible=line.match(/visible: (.*?); text:/)[1];
   const enabled=line.match(/enabled: (.*?); onClicked:/)[1];
@@ -307,6 +307,7 @@ test('recovery Disconnect is not offered for missing or failed reads but remains
   assert.equal(vm.runInContext(visible,c),false);
   c.vless.nativeSnapshot={instanceId:'instance',revision:4};c.vless.nativeSnapshotFailed=true;
   assert.equal(vm.runInContext(visible,c),false);
+  c.vless.nativeCanStop=true;assert.equal(vm.runInContext(visible,c),true);
   c.vless.nativeSnapshotFailed=false;c.nativeView.state='manualRecoveryRequired';c.vless.nativeCanStop=true;
   assert.equal(vm.runInContext(visible,c),true);assert.equal(vm.runInContext(enabled,c),true);
   c.vless.nativeCanStop=false;assert.equal(vm.runInContext(enabled,c),false);

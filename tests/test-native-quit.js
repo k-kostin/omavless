@@ -5,7 +5,7 @@ const panel = fs.readFileSync(__dirname + '/../plugin/Panel.qml', 'utf8');
 function context() {
   const c = vm.createContext({nativeCanAct:true,nativeCanStop:true,nativeRuntimeUnavailable:false,nativeEditorRunning:false,nativeImportBusy:false,
     nativeQuitFailed:true,nativeQuitPending:false,nativeQuitProcess:{running:false},_nativeOperationSerial:0,
-    nativeSnapshot:{instanceId:'synthetic-instance',revision:7},backendPath:'/synthetic/backend.sh'});
+    nativeSnapshot:{instanceId:'synthetic-instance',revision:7},nativeSnapshotFailed:false,nativeObservation:null,backendPath:'/synthetic/backend.sh'});
   const start=service.indexOf('  function quitNativeApplication('),end=service.indexOf('\n  }',start)+4;
   vm.runInContext(service.slice(start,end),c);return c;
 }
@@ -20,6 +20,15 @@ test('exit is a fixed fenced command with no store data in argv',()=>{
 test('unsafe or busy UI cannot submit Quit',()=>{
   for(const [key,value] of [['nativeCanStop',false],['nativeEditorRunning',true],['nativeImportBusy',true]]){
     const c=context();c[key]=value;assert.equal(c.quitNativeApplication(),false);assert.equal(c.nativeQuitProcess.running,false);
+  }
+});
+test('Quit uses independent observation when profile metadata is unavailable',()=>{
+  for(const cached of [true,false]) {
+    const c=context();c.nativeSnapshotFailed=true;
+    c.nativeObservation={instanceId:'observed-instance',revision:9,availability:'observed'};
+    if(!cached)c.nativeSnapshot=null;
+    assert(c.quitNativeApplication());
+    assert.equal(c.nativeQuitProcess.command.slice(3,5).join('|'),'observed-instance|9');
   }
 });
 test('asynchronous Process startup is sealed by the actual pending admission bindings',()=>{
