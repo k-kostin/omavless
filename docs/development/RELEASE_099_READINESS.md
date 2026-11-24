@@ -17,7 +17,7 @@ full Git byte/mode inspection before its first generated bootstrap, and
 post-clean checks also completed. Their original receipts belong to #843 and #846;
 this editorial reconciliation does not repeat or broaden those results.
 
-The native producer selected by the frontend is
+The accepted #846 native producer was
 `c1784e91d05cf5fae7a4282deebcb730bcf1c8cc` for both architectures. Actual app/DNS
 archives, matching pins and corresponding-source inputs were inspected. The
 installed ordinary-update result is x86_64 evidence; archive inspection is not
@@ -31,6 +31,14 @@ below change native inputs: the retained producer is not a matching package for
 those corrections, and no installed result is transferred to them.
 
 ## Review corrections before final composition
+
+The proposed correction pair selects common native source
+`5cb36df5fcbc174b5715eff8669a221076137cc8` in [#847](https://github.com/k-kostin/omavless/pull/847).
+Both app and DNS workflows completed on both architectures; all four actual
+archives were inspected, including all 2052 Git files and modes in each DNS
+corresponding-source archive. The frontend pins, inventory and removal allowlist
+select those inspected bytes. These are unpublished inputs; final source CI,
+offline composition and affected installed acceptance remain separate gates.
 
 The owner selected sequential handling of the November 24 product and workflow
 reviews. The local correction branch starts at the exact accepted source above.
