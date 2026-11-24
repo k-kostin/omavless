@@ -5,7 +5,7 @@
 set -euo pipefail
 umask 077
 
-setup_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+setup_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 setup_locale=en
 setup_failure_reported=false
 release_version=0.9.9
@@ -99,11 +99,11 @@ dns_archive_identity() {
 package_install() {
   local program app_size dns_size program_hash
   [[ -f "$setup_dir/install-package-pair.sh" && ! -L "$setup_dir/install-package-pair.sh" ]] || return 1
-  program=$(timeout 8 head -c 16385 -- "$setup_dir/install-package-pair.sh") || return 1
+  program=$(/usr/bin/timeout 8 /usr/bin/head -c 16385 -- "$setup_dir/install-package-pair.sh") || return 1
   [[ ${#program} -le 16384 ]] || return 1
-  program_hash=$(printf '%s' "$program" | sha256sum) || return 1
+  program_hash=$(printf '%s' "$program" | /usr/bin/sha256sum) || return 1
   [[ ${program_hash%% *} == "$install_pair_program_sha256" ]] || return 1
-  app_size=$(stat -c '%s' -- "$1") && dns_size=$(stat -c '%s' -- "$2") || return 1
+  app_size=$(/usr/bin/stat -c '%s' -- "$1") && dns_size=$(/usr/bin/stat -c '%s' -- "$2") || return 1
   # Source reads remain unprivileged. The fixed root program accepts bytes,
   # checks the selected hashes again, then installs only its protected copies.
   /usr/bin/cat -- "$1" "$2" | /usr/bin/sudo /usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C \

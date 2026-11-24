@@ -96,6 +96,28 @@ class PackageInstallCustodyTests(unittest.TestCase):
         self.assertIsNotNone(pin)
         self.assertEqual(pin.group(1), hashlib.sha256((ROOT / 'plugin/install-package-pair.sh').read_bytes().rstrip(b'\n')).hexdigest())
 
+    def test_changed_neighbor_with_poisoned_path_cannot_forge_program_digest(self):
+        (self.base / 'install-package-pair.sh').write_text('echo untrusted-root-program\n')
+        source = (ROOT / 'plugin/setup-runtime.sh').read_text().replace('/usr/bin/sudo', 'fixture_sudo')
+        launcher = self.base / 'setup-runtime.sh'
+        launcher.write_text(source)
+        pin = re.search(r'(?m)^readonly install_pair_program_sha256=([a-f0-9]{64})$', source).group(1)
+        poison = self.base / 'path'
+        poison.mkdir(mode=0o700)
+        digest = poison / 'sha256sum'
+        digest.write_text('#!/bin/bash\n/usr/bin/cat >/dev/null\nprintf "%s  -\\n" ' + shlex.quote(pin) + '\n')
+        digest.chmod(0o700)
+        marker = self.base / 'sudo-submitted'
+        result = subprocess.run(['/usr/bin/bash', '-c',
+            'set -euo pipefail; source "$1"; setup_dir="$2"; fixture_marker="$7"; '
+            'fixture_sudo() { /usr/bin/touch -- "$fixture_marker"; }; '
+            'package_install "$3" "$4" "$5" "$6"',
+            'fixture', str(launcher), str(self.base), str(self.app), str(self.dns), *self.expected, str(marker)],
+            env={**os.environ, 'PATH': str(poison) + ':/usr/bin:/bin'},
+            capture_output=True, timeout=10)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(marker.exists())
+
     def test_changed_truncated_extra_and_out_of_bound_streams_never_reach_pacman(self):
         app, dns = self.app.read_bytes(), self.dns.read_bytes()
         for stream, size in [(b"x" * len(app) + dns, len(app)), (app + dns[:-1], len(app)),
