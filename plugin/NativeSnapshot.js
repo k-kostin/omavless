@@ -118,6 +118,9 @@ function parseDiagnosticsSummary(raw) {
 
 // Pure parser: returns a fresh projection or null; never changes UI state.
 function startupCapability(raw, context) {
+  return mutationCapability(raw, context, "startup.configure")
+}
+function mutationCapability(raw, context, requestedMethod) {
   try {
     if (!context || typeof raw !== "string" || raw.length > 16384) return null
     var p = envelope(raw), r = p && p.result
@@ -132,7 +135,7 @@ function startupCapability(raw, context) {
       seen[method] = true
     }
     return {instanceId:context.instanceId, revision:p.revision,
-      available:r.runtimeOwnership && r.mutations && seen["startup.configure"] === true}
+      available:r.runtimeOwnership && r.mutations && seen[requestedMethod] === true}
   } catch (_) { return null }
 }
 

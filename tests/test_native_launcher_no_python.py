@@ -52,6 +52,7 @@ CASES = (
     fixed("native-subscription-probe", ("subscription", "probe"), FENCE[0], FENCE[2], RECORD, FENCE[1]),
     fixed("native-subscription-probe-results", ("subscription", "probe-results"), FENCE[0], FENCE[2]),
     fixed("native-subscriptions-refresh-all", ("subscription", "refresh-all"), FENCE[0], FENCE[2], FENCE[1]),
+    fixed("native-subscriptions-refresh-selected", ("subscription", "refresh-selected"), FENCE[0], FENCE[2], RECORD, FENCE[1]),
     fixed("native-providers-refresh", ("routing", "refresh-providers"), FENCE[0], FENCE[2], FENCE[1]),
     fixed("native-operation-get", ("operation", "get"), FENCE[0], FENCE[2]),
     fixed("native-operation-cancel", ("operation", "cancel"), FENCE[0], FENCE[2]),

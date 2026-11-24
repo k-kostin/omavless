@@ -427,6 +427,13 @@ Item {
     var command = ["bash", backendPath, kind === "start" ? (job.kind === "subscriptions" ? (job.subscriptionId ? "native-subscriptions-refresh-selected" : "native-subscriptions-refresh-all") : job.kind === "probe" ? "native-subscription-probe" : "native-providers-refresh")
       : kind === "get" ? "native-operation-get" : kind === "results" ? "native-subscription-probe-results" : "native-operation-cancel", job.instanceId, job.operationId]
     if (kind === "start") { if (job.kind === "probe" || (job.kind === "subscriptions" && job.subscriptionId)) command.push(job.subscriptionId); command.push(String(job.revision)) }
+    // A compatible 0.9.8 pair remains usable but has no selected-refresh CLI.
+    // Read capabilities before dispatch, never leave an unsupported CLI parse
+    // failure looking like a lost mutation reply or fall back to blocking unary.
+    if (kind === "start" && job.kind === "subscriptions" && job.subscriptionId && !job.methodVerified) {
+      command = ["bash", backendPath, "native-startup-capabilities"]
+      kind = "capabilities"
+    }
     _nativeBatchProcess = nativeBatchComponent.createObject(root, {command:command, requestKind:kind, operation:job.operationId})
     if (!_nativeBatchProcess) { nativeBatchUnknown = true; nativeBatchErrorCode = "error.capability_unavailable"; return false }
     _nativeBatchProcess.running = true
@@ -435,6 +442,19 @@ Item {
 
   function finishNativeBatchRequest(kind, operation, code, output) {
     var job = nativeBatchJob
+    if (kind === "capabilities") {
+      if (!job || job.operationId !== operation || job.terminal) return
+      var capability = code === 0 && nativeOwner && nativeSnapshot && nativeSnapshot.instanceId === job.instanceId
+        ? NativeSnapshot.mutationCapability(output, job, "subscriptions.refresh_selected") : null
+      if (!capability || !capability.available) {
+        nativeBatchJob = Object.assign({}, job, {state:"failed", terminal:true, errorCode:"capability_unavailable"})
+        nativeBatchUnknown = false; nativeBatchErrorCode = "error.capability_unavailable"
+        return
+      }
+      nativeBatchJob = Object.assign({}, job, {methodVerified:true})
+      runNativeBatchRequest("start")
+      return
+    }
     if (kind === "results") { finishNativeProbeResults(operation, code, output); return }
     if (!job || job.operationId !== operation || job.terminal) return
     var result = NativeSnapshot.parseOperation(output, job, kind)

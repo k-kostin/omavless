@@ -81,6 +81,8 @@ test('first proven start rejection releases slot without exposing error text',()
 test('one subscription uses cancellable selected job without occupying urgent action',()=>{
  const c=context();assert(c.startNativeBatch('subscriptions',subscription));
  assert.equal(c.nativePending,null);
+ assert.equal(c._nativeBatchProcess.command[2],'native-startup-capabilities');
+ reply(c,frame({runtimeOwnership:true,mutations:true,methods:['subscriptions.refresh_selected']}));
  assert.equal(c._nativeBatchProcess.command[2],'native-subscriptions-refresh-selected');
  assert.deepEqual(Array.from(c._nativeBatchProcess.command.slice(3)),
    ['instance',c.nativeBatchJob.operationId,subscription,'4']);
@@ -91,6 +93,11 @@ test('one subscription uses cancellable selected job without occupying urgent ac
  reply(c,frame({accepted:true,operation:{...selected,cancelRequested:true}}));
  assert.equal(c.nativePending,null);assert(c.nativeBatchJob.cancelRequested);
  const invalid=context();assert.equal(invalid.startNativeBatch('subscriptions','missing'),false);
+ const old=context();assert(old.startNativeBatch('subscriptions',subscription));
+ reply(old,frame({runtimeOwnership:true,mutations:true,methods:['subscriptions.refresh_all']}));
+ assert(old.nativeBatchJob.terminal);assert.equal(old.nativeBatchUnknown,false);
+ assert.equal(old.nativeBatchJob.errorCode,'capability_unavailable');assert.equal(old._nativeBatchProcess,null);
+ assert.equal(old.nativePending,null);
 });
 test('successful admission polls, cancellation uses same id, terminal refreshes once',()=>{
  const c=context();c.startNativeBatch('subscriptions');reply(c,frame({operation:operation(c.nativeBatchJob)}));assert.equal(c.nativeBatchPoll.interval,2000);assert(c.nativeBatchPoll.running);
