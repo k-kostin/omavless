@@ -33,12 +33,15 @@ those corrections, and no installed result is transferred to them.
 ## Review corrections before final composition
 
 The proposed correction pair selects common native source
-`5cb36df5fcbc174b5715eff8669a221076137cc8` in [#847](https://github.com/k-kostin/omavless/pull/847).
+`d0b50bda4c0298f77e87cbfb3e670ad47bdfa279` in [#847](https://github.com/k-kostin/omavless/pull/847).
 Both app and DNS workflows completed on both architectures; all four actual
 archives were inspected, including all 2052 Git files and modes in each DNS
 corresponding-source archive. The frontend pins, inventory and removal allowlist
-select those inspected bytes. These are unpublished inputs; final source CI,
-offline composition and affected installed acceptance remain separate gates.
+select those inspected bytes. The application/core/broker binaries are unchanged
+from the preceding reviewed producer; the integration-test correction changed
+the protected source input and therefore required this new common producer.
+These are unpublished inputs; final source CI, offline composition and affected
+installed acceptance remain separate gates.
 
 The owner selected sequential handling of the November 24 product and workflow
 reviews. The local correction branch starts at the exact accepted source above.
@@ -62,10 +65,14 @@ merged/installed/public PASS:
   completed HTTPS tests when observation disappears, and localize removal
   confirmations while retaining literal confirmation words and version guards.
 
-One frozen composition still needs independent source review, complete applicable
-checks, a matching producer/pin/remover reconciliation and affected installed
-setup/update/stop/Restore/UI evidence. Root admission in the package custody
-subprocess tests is modelled; it is not an installed root-custody result.
+Independent product/workflow reviews gave source and metadata GO before the
+CI-test correction; the corrected product PTY matrix additionally has product
+review GO and passing real-CLI controls. The original PR CI failure is retained:
+it expected a developer screen in the restricted Backup build. Complete final-head
+CI and affected installed evidence remain pending. Root admission in source
+custody tests is modelled. A direct installed `package_install` check on the
+existing unpublished 0.9.9 VM can prove that mechanism; it cannot establish clean
+installation, the public 0.9.8-to-0.9.9 updater, or installed ARM acceptance.
 Reuse the existing operating workflow and retention gate: one writer, one
 checkout/cache, one whole budget including failed checks and original outcomes.
 Do not start separate producer cycles for individual findings or substitute
