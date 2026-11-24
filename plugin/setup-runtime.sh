@@ -13,6 +13,10 @@ package_version=0.9.9
 # Next-snapshot release preparation; publication remains a separate gate.
 # A fixed repository/tag plus exact archive pins, never caller-supplied URLs.
 readonly release_tag=v0.9.9
+# Exact bash -c program bytes, after command substitution strips trailing LF.
+# Capture and authenticate once before sudo; a mutable neighboring file is not
+# authority to select another root program, even when archive hashes are fixed.
+readonly install_pair_program_sha256=df488118e63dcf8fcc584fb0e46bab552e600334375ce627b3aae11cc8dbfef5
 
 say() { if [[ "$setup_locale" == ru ]]; then printf '%s\n' "$2"; else printf '%s\n' "$1"; fi; }
 native() { /usr/bin/omavless "$@"; }
@@ -93,8 +97,12 @@ dns_archive_identity() {
     >/dev/null 2>&1 <<< "$receipt"
 }
 package_install() {
-  local program app_size dns_size
-  program=$(cat -- "$setup_dir/install-package-pair.sh") || return 1
+  local program app_size dns_size program_hash
+  [[ -f "$setup_dir/install-package-pair.sh" && ! -L "$setup_dir/install-package-pair.sh" ]] || return 1
+  program=$(timeout 8 head -c 16385 -- "$setup_dir/install-package-pair.sh") || return 1
+  [[ ${#program} -le 16384 ]] || return 1
+  program_hash=$(printf '%s' "$program" | sha256sum) || return 1
+  [[ ${program_hash%% *} == "$install_pair_program_sha256" ]] || return 1
   app_size=$(stat -c '%s' -- "$1") && dns_size=$(stat -c '%s' -- "$2") || return 1
   # Source reads remain unprivileged. The fixed root program accepts bytes,
   # checks the selected hashes again, then installs only its protected copies.

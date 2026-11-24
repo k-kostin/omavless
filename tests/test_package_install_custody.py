@@ -6,6 +6,7 @@ private fixture; actual root protection remains an installed acceptance gate.
 """
 import hashlib
 import os
+import re
 from pathlib import Path
 import shlex
 import subprocess
@@ -54,8 +55,13 @@ class PackageInstallCustodyTests(unittest.TestCase):
         return source.replace('/usr/bin/pacman', shlex.quote(str(self.consumer))).replace('</dev/tty', '</dev/null')
 
     def test_frontend_installs_verified_private_bytes_even_if_cache_changes_at_consumer(self):
-        (self.base / "install-package-pair.sh").write_text(self.root_program_model())
+        model = self.root_program_model()
+        (self.base / "install-package-pair.sh").write_text(model)
         source = (ROOT / "plugin/setup-runtime.sh").read_text().replace('/usr/bin/sudo', 'fixture_sudo')
+        # This positive stream test substitutes root admission above. Rebind
+        # only its fixture's trusted program pin to those modelled bytes.
+        source = re.sub(r'(?m)^readonly install_pair_program_sha256=[a-f0-9]{64}$',
+                        'readonly install_pair_program_sha256=' + hashlib.sha256(model.rstrip('\n').encode()).hexdigest(), source)
         # Old implementation reaches this consumer with the user-writable path.
         source = source.replace('/usr/bin/pacman', shlex.quote(str(self.consumer)))
         source_path = self.base / "setup-runtime.sh"
@@ -69,6 +75,26 @@ class PackageInstallCustodyTests(unittest.TestCase):
         self.assertTrue((self.base / "consumed").exists())
         self.assertEqual(self.app.read_bytes(), b"poison")
         self.assertEqual(list(self.cache.iterdir()), [])
+
+    def test_changed_neighbor_program_is_refused_before_privileged_submission(self):
+        (self.base / 'install-package-pair.sh').write_text('echo untrusted-root-program\n')
+        source = (ROOT / 'plugin/setup-runtime.sh').read_text().replace('/usr/bin/sudo', 'fixture_sudo')
+        launcher = self.base / 'setup-runtime.sh'
+        launcher.write_text(source)
+        marker = self.base / 'sudo-submitted'
+        result = subprocess.run(['bash', '-c',
+            'set -euo pipefail; source "$1"; setup_dir="$2"; fixture_marker="$7"; fixture_sudo() { touch -- "$fixture_marker"; }; '
+            'package_install "$3" "$4" "$5" "$6"',
+            'fixture', str(launcher), str(self.base), str(self.app), str(self.dns), *self.expected, str(marker)],
+            capture_output=True, timeout=10)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(marker.exists())
+
+    def test_shipped_program_pin_matches_exact_captured_command(self):
+        source = (ROOT / 'plugin/setup-runtime.sh').read_text()
+        pin = re.search(r'(?m)^readonly install_pair_program_sha256=([a-f0-9]{64})$', source)
+        self.assertIsNotNone(pin)
+        self.assertEqual(pin.group(1), hashlib.sha256((ROOT / 'plugin/install-package-pair.sh').read_bytes().rstrip(b'\n')).hexdigest())
 
     def test_changed_truncated_extra_and_out_of_bound_streams_never_reach_pacman(self):
         app, dns = self.app.read_bytes(), self.dns.read_bytes()
