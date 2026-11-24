@@ -479,7 +479,7 @@ pub fn supervisor_entry() -> Result<(), Unavailable> {
 /// Same standalone/reaping prerequisites and SAME aggregate epoch reservation.
 /// Any uncertain scenario leaves the sentinel and original live actor alone.
 pub fn supervisor_scenario(scenario: DeveloperScenario) -> Result<(), Unavailable> {
-    if crate::product_scope::backup_only() {
+    if !crate::product_scope::developer_operations_enabled() {
         return Err(Unavailable);
     }
     if matches!(
@@ -1092,7 +1092,7 @@ impl ActorRole {
     }
 }
 fn canonical_actor(role: ActorRole) -> Result<(), Unavailable> {
-    if crate::product_scope::backup_only() {
+    if !crate::product_scope::developer_operations_enabled() {
         return Err(Unavailable);
     }
     startup()?;
@@ -1393,7 +1393,7 @@ fn quarantine(
 }
 
 pub fn actor_entry() -> Result<(), Unavailable> {
-    if crate::product_scope::backup_only() {
+    if !crate::product_scope::developer_operations_enabled() {
         return Err(Unavailable);
     }
     startup()?;

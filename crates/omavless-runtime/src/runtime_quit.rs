@@ -53,9 +53,12 @@ impl RuntimeServer {
             return error_response(id, 0, StableErrorCode::DaemonRestarting, false, None);
         }
         let response = self.dispatch_admitted(&canonical)?;
-        if response["ok"] != true {
+        if response["ok"] != true && response["error"]["code"] != "internal_error" {
             return Ok(response);
         }
+        // Disconnect can commit Off while reporting unavailable profile
+        // pointers. The independent fresh cleanup proof below must still pass
+        // before shutdown, including every ownership and recovery guard.
         // The existing disconnect quiesces auxiliary work. Retain its slot
         // again across the final fresh proof and admission seal.
         let _auxiliary_guard = match self.quiesce_auxiliary() {

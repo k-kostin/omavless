@@ -1907,7 +1907,7 @@ impl RuntimeServer {
         }) {
             Ok(request) => {
                 #[cfg(feature = "t4-manager-actor-service")]
-                if !product_scope::backup_only()
+                if product_scope::developer_operations_enabled()
                     && (request["method"] == developer_current_restore::PAUSE_METHOD
                         || request["method"]
                             .as_str()
@@ -2101,7 +2101,7 @@ impl RuntimeServer {
     }
     #[cfg(feature = "t4-manager-actor-service")]
     fn publish_current_intent_pause(&self, request: &Value, stream: &mut UnixStream) -> Result<()> {
-        if product_scope::backup_only() {
+        if !product_scope::developer_operations_enabled() {
             let response = error_response(
                 request["id"].as_str().unwrap_or("invalid"),
                 0,
@@ -2228,7 +2228,7 @@ impl RuntimeServer {
         stream: &mut UnixStream,
     ) -> Result<()> {
         let id = request["id"].as_str().unwrap_or("invalid");
-        if product_scope::backup_only() {
+        if !product_scope::developer_operations_enabled() {
             return developer_current_restore::publish_positive_cut_response(
                 error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None),
                 stream,
@@ -2293,7 +2293,7 @@ impl RuntimeServer {
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         let id = request["id"].as_str().unwrap_or("invalid");
-        if product_scope::backup_only() {
+        if !product_scope::developer_operations_enabled() {
             return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
         }
         let method = request["method"].as_str().unwrap_or("");
@@ -2375,7 +2375,7 @@ impl RuntimeServer {
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         let id = request["id"].as_str().unwrap_or("invalid");
-        if product_scope::backup_only() {
+        if !product_scope::developer_operations_enabled() {
             return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
         }
         let method = request["method"].as_str().unwrap_or("");
@@ -3664,6 +3664,7 @@ mod tests {
     const SUBSCRIPTION_ID: &str = "10000000-0000-4000-8000-000000000001";
 
     struct FakeHost {
+        startup_ready: Arc<AtomicBool>,
         #[cfg(feature = "product-image-witness")]
         close_registration: lifecycle::CloseRegistration,
         auxiliary: Option<Arc<auxiliary_core::AuxiliarySlot>>,
@@ -3721,6 +3722,9 @@ mod tests {
     }
 
     impl lifecycle::LifecycleHost for FakeHost {
+        fn startup_configuration_available(&self) -> bool {
+            self.startup_ready.load(Ordering::Acquire)
+        }
         #[cfg(feature = "product-image-witness")]
         fn close_registration(&self) -> lifecycle::CloseRegistration {
             self.close_registration
@@ -4146,6 +4150,7 @@ mod tests {
         fs::set_permissions(&store_path, fs::Permissions::from_mode(0o600)).unwrap();
         let calls = Arc::new(AtomicUsize::new(0));
         let host = FakeHost {
+            startup_ready: Arc::default(),
             #[cfg(feature = "product-image-witness")]
             close_registration: lifecycle::CloseRegistration::Disabled,
             auxiliary: None,
@@ -4597,10 +4602,13 @@ mod tests {
 
     #[cfg(feature = "t4-manager-actor-service")]
     #[test]
-    fn normal_pair_promoted_candidate_backup_is_product_only_and_preserves_restore_refusal() {
+    fn normal_pair_promoted_candidate_has_selected_product_capabilities_without_restart() {
         let home = std::env::var_os("HOME").unwrap();
         let base = crate::test_temp::directory_under(Path::new(&home), "first-backup").unwrap();
-        let (owner, cutover, calls) = owner_fixture(&base, OwnershipPhase::CutoverPreparing);
+        let (mut owner, cutover, calls) = owner_fixture(&base, OwnershipPhase::CutoverPreparing);
+        owner.batch_coordinator().host_mut().fresh_result = Ok(fresh_empty_facts());
+        owner.batch_coordinator().host_mut().auxiliary = Some(Arc::default());
+        let login_ready = Arc::clone(&owner.batch_coordinator().host_mut().startup_ready);
         let store_path = base.join("config/profiles.json");
         let mut store: Value = serde_json::from_slice(&fs::read(&store_path).unwrap()).unwrap();
         store["routingPreset"] = "roscomvpn-default".into();
@@ -4670,13 +4678,47 @@ mod tests {
         let methods = promoted["result"]["methods"].as_array().unwrap();
         assert_eq!(
             methods.iter().any(|m| m == "backup.create"),
-            product_scope::backup_only()
+            cfg!(any(
+                feature = "product-private-backup",
+                feature = "product-private-restore"
+            ))
         );
-        assert!(!methods.iter().any(|m| matches!(
-            m.as_str(),
-            Some("backup.restore" | "backup.preview" | "backup.restore_previewed")
-        )));
+        for method in [
+            "backup.restore",
+            "backup.preview",
+            "backup.restore_previewed",
+        ] {
+            assert_eq!(
+                methods.iter().any(|m| m == method),
+                cfg!(feature = "product-private-restore") && !product_scope::backup_only()
+            );
+        }
         assert_eq!(wire(&caps), promoted);
+        assert!(!methods.iter().any(|m| m == "startup.configure"));
+        login_ready.store(true, Ordering::Release);
+        let ready = wire(&caps);
+        assert!(
+            ready["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m == "startup.configure")
+        );
+        // Keep the frontend's positive capability fixture equal to the full
+        // selected product response, not a simplified hand-written method list.
+        #[cfg(all(
+            feature = "product-private-restore",
+            not(feature = "product-private-backup"),
+            not(feature = "developer-conditional-close"),
+            not(feature = "product-image-witness")
+        ))]
+        assert_eq!(
+            ready["result"],
+            serde_json::from_str::<Value>(include_str!(
+                "../../../tests/fixtures/native_product_capabilities.json"
+            ))
+            .unwrap()
+        );
         let hello = wire(&make_request("hello", "system.hello", json!({"versions":[1]})).unwrap());
         assert_eq!(hello["result"]["instanceId"], server.instance_id);
         assert_eq!(hello["revision"], 0);
@@ -4692,7 +4734,10 @@ mod tests {
         )
         .unwrap();
         let exported = wire(&create);
-        if product_scope::backup_only() {
+        if cfg!(any(
+            feature = "product-private-backup",
+            feature = "product-private-restore"
+        )) {
             assert_eq!(exported["ok"], true);
             assert_eq!(
                 exported["result"],
@@ -4723,8 +4768,22 @@ mod tests {
         restore["method"] = "backup.restore".into();
         restore["params"]["confirmation"] = "replace-current-private-pair".into();
         restore["params"]["operationId"] = "restore-refused".into();
-        let refused = wire(&restore);
-        assert_eq!(refused["error"]["code"], "capability_unavailable");
+        let refused = if cfg!(feature = "product-private-restore") && !product_scope::backup_only()
+        {
+            let response =
+                wire(&make_request("restore-admitted", "backup.restore", json!({})).unwrap());
+            assert_eq!(response["error"]["code"], "invalid_argument");
+            let preview = wire(&make_request("preview", "backup.preview", json!({
+                "schema":1,"archive":destination,"passphrase":"synthetic private passphrase",
+                "instanceId":server.instance_id,"expectedRevision":0
+            })).unwrap());
+            assert_eq!(preview["ok"], true, "{preview}");
+            preview
+        } else {
+            let response = wire(&restore);
+            assert_eq!(response["error"]["code"], "capability_unavailable");
+            response
+        };
         if product_scope::backup_only() {
             for method in [
                 "backup.preview",
@@ -5948,6 +6007,86 @@ mod tests {
         assert_eq!(calls.load(Ordering::Relaxed), after);
         drop(server);
         fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "product-private-restore")]
+    fn product_restore_socket_refuses_every_developer_restore_route_before_parsing() {
+        let base = temporary_base("product-restore-dev-refusal");
+        let server = RuntimeServer::bind(RuntimePaths::below(&base)).unwrap();
+        for method in [
+            "developer.restore_current",
+            "developer.backup_current",
+            "developer.pause_current_intent",
+            "developer.abort_current_intent",
+            "developer.cut_current_first_rename",
+            "developer.cut_current_terminal",
+            "developer.abort_current_after_retirement_cut",
+            "developer.cut_current_committed_retirement",
+            "developer.cut_current_committed_ticket",
+            "developer.cut_current_committed_complete",
+        ] {
+            let (mut caller, mut peer) = UnixStream::pair().unwrap();
+            caller
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let request = make_request("disabled", method, json!({})).unwrap();
+            write_unary_frame(
+                &mut caller,
+                &encode_request(&request).unwrap(),
+                FrameKind::Request,
+            )
+            .unwrap();
+            caller.shutdown(std::net::Shutdown::Write).unwrap();
+            server.handle(&mut peer).unwrap();
+            peer.shutdown(std::net::Shutdown::Write).unwrap();
+            let response =
+                decode_response(&read_unary_frame(&mut caller, FrameKind::Response).unwrap())
+                    .unwrap();
+            assert_eq!(
+                response["error"]["code"], "capability_unavailable",
+                "{method}"
+            );
+        }
+        assert!(!base.join("config").exists());
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn full_quit_with_damaged_catalog_still_requires_independent_clean_host_proof() {
+        for foreign_core in [false, true] {
+            let base = temporary_base("quit-damaged-catalog");
+            let (mut owner, _, _) = native_owner_fixture(&base);
+            let mut facts = fresh_empty_facts();
+            facts.visible_mihomo_count = u8::from(foreign_core);
+            owner.batch_coordinator().host_mut().fresh_result = Ok(facts);
+            let server = RuntimeServer::bind_with_owner_factory(
+                RuntimePaths::below(&base.join("runtime")),
+                move |_| Ok(owner),
+            )
+            .unwrap();
+            let connected = server.dispatch(&make_request("connect", "connection.connect", json!({
+                "profileId":PROFILE_ID,"expectedRevision":0,"operationId":"before-damage"
+            })).unwrap()).unwrap();
+            assert_eq!(connected["ok"], true, "{connected}");
+            let store = base.join("config/profiles.json");
+            fs::write(&store, b"invalid catalog").unwrap();
+            let request = make_request("quit", "runtime.quit", json!({
+                "instanceId":server.instance_id,"expectedRevision":1,"operationId":"quit-damaged"
+            })).unwrap();
+            let response = server.dispatch(&request).unwrap();
+            assert_eq!(response["ok"], !foreign_core, "{response}");
+            assert_eq!(server.quit_requested.load(Ordering::Acquire), !foreign_core);
+            assert_eq!(fs::read(store).unwrap(), b"invalid catalog");
+            let desired: Value = serde_json::from_slice(
+                &fs::read(base.join("state/omavless/desired.json")).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(desired["connected"], false);
+            drop(server);
+            fs::remove_dir_all(base).unwrap();
+        }
     }
 
     #[test]
@@ -8830,6 +8969,7 @@ mod tests {
             }
             let effects = Arc::new(AtomicUsize::new(0));
             let host = FakeHost {
+                startup_ready: Arc::default(),
                 #[cfg(feature = "product-image-witness")]
                 close_registration: lifecycle::CloseRegistration::Disabled,
                 auxiliary: None,

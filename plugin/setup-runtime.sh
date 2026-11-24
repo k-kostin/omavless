@@ -5,7 +5,7 @@
 set -euo pipefail
 umask 077
 
-setup_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+setup_dir="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 setup_locale=en
 setup_failure_reported=false
 release_version=0.9.9
@@ -13,6 +13,10 @@ package_version=0.9.9
 # Next-snapshot release preparation; publication remains a separate gate.
 # A fixed repository/tag plus exact archive pins, never caller-supplied URLs.
 readonly release_tag=v0.9.9
+# Exact bash -c program bytes, after command substitution strips trailing LF.
+# Capture and authenticate once before sudo; a mutable neighboring file is not
+# authority to select another root program, even when archive hashes are fixed.
+readonly install_pair_program_sha256=df488118e63dcf8fcc584fb0e46bab552e600334375ce627b3aae11cc8dbfef5
 
 say() { if [[ "$setup_locale" == ru ]]; then printf '%s\n' "$2"; else printf '%s\n' "$1"; fi; }
 native() { /usr/bin/omavless "$@"; }
@@ -92,7 +96,20 @@ dns_archive_identity() {
     (.schema == 1 or traffic_pair) and .omavless_commit == $source and .architecture == $arch and .package_flavor == "release" and .broker_feature == "release-package"' \
     >/dev/null 2>&1 <<< "$receipt"
 }
-package_install() { /usr/bin/sudo /usr/bin/pacman -U -- "$1" "$2"; }
+package_install() {
+  local program app_size dns_size program_hash
+  [[ -f "$setup_dir/install-package-pair.sh" && ! -L "$setup_dir/install-package-pair.sh" ]] || return 1
+  program=$(/usr/bin/timeout 8 /usr/bin/head -c 16385 -- "$setup_dir/install-package-pair.sh") || return 1
+  [[ ${#program} -le 16384 ]] || return 1
+  program_hash=$(printf '%s' "$program" | /usr/bin/sha256sum) || return 1
+  [[ ${program_hash%% *} == "$install_pair_program_sha256" ]] || return 1
+  app_size=$(/usr/bin/stat -c '%s' -- "$1") && dns_size=$(/usr/bin/stat -c '%s' -- "$2") || return 1
+  # Source reads remain unprivileged. The fixed root program accepts bytes,
+  # checks the selected hashes again, then installs only its protected copies.
+  /usr/bin/cat -- "$1" "$2" | /usr/bin/sudo /usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C \
+    /usr/bin/bash --noprofile --norc -c "$program" omavless-install-pair \
+    "$app_size" "$3" "$dns_size" "$4"
+}
 package_installed() { /usr/bin/pacman -Q omavless 2>/dev/null; }
 dns_package_installed() { /usr/bin/pacman -Q omavless-dns 2>/dev/null; }
 dns_package_registered() { dns_package_installed >/dev/null; }
@@ -579,7 +596,7 @@ install_package() {
     && upgrade_archive_safe "$cache/$dns_package" "$dns_hash" || return 1
   # Normal dependency and user confirmation checks. No --nodeps/--overwrite,
   # --noconfirm, package hooks added by this script, or background sudo.
-  package_install "$cache/$app_package" "$cache/$dns_package" || return 1
+  package_install "$cache/$app_package" "$cache/$dns_package" "$app_hash" "$dns_hash" || return 1
   [[ $(package_installed) == "omavless $package_version-1" ]] && pair_installed
 }
 

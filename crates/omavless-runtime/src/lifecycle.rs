@@ -110,6 +110,11 @@ pub struct NativeLocalObservation {
 /// Fixed-purpose package host boundary. Inputs are semantic desired state;
 /// there is no arbitrary argv, shell, service or privileged-command surface.
 pub trait LifecycleHost {
+    /// Read-only availability of the installed application-startup integration.
+    /// Setup can enable it after this owner was constructed; no unit is changed.
+    fn startup_configuration_available(&self) -> bool {
+        false
+    }
     #[cfg(feature = "developer-conditional-close")]
     #[doc(hidden)]
     fn close_registration(&self) -> CloseRegistration {

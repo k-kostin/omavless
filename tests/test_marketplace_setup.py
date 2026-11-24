@@ -992,7 +992,8 @@ setup_main install en
         for bound in ("--disable", "--proto '=https'", "--proto-redir '=https'",
                       "--max-filesize", "--connect-timeout", "--max-time"):
             self.assertIn(bound, source)
-        self.assertIn('/usr/bin/sudo /usr/bin/pacman -U -- "$1" "$2"', source)
+        self.assertIn('package_install "$cache/$app_package" "$cache/$dns_package" "$app_hash" "$dns_hash"', source)
+        self.assertIn('install-package-pair.sh', source)
         self.assertNotIn('omarchy pkg aur add', source)
 
     def test_any_archive_or_identity_failure_precedes_package_install(self):

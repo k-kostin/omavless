@@ -24,13 +24,14 @@ Item {
   property bool nativeQuitFailed: false
   function quitNativeApplication() {
     if (!nativeCanStop || nativeEditorRunning || nativeImportBusy) return false
+    var context = nativeSnapshot && !nativeSnapshotFailed ? nativeSnapshot : nativeObservation
     var operation = "quit-" + Date.now().toString(36) + "-" + (++_nativeOperationSerial).toString(36)
     nativeQuitFailed = false
     // Process.running becomes true asynchronously. Seal UI admission before
     // scheduling the child, not only after Quickshell reports it running.
     nativeQuitPending = true
     nativeQuitProcess.command = ["bash", backendPath, "native-quit",
-      nativeSnapshot.instanceId, String(nativeSnapshot.revision), operation]
+      context.instanceId, String(context.revision), operation]
     nativeQuitProcess.running = true
     return true
   }
@@ -68,8 +69,13 @@ Item {
     return true
   }
   function finishNativeConnectionTest(context, code, raw) {
-    if (context.generation !== nativeTestGeneration || !panelVisible || !nativeCanAct
-        || context.instanceId !== nativeSnapshot.instanceId || context.revision !== nativeSnapshot.revision) return
+    if (context.generation !== nativeTestGeneration) return
+    if (!panelVisible || !nativeCanAct || !nativeSnapshot
+        || context.instanceId !== nativeSnapshot.instanceId || context.revision !== nativeSnapshot.revision) {
+      nativeTestResult = null
+      nativeTestStatus = "unavailable"
+      return
+    }
     nativeTestResult = code === 0 ? NativeSnapshot.connectionTest(raw, context) : null
     nativeTestStatus = nativeTestResult ? nativeTestResult.https ? "ok" : "failed" : "unavailable"
   }
@@ -222,7 +228,9 @@ Item {
     && !nativeObservation.manualRecoveryRequired
   /* Cleanup is a fenced request to the native owner, not a UI claim of safety.
      A broken controller/recovery state must not hide the explicit exit path. */
-  readonly property bool nativeCanStop: nativeOwner && !nativeRuntimeUnavailable && !nativeSnapshotFailed && nativeSnapshot !== null
+  readonly property bool nativeCanStop: nativeOwner && !nativeRuntimeUnavailable
+    && ((nativeSnapshot !== null && !nativeSnapshotFailed)
+      || (nativeObservation !== null && nativeObservation.availability === "observed"))
     && !nativePending && !nativeQuitting && !nativeActionRunning && !nativeOutcomeUnknown
   property int _nativeOperationSerial: 0
   property bool nativeStartupSettingsVisible: false
@@ -389,6 +397,8 @@ Item {
 
   function startNativeBatch(kind, subscriptionId) {
     if (!nativeCanAct || nativeBatchBusy || nativeBatchRequestRunning || ["subscriptions", "providers", "probe"].indexOf(kind) < 0) return false
+    if (kind === "subscriptions" && subscriptionId && (!NativeSnapshot.id(subscriptionId, false)
+        || !nativeSnapshot.subscriptions.some(function(s) { return s.id === subscriptionId }))) return false
     var profileIds = []
     if (kind === "probe") {
       if (!NativeSnapshot.id(subscriptionId, false) || !nativeSnapshot.subscriptions.some(function(s) { return s.id === subscriptionId })) return false
@@ -400,7 +410,7 @@ Item {
     nativeBatchJob = {kind:kind, instanceId:nativeSnapshot.instanceId, operationId:operation,
       revision:nativeSnapshot.revision, state:"starting", completed:0, total:0, cancellable:false,
       cancelRequested:false, terminal:false, acknowledged:false, errorCode:"",
-      subscriptionId:kind === "probe" ? subscriptionId : "", profileIds:profileIds}
+      subscriptionId:kind === "probe" || kind === "subscriptions" ? subscriptionId || "" : "", profileIds:profileIds}
     _nativeBatchFailures = 0; _nativeBatchPolls = 0
     nativeBatchUnknown = false; nativeBatchErrorCode = ""
     return runNativeBatchRequest("start")
@@ -414,9 +424,16 @@ Item {
       nativeBatchUnknown = true; nativeBatchErrorCode = "error.daemon_restarting"; return false
     }
     nativeBatchPoll.stop()
-    var command = ["bash", backendPath, kind === "start" ? (job.kind === "subscriptions" ? "native-subscriptions-refresh-all" : job.kind === "probe" ? "native-subscription-probe" : "native-providers-refresh")
+    var command = ["bash", backendPath, kind === "start" ? (job.kind === "subscriptions" ? (job.subscriptionId ? "native-subscriptions-refresh-selected" : "native-subscriptions-refresh-all") : job.kind === "probe" ? "native-subscription-probe" : "native-providers-refresh")
       : kind === "get" ? "native-operation-get" : kind === "results" ? "native-subscription-probe-results" : "native-operation-cancel", job.instanceId, job.operationId]
-    if (kind === "start") { if (job.kind === "probe") command.push(job.subscriptionId); command.push(String(job.revision)) }
+    if (kind === "start") { if (job.kind === "probe" || (job.kind === "subscriptions" && job.subscriptionId)) command.push(job.subscriptionId); command.push(String(job.revision)) }
+    // A compatible 0.9.8 pair remains usable but has no selected-refresh CLI.
+    // Read capabilities before dispatch, never leave an unsupported CLI parse
+    // failure looking like a lost mutation reply or fall back to blocking unary.
+    if (kind === "start" && job.kind === "subscriptions" && job.subscriptionId && !job.methodVerified) {
+      command = ["bash", backendPath, "native-startup-capabilities"]
+      kind = "capabilities"
+    }
     _nativeBatchProcess = nativeBatchComponent.createObject(root, {command:command, requestKind:kind, operation:job.operationId})
     if (!_nativeBatchProcess) { nativeBatchUnknown = true; nativeBatchErrorCode = "error.capability_unavailable"; return false }
     _nativeBatchProcess.running = true
@@ -425,6 +442,19 @@ Item {
 
   function finishNativeBatchRequest(kind, operation, code, output) {
     var job = nativeBatchJob
+    if (kind === "capabilities") {
+      if (!job || job.operationId !== operation || job.terminal) return
+      var capability = code === 0 && nativeOwner && nativeSnapshot && nativeSnapshot.instanceId === job.instanceId
+        ? NativeSnapshot.mutationCapability(output, job, "subscriptions.refresh_selected") : null
+      if (!capability || !capability.available) {
+        nativeBatchJob = Object.assign({}, job, {state:"failed", terminal:true, errorCode:"capability_unavailable"})
+        nativeBatchUnknown = false; nativeBatchErrorCode = "error.capability_unavailable"
+        return
+      }
+      nativeBatchJob = Object.assign({}, job, {methodVerified:true})
+      runNativeBatchRequest("start")
+      return
+    }
     if (kind === "results") { finishNativeProbeResults(operation, code, output); return }
     if (!job || job.operationId !== operation || job.terminal) return
     var result = NativeSnapshot.parseOperation(output, job, kind)
@@ -959,7 +989,8 @@ Item {
   }
 
   function refreshNativeObservation() {
-    if (!nativeOwner || nativeRuntimeUnavailable || !nativeSnapshot || nativeSnapshotFailed
+    if (!nativeOwner || nativeRuntimeUnavailable
+        || (nativeRuntimeRefreshing && (!nativeSnapshot || nativeSnapshotFailed))
         || nativeActionRunning || nativeObservationProcess.running) return false
     nativeObservationProcess.availabilityGeneration = nativeAvailabilityGeneration
     nativeObservationProcess.running = true
@@ -971,6 +1002,8 @@ Item {
     if (!(action === "disconnect" ? nativeCanStop : nativeCanAct)) return false
     if ((action === "connect" || action === "mode") && ["rule", "global", "direct"].indexOf(mode) < 0) return false
     if (action === "connect" && !nativeSnapshot.profiles.some(function(p) { return p.id === profileId && !p.missing })) return false
+    var context = action === "disconnect" && (!nativeSnapshot || nativeSnapshotFailed)
+      ? nativeObservation : nativeSnapshot
     nativeRefusalVerificationTimeout.stop()
     nativeRefusalVerification = null
     // A new accepted connection command must not inherit a completed
@@ -978,14 +1011,14 @@ Item {
     // operations intact; admission above still fences all mutations.
     if (nativeSubscriptionDraft === null) nativeSubscriptionCode = ""
     var operation = "qml-" + Date.now().toString(36) + "-" + (++_nativeOperationSerial).toString(36) + "-" + Math.floor(Math.random() * 0x100000000).toString(36)
-    var args = ["bash", backendPath, "native-" + action, nativeSnapshot.instanceId, String(nativeSnapshot.revision), operation]
+    var args = ["bash", backendPath, "native-" + action, context.instanceId, String(context.revision), operation]
     if (action === "connect") args.push(profileId, mode)
     else if (action === "mode") args.push(mode)
-    nativePending = {instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision,
+    nativePending = {instanceId:context.instanceId, revision:context.revision,
       operationId:operation, action:action, command:args}
     if (action === "connect" || action === "disconnect") {
       var prior = NativePresentation.project(nativeSnapshot, nativeObservation, false, null, false)
-      nativeConnectionTransition = {instanceId:nativeSnapshot.instanceId, revision:nativeSnapshot.revision,
+      nativeConnectionTransition = {instanceId:context.instanceId, revision:context.revision,
         action:action, profileId:profileId,
         switchingProfile:action === "connect" && prior.connected && prior.activeId !== profileId}
       nativeConnectionTransitionTimeout.stop()
@@ -4539,6 +4572,7 @@ Item {
           : root.elide(statusStderr.text || "Failed to read OmaVLESS status")
         root._pollError = true
         root.statusFailureCount = Math.min(root.statusFailureCount + 1, 5)
+        if (root.nativeOwner) Qt.callLater(root.refreshNativeObservation)
       }
       if (root._refreshAfterStatus) {
         root._refreshAfterStatus = false

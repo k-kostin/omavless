@@ -78,6 +78,28 @@ test('first proven start rejection releases slot without exposing error text',()
  const c=context();c.startNativeBatch('subscriptions');reply(c,JSON.stringify({api:'omavless.control',version:1,id:'test',ok:false,revision:4,error:{code:'busy',message:'private-token',retryable:true}}),1);
  assert(c.nativeBatchJob.terminal);assert.equal(c.nativeBatchJob.errorCode,'busy');assert(!JSON.stringify(c.nativeBatchJob).includes('private-token'));assert(c.dismissNativeBatch());
 });
+test('one subscription uses cancellable selected job without occupying urgent action',()=>{
+ const c=context();assert(c.startNativeBatch('subscriptions',subscription));
+ assert.equal(c.nativePending,null);
+ assert.equal(c._nativeBatchProcess.command[2],'native-startup-capabilities');
+ // Shared with the real product runtime socket test, including importBundle.
+ reply(c,frame(require('./fixtures/native_product_capabilities.json')));
+ assert.equal(c._nativeBatchProcess.command[2],'native-subscriptions-refresh-selected');
+ assert.deepEqual(Array.from(c._nativeBatchProcess.command.slice(3)),
+   ['instance',c.nativeBatchJob.operationId,subscription,'4']);
+ const selected=operation(c.nativeBatchJob,{method:'subscriptions.refresh_selected',progress:{completed:0,total:1}});
+ reply(c,frame({operation:selected}));assert(c.nativeBatchJob.acknowledged);
+ assert.equal(parser.parseOperation(frame({operation:{...selected,method:'subscriptions.refresh_all'}}),c.nativeBatchJob,'get'),null);
+ assert(c.cancelNativeBatch());assert.equal(c._nativeBatchProcess.command[2],'native-operation-cancel');
+ reply(c,frame({accepted:true,operation:{...selected,cancelRequested:true}}));
+ assert.equal(c.nativePending,null);assert(c.nativeBatchJob.cancelRequested);
+ const invalid=context();assert.equal(invalid.startNativeBatch('subscriptions','missing'),false);
+ const old=context();assert(old.startNativeBatch('subscriptions',subscription));
+ reply(old,frame({runtimeOwnership:true,mutations:true,methods:['subscriptions.refresh_all']}));
+ assert(old.nativeBatchJob.terminal);assert.equal(old.nativeBatchUnknown,false);
+ assert.equal(old.nativeBatchJob.errorCode,'capability_unavailable');assert.equal(old._nativeBatchProcess,null);
+ assert.equal(old.nativePending,null);
+});
 test('successful admission polls, cancellation uses same id, terminal refreshes once',()=>{
  const c=context();c.startNativeBatch('subscriptions');reply(c,frame({operation:operation(c.nativeBatchJob)}));assert.equal(c.nativeBatchPoll.interval,2000);assert(c.nativeBatchPoll.running);
  assert(c.cancelNativeBatch());assert.equal(c._nativeBatchProcess.command[2],'native-operation-cancel');

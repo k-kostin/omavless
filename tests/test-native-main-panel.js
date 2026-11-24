@@ -13,7 +13,7 @@ function context(){
   const c=vm.createContext({NativePresentation:presentation,subscriptionSortModes:{},profileFilter:'',nativeProtocolFilter:'',nativeExpanded:{},nativeSelectedProfile:'local',nativeSubscriptionId:'',pendingSubscriptionDelete:null,
     nativeView:{state:'disconnected',connected:false,mode:'rule',lastProfileId:'local',profiles:[standalone,managed],subscriptions:[{id:'sub',name:'Synthetic'}]},
     vless:{nativeCanAct:true,nativeOwner:true,refreshNativeDesktopCapabilities:()=>calls.push(['desktop-capabilities']),requestNativeAction:(...args)=>calls.push(args),nativeSnapshot:{instanceId:'instance',revision:4}},page:'main',nativeFlick:{contentY:90},
-    nativeCursor:-1,nativeExpandedDetailsId:'',nativeUsageVisit:0,nativeUsageQueued:false,nativeUsageTargetId:'',subscriptionUsagePrompt:{visible:false},nativeSubscriptionUsage:{visible:false,enabled:false},nativeProtocolChoices:{expanded:false,collapse(){this.expanded=false}},nativeProfiles:{itemAt:()=>null},keyCatcher:{forceActiveFocus(){}},Qt:{callLater:f=>f()}});
+    nativeCursor:-1,nativeCursorTarget:null,nativeExpandedDetailsId:'',nativeUsageVisit:0,nativeUsageQueued:false,nativeUsageTargetId:'',subscriptionUsagePrompt:{visible:false},nativeSubscriptionUsage:{visible:false,enabled:false},nativeProtocolChoices:{expanded:false,collapse(){this.expanded=false}},nativeProfiles:{itemAt:()=>null},keyCatcher:{forceActiveFocus(){}},Qt:{callLater:f=>f()}});
   c.vless.clearNativeSubscriptionUsage=()=>{c.usageCleared=(c.usageCleared||0)+1};
   c.root=c;c.runtimePanelState='';c.calls=calls;c.textFor=(key,values)=>i18n.translate(key,c.locale||'en',values||{});
   const emptyStart=source.indexOf('  function nativeEmptyProfilesText(');
@@ -24,7 +24,7 @@ function context(){
   c.safeTooltip=value=>{c.sanitizedTooltip=value;return value;};
   const tooltipStart=source.indexOf('  function nativeSubscriptionToggleTooltip(');
   vm.runInContext(source.slice(tooltipStart,source.indexOf('\n  }',tooltipStart)+4),c);
-  for(const name of ['closeNativeUsage','nativeRecord','nativeActivateProfile','toggleNativeProfileDetails','buildNativeRows','nativeFiltersActive','nativeFilterSummary','nativeAvailableProtocols','reconcileNativeProtocolFilter','collapseNativeProtocolChooser','setNativeProtocolFilter','resetNativeFilters','sortNativeProbeProfiles','sortNativeProbeResults','subscriptionSortMode','toggleNativeSubscription','nativeToggleConnection','openSettings','openSubscriptions','browseNativeSubscription','moveNativeCursor','activateNativeCursor','requestNativeSubscriptionDelete','editSubscription']){
+  for(const name of ['closeNativeUsage','nativeRecord','nativeActivateProfile','toggleNativeProfileDetails','buildNativeRows','nativeFiltersActive','nativeFilterSummary','nativeAvailableProtocols','reconcileNativeProtocolFilter','collapseNativeProtocolChooser','setNativeProtocolFilter','resetNativeFilters','sortNativeProbeProfiles','sortNativeProbeResults','subscriptionSortMode','toggleNativeSubscription','nativeToggleConnection','openSettings','openSubscriptions','browseNativeSubscription','setNativeCursor','reconcileNativeCursor','moveNativeCursor','activateNativeCursor','requestNativeSubscriptionDelete','editSubscription']){
     const start=source.indexOf('  function '+name+'('),end=source.indexOf('\n  }',start)+4;
     assert(start>=0&&end>start);vm.runInContext(source.slice(start,end),c);
   }
@@ -297,7 +297,7 @@ test('Subscriptions actions form one compact group and preserve actual targets a
   assert.match(group,/onClicked: vless.refreshAllSubscriptions\(\)/);
   assert.match(source,/onAction: root.browseNativeSubscription\(nativeSubscriptionRow.modelData.id\)/);
 });
-test('recovery Disconnect is not offered for missing or failed reads but remains for parsed recovery',()=>{
+test('recovery Disconnect follows independent stop admission even when profile metadata failed',()=>{
   const line=source.split('\n').find(s=>s.includes('id: nativeRecoveryDisconnect;'));
   const visible=line.match(/visible: (.*?); text:/)[1];
   const enabled=line.match(/enabled: (.*?); onClicked:/)[1];
@@ -307,6 +307,7 @@ test('recovery Disconnect is not offered for missing or failed reads but remains
   assert.equal(vm.runInContext(visible,c),false);
   c.vless.nativeSnapshot={instanceId:'instance',revision:4};c.vless.nativeSnapshotFailed=true;
   assert.equal(vm.runInContext(visible,c),false);
+  c.vless.nativeCanStop=true;assert.equal(vm.runInContext(visible,c),true);
   c.vless.nativeSnapshotFailed=false;c.nativeView.state='manualRecoveryRequired';c.vless.nativeCanStop=true;
   assert.equal(vm.runInContext(visible,c),true);assert.equal(vm.runInContext(enabled,c),true);
   c.vless.nativeCanStop=false;assert.equal(vm.runInContext(enabled,c),false);
@@ -343,7 +344,7 @@ test('subscription toggle describes the actual target and preserves expansion du
       row=c.nativeRows.find(r=>r.kind==='subscription');assert.equal(row.expanded,true);
       assert.equal(c.nativeSubscriptionToggleTooltip(row),c.textFor('native.subscriptions.search_expanded'));
       c.toggleNativeSubscription('sub');assert.equal(c.nativeExpanded.sub,expanded);
-      c.nativeCursor=0;c.activateNativeCursor();assert.equal(c.nativeExpanded.sub,expanded);
+      c.setNativeCursor(0);c.activateNativeCursor();assert.equal(c.nativeExpanded.sub,expanded);
       c.profileFilter='';assert.equal(c.nativeRows.find(r=>r.kind==='subscription').expanded,expanded);
     }
     assert.equal(c.nativeSubscriptionToggleTooltip({kind:'profile'}),'');
@@ -541,7 +542,7 @@ test('subscription detail navigation is local and clears search without changing
 test('two equal-name subscriptions isolate detail search servers and action targets by id',()=>{
   const c=context();c.nativeView.subscriptions.push({id:'sub-two',name:'Synthetic'});
   c.nativeView.profiles.push({...managed,id:'managed-two',subscriptionId:'sub-two',name:'Match two'});
-  const actions=[];c.vless.requestNativeSubscriptionAction=(...args)=>actions.push(args);c.vless.startNativeSubscription=(...args)=>actions.push(args);
+  const actions=[];c.vless.requestNativeSubscriptionAction=(...args)=>actions.push(args);c.vless.startNativeSubscription=(...args)=>actions.push(args);c.vless.startNativeBatch=(...args)=>actions.push(args);
   for(const [id,server] of [['sub','managed'],['sub-two','managed-two']]){
     assert(c.browseNativeSubscription(id));assert.equal(c.nativeSubscription.id,id);assert.equal(c.nativeRows.length,1);assert.equal(c.nativeRows[0].profile.id,server);
     c.profileFilter='MATCH';assert.equal(c.nativeRows.length,1);c.profileFilter='Local';assert.equal(c.nativeRows.length,0);c.profileFilter='';
@@ -581,10 +582,10 @@ test('main subscription refresh targets its own group without navigation or prof
   const enabled=button.match(/enabled: ([^\n]+)/)[1],clicked=button.match(/onClicked: ([^\n]+)/)[1];
   for(const id of ['sub','sub-two'])for(const available of [true,false])for(const batch of [true,false])for(const leaf of [true,false]){
     const calls=[],c=vm.createContext({nativeRow:{isProfile:leaf,modelData:{subscription:{id,name:'Same name'}}},
-      vless:{nativeCanAct:available,nativeBatchBusy:batch,requestNativeSubscriptionAction:(...args)=>calls.push(args)},
+      vless:{nativeCanAct:available,nativeBatchBusy:batch,startNativeBatch:(...args)=>calls.push(args)},
       nativeSubscriptionId:'different-detail',nativeSelectedProfile:'unrelated-profile'});
     c.enabled=vm.runInContext(enabled,c);vm.runInContext(clicked,c);
-    assert.deepEqual(calls,available&&!batch&&!leaf?[['subscription-refresh',id,'','']]:[]);
+    assert.deepEqual(calls,available&&!batch&&!leaf?[['subscriptions',id]]:[]);
     assert.equal(c.nativeSubscriptionId,'different-detail');assert.equal(c.nativeSelectedProfile,'unrelated-profile');
   }
 });
@@ -644,6 +645,42 @@ test('arrow selection is local; Enter uses fenced native actions or toggles a gr
   c.moveNativeCursor(1);c.activateNativeCursor();assert.equal(c.nativeExpanded.sub,true);assert.equal(c.calls.length,0);
   c.moveNativeCursor(1);assert.equal(c.nativeSelectedProfile,'managed');c.vless.nativeCanAct=false;c.activateNativeCursor();assert.equal(c.calls.length,0);
   c.page='settings';const before=c.nativeCursor;c.moveNativeCursor(-1);c.activateNativeCursor();assert.equal(c.nativeCursor,before);
+});
+test('keyboard activation retains the selected identity across inventory reorder',()=>{
+  const c=context();c.scrollPanelControlIntoView=()=>{};
+  const other={...standalone,id:'other',name:'Other'};
+  c.nativeView.profiles=[standalone,other];c.nativeView.subscriptions=[];
+  c.moveNativeCursor(1);assert.equal(c.nativeSelectedProfile,'local');
+  c.nativeView.profiles=[other,standalone];
+  c.activateNativeCursor();assert.deepEqual(c.calls,[['connect','local','rule']]);
+  assert.equal(c.nativeSelectedProfile,'local');
+});
+test('ordinary snapshot polling preserves a group keyboard target without profile selection',()=>{
+ for(const selected of ['', 'removed-profile']) {
+  const c=context();c.nativeSelectedProfile=selected;
+  const index=c.nativeRows.findIndex(row=>row.kind==='subscription');assert(index>=0);
+  c.setNativeCursor(index);const target=JSON.stringify(c.nativeCursorTarget);
+  c.syncNativeOnboarding=()=>{};
+  c.vless.nativeSnapshot={instanceId:'instance',revision:4,subscriptions:c.nativeView.subscriptions,profiles:c.nativeView.profiles};
+  const start=source.indexOf('    function onNativeSnapshotChanged() {'),end=source.indexOf('\n    }',start)+6;
+  vm.runInContext(source.slice(start,end),c);c.onNativeSnapshotChanged();
+  assert.equal(c.nativeCursor,index);assert.equal(JSON.stringify(c.nativeCursorTarget),target);
+  assert.equal(c.nativeSelectedProfile,'');c.activateNativeCursor();
+  assert.equal(c.nativeExpanded.sub,true);assert.equal(c.calls.length,0);
+ }
+});
+test('removed keyboard selection never activates the replacement row or last profile',()=>{
+  const c=context();c.scrollPanelControlIntoView=()=>{};
+  const other={...standalone,id:'other',name:'Other'};
+  c.nativeView.profiles=[standalone,other];c.nativeView.subscriptions=[];
+  c.moveNativeCursor(1);
+  c.nativeView.profiles=[other];
+  c.vless.nativeSnapshot={profiles:[other],subscriptions:[],desired:{connected:false},lastProfileId:'other'};
+  c.syncNativeOnboarding=()=>{};
+  const start=source.indexOf('    function onNativeSnapshotChanged() {'),end=source.indexOf('\n    }',start)+6;
+  vm.runInContext(source.slice(start,end),c);c.onNativeSnapshotChanged();
+  c.activateNativeCursor();c.nativeToggleConnection();
+  assert.equal(c.nativeSelectedProfile,'');assert.equal(c.calls.length,0);
 });
 test('transition, missing and stale cursor never connect',()=>{
   const c=context();c.nativeCursor=999;c.activateNativeCursor();assert.equal(c.calls.length,0);

@@ -586,19 +586,26 @@ impl<H: LifecycleHost> ConnectionTransactionState<H> {
         if admission.recheck().is_err() {
             return Completion::Ordinary(Err(ConnectionTransactionError::ManualRecoveryRequired));
         }
-        let plan = match prepare_pointer_mutation(
+        let plan = prepare_pointer_mutation(
             &self.store_path,
             self.uid,
             CompatibilityPointerTarget::Disconnected {
                 prune_missing: true,
             },
-        ) {
-            Ok(plan) => plan,
-            Err(error) => return Completion::Ordinary(Err(store_error(error))),
-        };
+        );
         let lifecycle = match self.lifecycle.disconnect_admitted(admission) {
             Ok(outcome) => outcome,
             Err(error) => return Completion::Ordinary(Err(lifecycle_error(error))),
+        };
+        let plan = match plan {
+            Ok(plan) => plan,
+            Err(error) if lifecycle.changed => {
+                // Stopping an owned connection must not depend on a readable
+                // profile catalog. Preserve the original bytes and report the
+                // failed metadata synchronization after committing Off.
+                return Completion::CommittedFailure(store_error(error));
+            }
+            Err(error) => return Completion::Ordinary(Err(store_error(error))),
         };
         let write = match admission.pointer(&plan, lock, &self.cutover_paths, false) {
             Ok(result) => result,
@@ -1169,6 +1176,41 @@ mod tests {
                 assert_eq!(written["activeId"], MISSING);
                 assert_eq!(written["lastId"], MISSING);
             }
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn disconnect_stops_owned_connection_when_store_is_already_unavailable() {
+        for damaged in ["missing", "malformed", "unsafe"] {
+            let (root, store_path, desired, cutover, uid) =
+                fixture("disconnect-store-unavailable", true, PROFILE, PROFILE);
+            let host = FakeHost {
+                observation: healthy(),
+                store_path: store_path.clone(),
+                sabotage_observe: false,
+                sabotage_commit: false,
+                sabotage_stop: false,
+                fail_start: false,
+            };
+            let mut owner =
+                OfflineConnectionOwner::new(host, desired.clone(), &store_path, cutover, uid);
+            match damaged {
+                "missing" => fs::remove_file(&store_path).unwrap(),
+                "malformed" => fs::write(&store_path, b"invalid store").unwrap(),
+                _ => fs::set_permissions(&store_path, fs::Permissions::from_mode(0o644)).unwrap(),
+            }
+            let original = fs::read(&store_path).ok();
+            let (cached, outcome) = applied(
+                owner
+                    .execute(request(OwnerAction::Disconnect, "disconnect-damaged", 0))
+                    .unwrap(),
+            );
+            assert!(!read_desired(&desired, uid).unwrap().connected);
+            assert_eq!(owner.actual(), ActualState::Disconnected);
+            assert_eq!(cached.revision, 1);
+            assert!(outcome.is_err());
+            assert_eq!(fs::read(&store_path).ok(), original);
             fs::remove_dir_all(root).unwrap();
         }
     }

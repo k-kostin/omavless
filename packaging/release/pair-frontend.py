@@ -44,6 +44,7 @@ FRONTEND_DIRS = ('plugin/', 'docs/', 'tests/', 'skills/', 'packaging/release/')
 # Production include_str/include_bytes inputs outside crates. Folder-level
 # frontend/test classification must not hide changes in compiled admission.
 RUNTIME_DATA_FILES = frozenset(('plugin/published-pairs.json',
+                                'plugin/install-package-pair.sh',
                                 'tests/dns_broker_host/package/package-guard',
                                 'tests/dns_broker_host/omavless-dns-broker.service',
                                 'packaging/release/client-features.sh'))

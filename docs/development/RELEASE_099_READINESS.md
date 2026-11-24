@@ -1,7 +1,7 @@
 # 0.9.9 development readiness and release remainder
 
-Reconciled November 2, 2026 against accepted development source
-`ce0d3597f741780e1c6821e5e78ed540eeef755b` ([#843](https://github.com/k-kostin/omavless/pull/843)).
+Reconciled November 24, 2026 against accepted development source
+`0740cb2250be61dc97f98a4bb9d485cf62ac7e22` ([#846](https://github.com/k-kostin/omavless/pull/846)).
 This is the release preparation index, not a public RC freeze or a release.
 Stable main remains `bcd744ecb3c1c61bbfe4a8ab090358b225ce1e76`, publishing
 0.9.8 fix.8 from full source `5edf4eb203926d8bd39a3ff80f611a19435c3787`.
@@ -14,15 +14,69 @@ merged-development push checks, ordinary x86_64 0.9.8-to-0.9.9 update with data
 preservation, and affected installed Help/Settings review. A new exact merged
 source export, offline validation, committed distribution, source-CI admission,
 full Git byte/mode inspection before its first generated bootstrap, and
-post-clean checks also completed. Their original receipts belong to #843;
+post-clean checks also completed. Their original receipts belong to #843 and #846;
 this editorial reconciliation does not repeat or broaden those results.
 
-The native producer selected by the frontend is
-`6159aa66b9a6e9c9a8cfa7c558a6006c5b08070f` for both architectures. Actual app/DNS
+The accepted #846 native producer was
+`c1784e91d05cf5fae7a4282deebcb730bcf1c8cc` for both architectures. Actual app/DNS
 archives, matching pins and corresponding-source inputs were inspected. The
 installed ordinary-update result is x86_64 evidence; archive inspection is not
 an installed ARM64 result. Any later source composition must pass the existing
 [input-equivalence and delivery procedure](../../packaging/release/README.md).
+
+#846 additionally earned the ordinary x86_64 VM reboot/Start journey with VPN
+autoconnect Off, including app startup enabled after a genuine new boot. It did
+not run the physical sleep/network/Tailscale journey. November 24 review fixes
+below change native inputs: the retained producer is not a matching package for
+those corrections, and no installed result is transferred to them.
+
+## Review corrections before final composition
+
+The proposed correction pair selects common native source
+`d0b50bda4c0298f77e87cbfb3e670ad47bdfa279` in [#847](https://github.com/k-kostin/omavless/pull/847).
+Both app and DNS workflows completed on both architectures; all four actual
+archives were inspected, including all 2052 Git files and modes in each DNS
+corresponding-source archive. The frontend pins, inventory and removal allowlist
+select those inspected bytes. The application/core/broker binaries are unchanged
+from the preceding reviewed producer; the integration-test correction changed
+the protected source input and therefore required this new common producer.
+These are unpublished inputs; final source CI, offline composition and affected
+installed acceptance remain separate gates.
+
+The owner selected sequential handling of the November 24 product and workflow
+reviews. The local correction branch starts at the exact accepted source above.
+These are implemented source changes with focused regressions, **not** a new
+merged/installed/public PASS:
+
+- retain keyboard target identity across inventory reordering and clear removed
+  selections instead of substituting a different profile;
+- allow owned Disconnect despite a damaged profile catalog; Full Quit still
+  requires independent fresh clean-host proof;
+- select `product-private-restore` for 0.9.9: normal Backup/Restore remains,
+  developer cut/pause/actor commands are refused before dispatch;
+- copy package bytes through an unprivileged stream, rehash root-private copies
+  after sudo authentication and pass only those copies to pacman, for both
+  clean setup and upgrade;
+- expose the selected pair and startup capabilities in the same durably
+  promoted first session;
+- use the existing cancellable selected-refresh job in both panel entry points,
+  leaving urgent Disconnect available;
+- align panel/TUI core classification through shared synthetic facts, settle
+  completed HTTPS tests when observation disappears, and localize removal
+  confirmations while retaining literal confirmation words and version guards.
+
+Independent product/workflow reviews gave source and metadata GO before the
+CI-test correction; the corrected product PTY matrix additionally has product
+review GO and passing real-CLI controls. The original PR CI failure is retained:
+it expected a developer screen in the restricted Backup build. Complete final-head
+CI and affected installed evidence remain pending. Root admission in source
+custody tests is modelled. A direct installed `package_install` check on the
+existing unpublished 0.9.9 VM can prove that mechanism; it cannot establish clean
+installation, the public 0.9.8-to-0.9.9 updater, or installed ARM acceptance.
+Reuse the existing operating workflow and retention gate: one writer, one
+checkout/cache, one whole budget including failed checks and original outcomes.
+Do not start separate producer cycles for individual findings or substitute
+another audit/framework for completing these gates.
 
 ## Completion matrix
 
@@ -53,7 +107,7 @@ research and historical results do not activate those tracks.
 | 13 | Explicit bounded batch profile checks with progress and cancellation | Retained selected/all probe jobs and TUI Jobs; [probe semantics](PROBE_SEMANTICS.md) and [T2 evidence](../testing/T2_MVP_2026-09-24.md) | Preserve supported-target and unavailable-result limits. Historical negative connected measurements are not positive coverage of every protocol or WG/AWG target. |
 | 14 | Main-panel HTTPS Test and Ping with truthful results | Accepted [#839](https://github.com/k-kostin/omavless/pull/839), including affected EN/RU rendering, keyboard and Off preservation | No new prober or broad network/ARM/physical acceptance claim. |
 | 15 | Own-format YAML import/export and text/template editors | Deferred entirely to 1.0.0 by owner choice | Existing URI/WG import/export, text editing, presets and custom rules remain; no partial YAML plumbing for 0.9.9. |
-| 16 | Complete matching EN/RU guidance, accessible Help and locale routing | Technical guide/Help composition accepted in [#843](https://github.com/k-kostin/omavless/pull/843) | **Open:** owner meaning review of the exact guide pair, then the same authorized stable EN/RU/Help snapshot. Russian Help currently falls back to English. |
+| 16 | Complete matching EN/RU guidance, accessible Help and locale routing | Technical guide/Help composition accepted in [#843](https://github.com/k-kostin/omavless/pull/843); owner approved the exact pair on November 12 | **Open:** activate the review marker in the same authorized stable EN/RU/Help snapshot. Do not ask for the completed reading again. Russian Help retains English fallback until that snapshot. |
 | 17 | Ordinary Tailscale coexistence without manual repairs | Historical conditional [#808](https://github.com/k-kostin/omavless/issues/808) evidence retained | **Hold:** explicit owner-ready physical session. Historical VM configuration and separate GBrain DNS work do not establish this outcome. |
 | 18 | Guided installation/update and reachable all-state removal | Accepted selected Remove UI [#820](https://github.com/k-kostin/omavless/pull/820) and ordinary installed update [#843](https://github.com/k-kostin/omavless/pull/843) | Public download and clean guided installation from the selected public delivery remain distinct. Official repositories/Marketplace are separate channels. |
 | 19 | Existing Backup/Restore reliability and selected KDF hardening | Accepted selected [#838](https://github.com/k-kostin/omavless/pull/838) and inherited Backup/Restore gates | Do not recreate completed workspace/openat work. Retained catalog/recovery research is not automatically a new blocker or a new accepted capability. |
@@ -63,17 +117,19 @@ research and historical results do not activate those tracks.
 | 23 | Complete CI with useful early failures and timings | Required PR/push recipes retained; accepted workflow corrections remain integrated | No measured full-CI speedup or Blaze adoption. Performance experiments cannot waive exact-head checks. |
 | 24 | Bounded storage and justified retention | Operational admission gate before allocation and at closure; [retention policy](README.md#proactive-retention-gate) | Fresh whole accounting and retirement remain necessary. The finite whole allowance is not ordinary 20+5 GiB compliance or authority to delete unknown/private state. |
 | 25 | Useful source carriers and qualified branch/worktree retirement | Operational classification under the [cleanup lifecycle](../roadmap/DEVELOPMENT_WORKFLOW.md#branch-cleanup-lifecycle) | Preserve actual open-PR/base, unique/evidence and active-writer dependencies. A remote ref, local ref and working folder are different cleanup outcomes. |
-| 26 | One truthful final 0.9.9 delivery | Selected development technical composition admitted through [#843](https://github.com/k-kostin/omavless/pull/843) | **Open:** resolve rows 5/16/17 and declare final release/platform scope; then applicable public package/download/install, main, tag/assets and Marketplace gates. Prepared offline pairs are not public delivery. |
+| 26 | One truthful final 0.9.9 delivery | Selected development technical composition admitted through [#846](https://github.com/k-kostin/omavless/pull/846); later review corrections remain separately pending | **Open:** complete the correction composition, rows 5/16/17 and final release/platform scope; then applicable public package/download/install, main and tag/assets gates. Owner excludes Marketplace verification submission. Prepared offline pairs are not public delivery. |
 | 27 | Extra TUIC 0-RTT / Hysteria2 Realm and local handshake timeout | Deferred entirely to 1.0.0 by owner choice | Existing experimental families remain; no unsafe implicit 0-RTT or new provider-controlled tuning. |
 | 28 | Manual core chooser | Deferred entirely to 1.0.0 by owner choice | Ordinary setup/update/version inventory remains. No arbitrary binary path, second unverified pair or decorative selector substituted for the feature. |
 
 ## Exact remaining decisions and proofs
 
-1. **Owner meaning review:** the candidate English guide SHA256 is
+1. **Approved guide pair, activation pending:** the candidate English guide SHA256 is
    `20464ca1574e0e517fcc9c05a95fde6235574ea347ed504c2b028ed847aa1014`;
    Russian is `47824f4fe895466664ba65d3ccafcaf8fab1a355ad1b5440b0d505e9540bba1e`.
    [`GuideLinks.js`](../../plugin/GuideLinks.js) records `humanReview: null`.
-   Technical/model review cannot replace the owner's reading or activate RU.
+   The owner completed meaning review on November 12 ("Руководство ок.").
+   Preserve these exact bytes and activate the marker with the same authorized
+   stable snapshot, not earlier while the RU main destination is unavailable.
 2. **Physical readiness:** obtain the separately selected ordinary sleep/network
    and Tailscale journey on the physical PC. Keep requested host network state
    and the existing authorization boundaries; do not substitute another VM run.
@@ -82,7 +138,8 @@ research and historical results do not activate those tracks.
    [release gates](../roadmap/DEVELOPMENT_WORKFLOW.md#release-reconciliation-checklist).
    Public asset availability and a real public guided install cannot be inherited
    from offline inspection or cache-seeded update. Main, tags/assets and
-   Marketplace each retain their applicable owner authorization.
+   publication retain their applicable owner authorization. Marketplace
+   verification submission is excluded by the owner.
 
 Rows with retained implementation are not a request to rebuild existing features.
 Seven entire owner deferrals are excluded from 0.9.9 blockers, not marked PASS.

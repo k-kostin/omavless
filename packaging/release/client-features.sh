@@ -13,7 +13,7 @@ elif [[ $1 == 0.9.8 ]]; then
 elif [[ $1 == 0.9.9 ]]; then
   # Owner-selected NONPUBLIC development Restore assembly, not release authority.
   # The public 0.9.8 Backup-only restriction above remains dominant/unchanged.
-  printf '%s\n' t4-manager-actor-service,setup-upgrade082
+  printf '%s\n' product-private-restore,setup-upgrade082
 elif [[ $1 == 0.9.8-rc.1 ]]; then
   printf '%s\n' product-private-backup
 fi

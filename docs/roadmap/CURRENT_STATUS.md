@@ -1,14 +1,20 @@
 # Current delivery status
 
-## November 2: 0.9.9 development preparation and release remainder
+## November 24: 0.9.9 review corrections and release remainder
 
 The selected development composition is integrated through
-[#843](https://github.com/k-kostin/omavless/pull/843), source
-`ce0d3597f741780e1c6821e5e78ed540eeef755b`. Its full PR and independent
-merged-push CI, fresh source/distribution admission and ordinary installed
-x86_64 0.9.8-to-0.9.9 update completed with the recorded preservation and
-affected Help/Settings evidence. This is not a public 0.9.9 release or installed
-ARM64 acceptance. Main remains published 0.9.8 fix.8.
+[#846](https://github.com/k-kostin/omavless/pull/846), source
+`0740cb2250be61dc97f98a4bb9d485cf62ac7e22`. Its full PR and independent
+merged-push CI and fresh source/distribution admission completed. Its ordinary
+x86_64 VM reboot/Start checks earned VPN autoconnect-Off behavior, following
+#843's update and Help/Settings evidence. This is not a public 0.9.9 release or
+installed ARM64 acceptance. Main remains published 0.9.8 fix.8.
+
+The November 24 product review identified four P1 and five P2/P3 corrections.
+Their sequential local fixes change native/runtime and UI inputs; independent
+review, complete checks, matching packages and affected installed acceptance
+remain necessary. The old producer cannot be relabelled as containing them.
+The matrix below owns the specific correction and delivery boundaries.
 
 Use the [complete 28-row readiness matrix](../development/RELEASE_099_READINESS.md)
 for current scope, earned evidence and concrete remaining proofs. Selected
@@ -22,11 +28,13 @@ Seven whole owner deferrals are 1.0.0: new Single/Set Close, S1, K1, persistent
 Lockdown, own-format YAML/editors, extra TUIC/Hysteria2 options and manual core
 choice. They are not PASS and no supporting placeholder work replaces them.
 
-Remaining owner-dependent gates are meaning review of the exact EN/RU guide
-pair and the explicit owner-ready physical sleep/network/Tailscale session.
-Russian guide activation remains guarded with English fallback. Final release
-scope, public downloads/guided installation, main, assets and Marketplace remain
-separate from the accepted development result. Support #773 still awaits its
+The owner approved the exact EN/RU guide pair on November 12; do not ask for the
+same reading again. Russian Help activation belongs to the matching authorized
+stable snapshot, with English fallback until then. The explicit owner-ready
+physical sleep/network/Tailscale session remains open. Final release scope,
+public downloads/guided installation, main and assets remain separate from
+accepted development. The owner excludes Marketplace verification/submission
+from 0.9.9. Support #773 still awaits its
 reporter; its missing reply is not missing Remove implementation.
 
 The dated entries below retain their original outcomes and failed/unrun limits;

@@ -22,6 +22,15 @@ for(const name of ['clearNativeTest','finishNativeConnectionTest']){const start=
 c.finishNativeConnectionTest(context,0,JSON.stringify(frame));assert.equal(c.nativeTestStatus,'ok');
 c.clearNativeTest();c.finishNativeConnectionTest(context,0,JSON.stringify(frame));assert.equal(c.nativeTestResult,null);assert.equal(c.nativeTestStatus,'');
 c.nativeTestGeneration=1;c.panelVisible=false;c.finishNativeConnectionTest(context,0,JSON.stringify(frame));assert.equal(c.nativeTestResult,null);
+for(const change of [c=>c.nativeCanAct=false,c=>c.nativeSnapshot=null,c=>c.nativeSnapshot.revision++]) {
+ c.nativeTestGeneration=1;c.panelVisible=true;c.nativeCanAct=true;c.nativeTestStatus='loading';
+ c.nativeSnapshot={instanceId:'instance',revision:7};change(c);
+ c.finishNativeConnectionTest(context,0,JSON.stringify(frame));
+ assert.equal(c.nativeTestStatus,'unavailable','completed current request cannot remain loading');
+ assert.equal(c.nativeTestResult,null);
+}
+c.nativeTestGeneration=2;c.nativeTestStatus='loading';
+c.finishNativeConnectionTest(context,0,JSON.stringify(frame));assert.equal(c.nativeTestStatus,'loading','old generation must not overwrite new request');
 assert(source.includes('property Timer watchdog: Timer'));assert(source.includes('nativeSnapshot.revision !== nativeTestFence.revision'));
 const panel=fs.readFileSync(__dirname+'/../plugin/Panel.qml','utf8');assert(panel.includes('targets.splice(5, 0, nativeTestButton)'));assert(panel.includes('vless.showExitIp'));assert(panel.includes('root.textFor("native.test.scope")'));
 assert(panel.slice(panel.indexOf('function panelTabTargets()'),panel.indexOf('function availablePanelTabTargets()')).includes('nativeExitIpSetting.focusTarget'));

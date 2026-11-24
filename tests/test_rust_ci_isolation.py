@@ -246,11 +246,12 @@ class RustCiIsolationTests(unittest.TestCase):
 
     def without_terminal_return_cli(self, commands):
         selected = [row for row in commands if "developer_terminal_pty_" in row]
-        self.assertEqual(len(selected), 4)
+        self.assertEqual(len(selected), 5)
         expected = []
         for features in (None, "developer-conditional-close",
                          "product-image-witness,t4-manager-actor-service,setup-upgrade082",
-                         "product-private-backup,product-image-witness,setup-upgrade082"):
+                         "product-private-backup,product-image-witness,setup-upgrade082",
+                         "product-private-restore,product-image-witness,setup-upgrade082"):
             profile = (["--config", "profile.test.package.sha2.opt-level=3",
                         "--config", "profile.test.package.sha2.debug-assertions=true",
                         "--config", "profile.test.package.sha2.overflow-checks=true"]
@@ -265,14 +266,14 @@ class RustCiIsolationTests(unittest.TestCase):
 
     def assert_terminal_return_crypto_profile(self, commands):
         selected = [row for row in commands if "developer_terminal_pty_" in row]
-        self.assertEqual(len(selected), 4)
+        self.assertEqual(len(selected), 5)
         expected = ["--config", "profile.test.package.sha2.opt-level=3",
                     "--config", "profile.test.package.sha2.debug-assertions=true",
                     "--config", "profile.test.package.sha2.overflow-checks=true"] + ARGON2_TEST_PROFILE
         for row in selected:
             self.assertEqual(row[2:14], expected)
 
-    def test_terminal_return_cli_is_discovered_in_all_four_configurations(self):
+    def test_terminal_return_cli_is_discovered_in_all_five_configurations(self):
         result, commands = self.runner_trace()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.without_terminal_return_cli(commands)
@@ -430,6 +431,17 @@ class RustCiIsolationTests(unittest.TestCase):
     def test_static_preflight_precedes_all_execution_without_changing_commands(self):
         result, commands = self.runner_trace()
         self.assertEqual(result.returncode, 0, result.stderr)
+        # Public Restore is an additional artifact configuration. Preserve the
+        # original recipe below after independently requiring all new gates.
+        # PTY Restore+Image belongs to the separately exact five-entry matrix.
+        restore = [row for row in commands if "--features" in row
+                   and "developer_terminal_pty_" not in row
+                   and row[row.index("--features") + 1].startswith("product-private-restore")]
+        self.assertEqual(len(restore), 4)
+        self.assertEqual([row[1] for row in restore], ["clippy", "test", "test", "test"])
+        self.assertEqual([row[-1] for row in restore[1:]],
+                         ["product_scope", "product_restore_socket_refuses", "normal_pair_promoted_candidate"])
+        commands = [row for row in commands if row not in restore]
         static = [c for c in commands if c[:2] in
                   [["cargo", "fmt"], ["cargo", "clippy"], ["cargo", "check"]]
                   or c[0] == "rustfmt"]
@@ -479,6 +491,9 @@ class RustCiIsolationTests(unittest.TestCase):
                 command = command[:2] + command[2 + len(profile):]
             self.assertFalse(any("profile." in arg for arg in command))
             normalized.append(command)
+        normalized = [row for row in normalized if not ("--features" in row
+                      and "developer_terminal_pty_" not in row
+                      and row[row.index("--features") + 1].startswith("product-private-restore"))]
         normalized = self.without_startup_scheduling(normalized, DISCONNECT_CANCEL_TEST)
         normalized = self.without_startup_scheduling(normalized)
         normalized = self.without_close_acceptance(normalized)
@@ -525,7 +540,7 @@ class RustCiIsolationTests(unittest.TestCase):
         self.assertEqual(commands[-1][:2], ["cargo", "test"])
         self.assertFalse(any(c[:2] in [["cargo", "test"], ["cargo", "build"],
                                      ["cargo", "run"]] for c in commands[:-1]))
-        self.assertRegex(result.stderr, r"OVT_CHECK_END test-auxiliary-inventory-15 elapsed_s=\d+ exit=17")
+        self.assertRegex(result.stderr, r"OVT_CHECK_END test-auxiliary-inventory-16 elapsed_s=\d+ exit=17")
 
     def test_auxiliary_inventory_failure_stops_before_parallel_tests(self):
         result, commands = self.runner_trace(fail_auxiliary_inventory=True)
@@ -534,7 +549,7 @@ class RustCiIsolationTests(unittest.TestCase):
                          [AUXILIARY_TEARDOWN_TEST, "--", "--exact", "--test-threads=1"])
         self.assertEqual(sum(c[:2] == ["cargo", "test"] for c in commands), 1)
         self.assertRegex(result.stderr,
-                         r"OVT_CHECK_END test-auxiliary-inventory-15 elapsed_s=\d+ exit=21")
+                         r"OVT_CHECK_END test-auxiliary-inventory-16 elapsed_s=\d+ exit=21")
 
     def test_auxiliary_normalization_rejects_missing_or_parallel_execution(self):
         result, commands = self.runner_trace()

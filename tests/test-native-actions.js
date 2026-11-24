@@ -193,6 +193,12 @@ test('actual Service refuses unsupported, missing or stale action admission', ()
     assert.equal(c.nativePending,null);
   }
 });
+test('a retained cancellable subscription job does not occupy urgent Disconnect', () => {
+  const c=serviceHarness();
+  c.nativeBatchBusy=true;c.nativeBatchJob={kind:'subscriptions',subscriptionId:'subscription-one',state:'running',cancellable:true};
+  assert.equal(c.nativeCanStop,true);assert.equal(c.requestNativeAction('disconnect','',''),true);
+  assert.equal(c.nativeActionProcess.command[2],'native-disconnect');
+});
 test('actual Service unknown-outcome retry preserves the entire original command identity', () => {
   const c=serviceHarness();assert.equal(c.requestNativeAction('connect','profile-one','global'),true);
   const pendingBefore=JSON.stringify(c.nativePending), commandBefore=JSON.stringify(c.nativeActionProcess.command);
@@ -203,6 +209,20 @@ test('actual Service unknown-outcome retry preserves the entire original command
   assert.equal(JSON.stringify(c.nativePending),pendingBefore);
   assert.equal(JSON.stringify(c.nativeActionProcess.command),commandBefore);
   assert.equal(c._nativeOperationSerial,1);
+});
+test('failed profile snapshot preserves explicit Disconnect using independent runtime observation', () => {
+  for(const cached of [true,false]) {
+    const c=serviceHarness();c.nativeSnapshotFailed=true;
+    c.nativeObservation.revision=7;
+    if(!cached)c.nativeSnapshot=null;
+    assert.equal(c.nativeCanAct,false);
+    assert.equal(c.requestNativeAction('disconnect','',''),true);
+    assert.equal(c.nativePending.instanceId,'instance-one');
+    assert.equal(c.nativePending.revision,7);
+    assert.equal(c.nativeActionProcess.command[4],'7');
+  }
+  const c=serviceHarness();c.nativeSnapshotFailed=true;c.nativeObservation=null;
+  assert.equal(c.requestNativeAction('disconnect','',''),false);
 });
 test('recovery and missing controller observations retain only the explicit stop request', () => {
   for(const observation of [null, {availability:'unavailable'}, {manualRecoveryRequired:true}]) {
@@ -215,8 +235,10 @@ test('recovery and missing controller observations retain only the explicit stop
     assert.equal(c.requestNativeAction('disconnect','',''),false);
   }
 });
-test('stop still requires snapshot authority and settled mutation outcome', () => {
-  for(const mutate of [c=>c.nativeOwner=false,c=>c.nativeSnapshotFailed=true,c=>c.nativeSnapshot=null,
+test('stop still requires runtime authority and settled mutation outcome', () => {
+  for(const mutate of [c=>c.nativeOwner=false,
+    c=>{c.nativeSnapshotFailed=true;c.nativeObservation=null},
+    c=>{c.nativeSnapshot=null;c.nativeObservation.availability='unavailable'},
     c=>c.nativePending={},c=>c.nativeQuitting=true,c=>c.nativeActionProcess.running=true,c=>c.nativeOutcomeUnknown=true]) {
     const c=serviceHarness();mutate(c);
     assert.equal(c.requestNativeAction('disconnect','',''),false);
