@@ -69,8 +69,13 @@ Item {
     return true
   }
   function finishNativeConnectionTest(context, code, raw) {
-    if (context.generation !== nativeTestGeneration || !panelVisible || !nativeCanAct
-        || context.instanceId !== nativeSnapshot.instanceId || context.revision !== nativeSnapshot.revision) return
+    if (context.generation !== nativeTestGeneration) return
+    if (!panelVisible || !nativeCanAct || !nativeSnapshot
+        || context.instanceId !== nativeSnapshot.instanceId || context.revision !== nativeSnapshot.revision) {
+      nativeTestResult = null
+      nativeTestStatus = "unavailable"
+      return
+    }
     nativeTestResult = code === 0 ? NativeSnapshot.connectionTest(raw, context) : null
     nativeTestStatus = nativeTestResult ? nativeTestResult.https ? "ok" : "failed" : "unavailable"
   }
