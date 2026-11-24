@@ -9,8 +9,9 @@ the new full-source home; main remains the generated stable user distribution.
 Historical preparation below does not reopen the completed delivery or grant
 permission for another release.
 
-The source-lane successor proposes full push Test on development, all PRs and
-tags. Its exact workflow blob and exporter trust pin must be independently
+The source lane runs full push Test on development and tags; PRs use the
+[reviewed check allocation](../../docs/roadmap/DEVELOPMENT_WORKFLOW.md#developer-markdown-pr-allocation).
+Its exact workflow blob and exporter trust pin must be independently
 reviewed together. Generated user Distribution workflow/bootstrap stay
 unchanged. Actual new exact-head push/source-bootstrap admission is a separate
 required check after the lane is integrated, not inferred from unit fixtures
@@ -179,10 +180,12 @@ Offline verification proves committed-file selection, native-input equivalence,
 the paired architecture/hash metadata, helper pin, link closure and exact tree
 bytes/modes. It is not a package download/installation or ARM acceptance.
 `--source-ci` additionally requires GitHub's completed successful full-source
-push workflow for the exact head, including both isolated and Rust steps. PR
+development-branch push workflow for the exact head, including both isolated
+and Rust steps and the branch-only confirmation step. PR
 runs are not accepted as proof of the actual workflow-definition identity. The reviewed
 workflow blob and explicit head checkout are enforced; a display name or a
-caller-written success receipt is insufficient. API failures refuse.
+caller-written success receipt is insufficient. Tag pushes, including a tag
+named `development`, do not provide the branch-only step. API failures refuse.
 
 The generated stable workflow fetches that immutable full source, then a fixed
 bootstrap verifies every executable/imported validator member against the

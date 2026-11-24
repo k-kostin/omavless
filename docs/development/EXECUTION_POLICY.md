@@ -57,7 +57,7 @@ waives them. Evaluate a permanent process change separately from a bounded trial
 | Stage | Purpose and required scope |
 | --- | --- |
 | Focused local iteration | Run formatting, compilation and tests materially affected by the patch to obtain early feedback. Select actual test namespaces and verify nonzero case counts. |
-| Full hosted integration gate | Earn the current workflow's complete exact-head checks before ordinary integration, and its independent exact development push proof before source export/admission. A local result does not replace either obligation. |
+| Hosted integration gate | Earn the current workflow's exact-head checks before integration. The [bounded developer-Markdown PR allocation](../roadmap/DEVELOPMENT_WORKFLOW.md#developer-markdown-pr-allocation) retains all isolated checks and may omit PR Rust. Every independent development push remains full before source export/admission. A local result replaces neither obligation. |
 | Purposeful full local run | Use a complete local run for a declared preflight, CI reproduction or measurement when the expected benefit justifies its cost; it is not an automatic duplicate of every hosted matrix. |
 
 Use the project's pinned toolchain in both environments and verify the actual
@@ -76,7 +76,8 @@ configuration or deadline-sensitive behavior. Keep assertions, configuration
 coverage, fault cases and security parameters; reject shortcuts that omit them.
 Prefer no optimization over a new permanent mechanism with no demonstrated
 material benefit. Current CI gates stay in force until a reviewed successor
-changes them, including for documentation-only PRs.
+changes them. The November24 developer-Markdown PR allocation is the narrow
+exception; workflow, classifier, tests and product changes remain full.
 
 #### Producer and final integration checkpoints
 

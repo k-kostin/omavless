@@ -435,11 +435,13 @@ curl() {
     def api_fixture(self, run_change=None, step_change=None):
         run = {'id': 123, 'workflow_id': 99, 'run_attempt': 1, 'head_sha': self.sha,
                'head_repository': {'full_name': EXPORT.REPO}, 'path': '.github/workflows/test.yml',
-               'status': 'completed', 'conclusion': 'success', 'event': 'push'}
+               'status': 'completed', 'conclusion': 'success', 'event': 'push',
+               'head_branch': 'development'}
         run.update(run_change or {})
         job = {'name': 'test', 'conclusion': 'success', 'steps': [
             {'name': name, 'conclusion': (step_change or {}).get(name, 'success')}
-            for name in ('Run isolated checks', 'Run Rust workspace and parity checks')]}
+            for name in ('Run isolated checks', 'Run Rust workspace and parity checks',
+                         'Confirm development push source')]}
         def response(path):
             if path == 'actions/workflows/test.yml':
                 return {'id': 99}
@@ -458,8 +460,17 @@ curl() {
             self.assertEqual(EXPORT.verify(self.repo, self.output, True), 123)
         for change in ({'head_sha': self.producer}, {'head_repository': {'full_name': 'other/repo'}},
                        {'workflow_id': 98}, {'path': '.github/workflows/other.yml'},
-                       {'status': 'in_progress'}, {'conclusion': 'cancelled'}, {'event': 'pull_request'}):
+                       {'status': 'in_progress'}, {'conclusion': 'cancelled'}, {'event': 'pull_request'},
+                       {'head_branch': 'v0.9.9'}, {'head_branch': None}):
             with self.subTest(change=change), patch.object(EXPORT, 'api', side_effect=self.api_fixture(change)):
+                with self.assertRaises(ValueError):
+                    EXPORT.verify(self.repo, self.output, True)
+        # Even a tag named "development" cannot provide the branch-only step.
+        for change, steps in (
+                ({'head_branch': 'development'}, {'Confirm development push source': 'skipped'}),
+                ({'event': 'pull_request'}, {'Run Rust workspace and parity checks': 'skipped'})):
+            with self.subTest(change=change, steps=steps), patch.object(
+                    EXPORT, 'api', side_effect=self.api_fixture(change, steps)):
                 with self.assertRaises(ValueError):
                     EXPORT.verify(self.repo, self.output, True)
         with patch.object(EXPORT, 'api', side_effect=self.api_fixture(step_change={'Run Rust workspace and parity checks': 'skipped'})):

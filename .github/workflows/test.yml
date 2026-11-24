@@ -9,8 +9,8 @@ on:
 permissions:
   contents: read
 
-# New PR commits supersede old CI evidence; keep the full latest-head gate,
-# without four simultaneous rebuilds of an unchanged Rust feature matrix.
+# New PR commits supersede old evidence. Developer Markdown PRs retain all
+# isolated checks; development pushes and tags always retain the Rust matrix.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -22,10 +22,33 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
           persist-credentials: false
+      - name: Select PR check scope
+        id: scope
+        if: github.event_name == 'pull_request'
+        env:
+          EVENT_BASE: ${{ github.event.pull_request.base.sha }}
+          EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          scope_script=$(mktemp "$RUNNER_TEMP/ov-ci-scope.XXXXXX.py")
+          trap 'rm -f -- "$scope_script"' EXIT
+          # Execute the accepted base classifier, never the candidate's copy.
+          if [[ $EVENT_BASE =~ ^[0-9a-f]{40}$ && $EVENT_HEAD =~ ^[0-9a-f]{40}$ ]] &&
+             git show "$EVENT_BASE:tests/ci_scope.py" > "$scope_script"; then
+            python3 -I -B "$scope_script" "$EVENT_BASE" "$EVENT_HEAD" | tee -a "$GITHUB_OUTPUT"
+          else
+            printf '%s\n' 'rust_required=true' 'reason=base_classifier_unavailable' | tee -a "$GITHUB_OUTPUT"
+          fi
+      - name: Confirm development push source
+        if: github.event_name == 'push' && github.ref == 'refs/heads/development'
+        run: test "$GITHUB_EVENT_NAME" = push && test "$GITHUB_REF" = refs/heads/development
       - name: Run isolated checks
         run: ./tests/run.sh
       - name: Run Rust workspace and parity checks
+        if: github.event_name != 'pull_request' || steps.scope.outputs.rust_required != 'false'
         run: |
           command -v dbus-daemon >/dev/null || { echo "dbus-daemon is required for isolated DNS conformance tests" >&2; exit 1; }
           ./tests/run-rust.sh

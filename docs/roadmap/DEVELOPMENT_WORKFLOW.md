@@ -251,7 +251,8 @@ duplicate workflow: open the Draft PR at the first meaningful checkpoint to
 obtain cloud evidence. Until then, run affected local checks according to the
 [local/hosted allocation](../development/EXECUTION_POLICY.md#local-and-hosted-check-allocation);
 a full local Rust run needs a declared purpose, not an automatic duplicate of
-hosted CI. Every later PR synchronization runs both full hosted gates. Use the
+hosted CI. Every later PR synchronization runs the exact-head isolated gate.
+Rust also runs except for the bounded developer-Markdown case below. Use the
 [producer/final checkpoint procedure](../development/EXECUTION_POLICY.md#producer-and-final-integration-checkpoints)
 for early whole-surface review and actual native/export preflights; it does not
 skip automatic Draft checks or replace the independent development push proof.
@@ -269,13 +270,37 @@ while a heavy run is active instead of repeatedly replacing it with identical
 build work. This describes the selected source; an unmerged implementation is
 not thereby present on public main. See the [execution policy](../development/EXECUTION_POLICY.md#4-risk-proportionate-review-and-exact-head-gates).
 
-No path filters or Draft skips are used, so documentation and workflow changes
-retain the same checks. Keep the existing `test` job name and read-only token
+No event path filters or Draft skips are used. Keep the existing `test` job name and read-only token
 permissions; do not replace `pull_request` with privileged
 `pull_request_target`. Merged development and source-tag Test checks remain
 independent of the PR check; user main does not run Cargo. This reduces duplicate runs, not acceptance coverage or
 exact-head host gates. Branch/tag filter semantics follow the
 [GitHub workflow contract](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#onpushbranchestagsbranches-ignoretags-ignore).
+
+#### Developer-Markdown PR allocation
+
+Owner-directed process follow-up, November24: a PR may omit its Rust step only
+when the complete trees of its exact event base and checked-out head differ
+solely in the regular, non-executable Markdown instruction files enumerated by
+[`tests/ci_scope.py`](../../tests/ci_scope.py). User guides, tests, build inputs,
+workflow/classifier changes and unknown paths retain full Rust. Compare base to
+head directly, not their merge base; check both sides of deletions/renames and
+mode changes. An empty/unknown diff or unavailable metadata selects full Rust.
+
+Before candidate tests run, execute only the classifier read from the accepted
+event base. A missing base classifier selects full Rust. Skip only on an explicit
+`rust_required=false`; missing output cannot skip. Keep the decision reason and
+the actual `skipped` Rust conclusion visible. All isolated checks still execute
+on the exact PR head. This changes PR evidence, not the implementation or result
+of a skipped Rust matrix; content review of instruction changes still applies.
+
+Development pushes and tags always run the complete Rust matrix. Source admission
+additionally requires a successful **development-branch** push, both test steps
+and the trusted workflow's branch-only confirmation step. Neither a lightweight
+PR nor a tag (even named `development`) supplies merged-push evidence. Changing
+this policy/classifier/workflow requires full PR Rust and joint review of the
+workflow blob, exporter and validator pins. Remove any allowlisted Markdown file
+from the exception if it becomes a compiled or package input.
 
 ### Draft / cloud work
 

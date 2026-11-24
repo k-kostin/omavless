@@ -27,7 +27,7 @@ SHA = r'[0-9a-f]{40}'
 DIGEST = r'[0-9a-f]{64}'
 # Reviewed complete full-source workflow, not merely a job display name.
 # A workflow change needs an explicit corresponding trust-policy review.
-SOURCE_WORKFLOW_BLOB = '79e65ac74a89604158818d55fc2a0d7de9888d94'
+SOURCE_WORKFLOW_BLOB = '8ff26fc461083265c356801238a5395a50fc4788'
 RECORD = 'distribution.json'
 TOOLS = ('packaging/release/export-distribution.py',
          'packaging/release/pair-frontend.py', 'packaging/release/build-candidate.py',
@@ -419,7 +419,8 @@ def check_ci(root, sha, record):
         if (run.get('head_sha') != sha or run.get('workflow_id') != workflow_id
                 or (run.get('head_repository') or {}).get('full_name') != REPO
                 or run.get('path') != '.github/workflows/test.yml' or run.get('status') != 'completed'
-                or run.get('conclusion') != 'success' or run.get('event') != 'push'):
+                or run.get('conclusion') != 'success' or run.get('event') != 'push'
+                or run.get('head_branch') != 'development'):
             continue
         jobs = api('actions/runs/' + str(int(run['id'])) + '/attempts/' + str(int(run['run_attempt'])) + '/jobs?per_page=100')
         if jobs.get('total_count') != 1 or len(jobs.get('jobs', [])) != 1:
@@ -428,7 +429,8 @@ def check_ci(root, sha, record):
         steps = {step.get('name'): step.get('conclusion') for step in job.get('steps', [])}
         if (job.get('name') == 'test' and job.get('conclusion') == 'success'
                 and steps.get('Run isolated checks') == 'success'
-                and steps.get('Run Rust workspace and parity checks') == 'success'):
+                and steps.get('Run Rust workspace and parity checks') == 'success'
+                and steps.get('Confirm development push source') == 'success'):
             # Bind the checked source workflow blob independently of its display name.
             remote = api('contents/.github/workflows/test.yml?ref=' + sha)
             if remote.get('sha') == record['sourceWorkflowBlob']:

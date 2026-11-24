@@ -475,11 +475,15 @@ for (const rule of ['proposed means, not automatically the right technical decis
   assert(judgment.includes(rule), 'retain engineering judgment boundary: ' + rule);
 }
 assert(judgment.includes('#### Local and hosted check allocation'));
-for (const rule of ['Focused local iteration', 'Full hosted integration gate',
+for (const rule of ['Focused local iteration', 'Hosted integration gate',
   'Purposeful full local run', 'not an automatic duplicate',
   'actual selected compiler version', 'original run/attempt']) {
   assert(judgment.includes(rule), 'retain deliberate local/hosted allocation: ' + rule);
 }
+assert(judgment.includes('#developer-markdown-pr-allocation)'),
+  'the narrowed PR allocation must route to its single policy owner');
+assert(anchors(fs.readFileSync(path.join(root, 'docs/roadmap/DEVELOPMENT_WORKFLOW.md'), 'utf8'))
+  .has('developer-markdown-pr-allocation'));
 // Discovery/retention only, not evidence that preflights happened or CI sped up.
 const retention = fs.readFileSync(path.join(root, 'docs/development/README.md'), 'utf8');
 assert(guide.includes('](README.md#compact-operational-checkpoints)'),
