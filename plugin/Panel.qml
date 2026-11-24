@@ -2981,7 +2981,7 @@ Panel {
             spacing: Style.space(8)
             Button { id: nativeSubscriptionTest; text: root.textFor("native.probe.test"); focusable: true; bordered: true; enabled: vless.nativeCanAct && !vless.nativeBatchBusy && !vless.nativeBatchRequestRunning && root.nativeSubscription !== null && root.nativeView.profiles.some(function(p) { return p.subscriptionId === root.nativeSubscriptionId && !p.missing }); onClicked: vless.startNativeBatch("probe", root.nativeSubscriptionId) }
             Button { id: nativeSubscriptionSort; text: root.textFor("native.probe.sort") + (root.subscriptionSortMode(root.nativeSubscriptionId) === "pingDesc" ? " ↓" : " ↑"); focusable: true; bordered: true; enabled: root.nativeView.profiles.some(function(p) { return p.subscriptionId === root.nativeSubscriptionId && vless.probeResult(p.id) !== null }); onClicked: root.sortNativeProbeResults() }
-            Button { id: nativeSubscriptionRefresh; text: root.textFor("common.refresh"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSubscription !== null; onClicked: vless.requestNativeSubscriptionAction("subscription-refresh", root.nativeSubscriptionId, "", "") }
+            Button { id: nativeSubscriptionRefresh; text: root.textFor("common.refresh"); focusable: true; bordered: true; enabled: vless.nativeCanAct && !vless.nativeBatchBusy && root.nativeSubscription !== null; onClicked: vless.startNativeBatch("subscriptions", root.nativeSubscriptionId) }
             Button { id: nativeSubscriptionUsage; text: root.textFor("usage.check"); focusable: true; bordered: true; enabled: vless.nativeSubscriptionUsageEligible && !vless.nativeSubscriptionUsageBusy && root.nativeSubscription !== null; opacity: enabled ? 1 : 0.45; onClicked: root.openNativeUsage() }
             Button { id: nativeSubscriptionEdit; text: root.textFor("common.edit"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSubscription !== null && !vless.nativeSubscriptionLoading && !vless.nativeSubscriptionDraft; onClicked: root.editSubscription(root.nativeSubscription) }
             Button { id: nativeSubscriptionDelete; text: root.textFor("common.delete"); focusable: true; bordered: true; enabled: vless.nativeCanAct && root.nativeSubscription !== null; onClicked: root.requestNativeSubscriptionDelete(root.nativeSubscription) }
@@ -3133,7 +3133,7 @@ Panel {
                       hoverColor: Commons.Color.accent
                       focusable: true
                       enabled: !nativeRow.isProfile && vless.nativeCanAct && !vless.nativeBatchBusy
-                      onClicked: if (enabled) vless.requestNativeSubscriptionAction("subscription-refresh", nativeRow.modelData.subscription.id, "", "")
+                      onClicked: if (enabled) vless.startNativeBatch("subscriptions", nativeRow.modelData.subscription.id)
                     }
                   }
                   PlainText {

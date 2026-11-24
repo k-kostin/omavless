@@ -254,7 +254,7 @@ function parseOperation(raw, job, kind) {
     if (!object(p, ["api", "version", "id", "ok", "revision", "result"]) || p.ok !== true
         || !object(p.result, kind === "cancel" ? ["accepted", "operation"] : ["operation"])
         || (kind === "cancel" && typeof p.result.accepted !== "boolean")) return null
-    var o = p.result.operation, method = job.kind === "subscriptions" ? "subscriptions.refresh_all" : job.kind === "providers" ? "routing.refresh_providers" : job.kind === "probe" ? "subscriptions.probe" : ""
+    var o = p.result.operation, method = job.kind === "subscriptions" ? (job.subscriptionId ? "subscriptions.refresh_selected" : "subscriptions.refresh_all") : job.kind === "providers" ? "routing.refresh_providers" : job.kind === "probe" ? "subscriptions.probe" : ""
     var operationKeys = ["instanceId", "operationId", "method", "state", "baseRevision", "outcomeRevision", "progress", "cancelRequested", "cancellable", "error"]
     var summary = o.importSummary === undefined ? null : parseImportSummary(o.importSummary)
     if (o.importSummary !== undefined && (summary === null || job.kind !== "subscriptions" || o.state !== "succeeded")) return null
@@ -264,6 +264,7 @@ function parseOperation(raw, job, kind) {
         || !number(o.baseRevision, 9007199254740991) || o.baseRevision !== job.revision
         || ["queued", "running", "succeeded", "failed", "cancelled"].indexOf(o.state) < 0
         || !object(o.progress, ["completed", "total"]) || !number(o.progress.total, job.kind === "subscriptions" ? 64 : 256)
+        || (job.kind === "subscriptions" && job.subscriptionId && o.progress.total !== 1)
         || !number(o.progress.completed, o.progress.total) || typeof o.cancelRequested !== "boolean" || typeof o.cancellable !== "boolean") return null
     var terminal = ["succeeded", "failed", "cancelled"].indexOf(o.state) >= 0
     if (terminal ? !number(o.outcomeRevision, 9007199254740991) || o.outcomeRevision < o.baseRevision || o.cancellable

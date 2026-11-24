@@ -39,6 +39,10 @@ if command -v omavless >/dev/null 2>&1; then
           [ "$#" -eq 5 ] || blocked
           exec omavless subscription probe "$2" "$3" "$4" "$5"
           ;;
+        native-subscriptions-refresh-selected)
+          [ "$#" -eq 5 ] || blocked
+          exec omavless subscription refresh-selected "$2" "$3" "$4" "$5"
+          ;;
         native-subscription-probe-results)
           [ "$#" -eq 3 ] || blocked
           exec omavless subscription probe-results "$2" "$3"

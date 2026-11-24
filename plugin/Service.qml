@@ -392,6 +392,8 @@ Item {
 
   function startNativeBatch(kind, subscriptionId) {
     if (!nativeCanAct || nativeBatchBusy || nativeBatchRequestRunning || ["subscriptions", "providers", "probe"].indexOf(kind) < 0) return false
+    if (kind === "subscriptions" && subscriptionId && (!NativeSnapshot.id(subscriptionId, false)
+        || !nativeSnapshot.subscriptions.some(function(s) { return s.id === subscriptionId }))) return false
     var profileIds = []
     if (kind === "probe") {
       if (!NativeSnapshot.id(subscriptionId, false) || !nativeSnapshot.subscriptions.some(function(s) { return s.id === subscriptionId })) return false
@@ -403,7 +405,7 @@ Item {
     nativeBatchJob = {kind:kind, instanceId:nativeSnapshot.instanceId, operationId:operation,
       revision:nativeSnapshot.revision, state:"starting", completed:0, total:0, cancellable:false,
       cancelRequested:false, terminal:false, acknowledged:false, errorCode:"",
-      subscriptionId:kind === "probe" ? subscriptionId : "", profileIds:profileIds}
+      subscriptionId:kind === "probe" || kind === "subscriptions" ? subscriptionId || "" : "", profileIds:profileIds}
     _nativeBatchFailures = 0; _nativeBatchPolls = 0
     nativeBatchUnknown = false; nativeBatchErrorCode = ""
     return runNativeBatchRequest("start")
@@ -417,9 +419,9 @@ Item {
       nativeBatchUnknown = true; nativeBatchErrorCode = "error.daemon_restarting"; return false
     }
     nativeBatchPoll.stop()
-    var command = ["bash", backendPath, kind === "start" ? (job.kind === "subscriptions" ? "native-subscriptions-refresh-all" : job.kind === "probe" ? "native-subscription-probe" : "native-providers-refresh")
+    var command = ["bash", backendPath, kind === "start" ? (job.kind === "subscriptions" ? (job.subscriptionId ? "native-subscriptions-refresh-selected" : "native-subscriptions-refresh-all") : job.kind === "probe" ? "native-subscription-probe" : "native-providers-refresh")
       : kind === "get" ? "native-operation-get" : kind === "results" ? "native-subscription-probe-results" : "native-operation-cancel", job.instanceId, job.operationId]
-    if (kind === "start") { if (job.kind === "probe") command.push(job.subscriptionId); command.push(String(job.revision)) }
+    if (kind === "start") { if (job.kind === "probe" || (job.kind === "subscriptions" && job.subscriptionId)) command.push(job.subscriptionId); command.push(String(job.revision)) }
     _nativeBatchProcess = nativeBatchComponent.createObject(root, {command:command, requestKind:kind, operation:job.operationId})
     if (!_nativeBatchProcess) { nativeBatchUnknown = true; nativeBatchErrorCode = "error.capability_unavailable"; return false }
     _nativeBatchProcess.running = true

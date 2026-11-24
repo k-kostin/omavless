@@ -542,7 +542,7 @@ test('subscription detail navigation is local and clears search without changing
 test('two equal-name subscriptions isolate detail search servers and action targets by id',()=>{
   const c=context();c.nativeView.subscriptions.push({id:'sub-two',name:'Synthetic'});
   c.nativeView.profiles.push({...managed,id:'managed-two',subscriptionId:'sub-two',name:'Match two'});
-  const actions=[];c.vless.requestNativeSubscriptionAction=(...args)=>actions.push(args);c.vless.startNativeSubscription=(...args)=>actions.push(args);
+  const actions=[];c.vless.requestNativeSubscriptionAction=(...args)=>actions.push(args);c.vless.startNativeSubscription=(...args)=>actions.push(args);c.vless.startNativeBatch=(...args)=>actions.push(args);
   for(const [id,server] of [['sub','managed'],['sub-two','managed-two']]){
     assert(c.browseNativeSubscription(id));assert.equal(c.nativeSubscription.id,id);assert.equal(c.nativeRows.length,1);assert.equal(c.nativeRows[0].profile.id,server);
     c.profileFilter='MATCH';assert.equal(c.nativeRows.length,1);c.profileFilter='Local';assert.equal(c.nativeRows.length,0);c.profileFilter='';
@@ -582,10 +582,10 @@ test('main subscription refresh targets its own group without navigation or prof
   const enabled=button.match(/enabled: ([^\n]+)/)[1],clicked=button.match(/onClicked: ([^\n]+)/)[1];
   for(const id of ['sub','sub-two'])for(const available of [true,false])for(const batch of [true,false])for(const leaf of [true,false]){
     const calls=[],c=vm.createContext({nativeRow:{isProfile:leaf,modelData:{subscription:{id,name:'Same name'}}},
-      vless:{nativeCanAct:available,nativeBatchBusy:batch,requestNativeSubscriptionAction:(...args)=>calls.push(args)},
+      vless:{nativeCanAct:available,nativeBatchBusy:batch,startNativeBatch:(...args)=>calls.push(args)},
       nativeSubscriptionId:'different-detail',nativeSelectedProfile:'unrelated-profile'});
     c.enabled=vm.runInContext(enabled,c);vm.runInContext(clicked,c);
-    assert.deepEqual(calls,available&&!batch&&!leaf?[['subscription-refresh',id,'','']]:[]);
+    assert.deepEqual(calls,available&&!batch&&!leaf?[['subscriptions',id]]:[]);
     assert.equal(c.nativeSubscriptionId,'different-detail');assert.equal(c.nativeSelectedProfile,'unrelated-profile');
   }
 });

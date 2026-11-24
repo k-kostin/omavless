@@ -292,6 +292,7 @@ exec /usr/bin/cat
             ("native-subscription-probe", ["instance", "op", "10000000-0000-4000-8000-000000000001", "4"], ["subscription", "probe"]),
             ("native-subscription-probe-results", ["instance", "op"], ["subscription", "probe-results"]),
             ("native-subscriptions-refresh-all", ["instance", "op", "4"], ["subscription", "refresh-all"]),
+            ("native-subscriptions-refresh-selected", ["instance", "op", "10000000-0000-4000-8000-000000000001", "4"], ["subscription", "refresh-selected"]),
             ("native-providers-refresh", ["instance", "op", "4"], ["routing", "refresh-providers"]),
             ("native-operation-get", ["instance", "op"], ["operation", "get"]),
             ("native-operation-cancel", ["instance", "op"], ["operation", "cancel"]),

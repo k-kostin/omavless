@@ -193,6 +193,12 @@ test('actual Service refuses unsupported, missing or stale action admission', ()
     assert.equal(c.nativePending,null);
   }
 });
+test('a retained cancellable subscription job does not occupy urgent Disconnect', () => {
+  const c=serviceHarness();
+  c.nativeBatchBusy=true;c.nativeBatchJob={kind:'subscriptions',subscriptionId:'subscription-one',state:'running',cancellable:true};
+  assert.equal(c.nativeCanStop,true);assert.equal(c.requestNativeAction('disconnect','',''),true);
+  assert.equal(c.nativeActionProcess.command[2],'native-disconnect');
+});
 test('actual Service unknown-outcome retry preserves the entire original command identity', () => {
   const c=serviceHarness();assert.equal(c.requestNativeAction('connect','profile-one','global'),true);
   const pendingBefore=JSON.stringify(c.nativePending), commandBefore=JSON.stringify(c.nativeActionProcess.command);
