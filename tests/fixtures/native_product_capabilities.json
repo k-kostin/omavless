@@ -1,0 +1,25 @@
+{
+  "runtimeOwnership": true,
+  "mutations": true,
+  "methods": [
+    "system.hello", "status.get", "capabilities.get",
+    "runtime.connection_test", "runtime.traffic", "stats.get",
+    "runtime.connections", "runtime.connection_overview", "runtime.connection_rows",
+    "runtime.connection_details", "runtime.ping", "runtime.observation", "ui.snapshot",
+    "diagnostics.export", "diagnostics.setup", "diagnostics.summary", "diagnostics.rules",
+    "diagnostics.providers", "routing.check", "routing.custom_rules.list",
+    "profiles.edit_input", "profiles.details", "profiles.export", "imports.classify",
+    "profiles.list", "subscriptions.list", "subscriptions.edit_input", "subscriptions.usage",
+    "runtime.quit", "plugin.action", "onboarding.complete", "startup.configure",
+    "dns.configure", "stats.configure", "stats.reset", "subscriptions.schedule.configure",
+    "profiles.replace", "profiles.import", "profiles.importBundle", "routing.custom_rules.add",
+    "routing.custom_rules.delete", "connection.connect", "connection.disconnect",
+    "routing.set_mode", "routing.set_preset", "profiles.rename", "profiles.favorite",
+    "profiles.delete", "subscriptions.add", "subscriptions.update", "subscriptions.delete",
+    "subscriptions.refresh", "subscriptions.refresh_all", "subscriptions.refresh_selected",
+    "subscriptions.schedule.get", "subscriptions.probe", "subscriptions.probe_results",
+    "profiles.probe", "profiles.probe_results", "routing.refresh_providers",
+    "operations.get", "operations.cancel", "backup.create", "backup.restore",
+    "backup.preview", "backup.restore_previewed"
+  ]
+}

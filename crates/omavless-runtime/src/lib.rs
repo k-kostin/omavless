@@ -4696,12 +4696,28 @@ mod tests {
         assert_eq!(wire(&caps), promoted);
         assert!(!methods.iter().any(|m| m == "startup.configure"));
         login_ready.store(true, Ordering::Release);
+        let ready = wire(&caps);
         assert!(
-            wire(&caps)["result"]["methods"]
+            ready["result"]["methods"]
                 .as_array()
                 .unwrap()
                 .iter()
                 .any(|m| m == "startup.configure")
+        );
+        // Keep the frontend's positive capability fixture equal to the full
+        // selected product response, not a simplified hand-written method list.
+        #[cfg(all(
+            feature = "product-private-restore",
+            not(feature = "product-private-backup"),
+            not(feature = "developer-conditional-close"),
+            not(feature = "product-image-witness")
+        ))]
+        assert_eq!(
+            ready["result"],
+            serde_json::from_str::<Value>(include_str!(
+                "../../../tests/fixtures/native_product_capabilities.json"
+            ))
+            .unwrap()
         );
         let hello = wire(&make_request("hello", "system.hello", json!({"versions":[1]})).unwrap());
         assert_eq!(hello["result"]["instanceId"], server.instance_id);

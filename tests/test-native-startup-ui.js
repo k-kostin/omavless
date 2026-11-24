@@ -20,6 +20,8 @@ function context(){
 let count=0;function test(name,f){try{f();count++}catch(e){e.message=name+': '+e.message;throw e}}
 test('capability projection is bounded and version/revision gated',()=>{
  assert(parser.startupCapability(JSON.stringify(frame()),fence).available);
+ const full=frame();full.result=require('./fixtures/native_product_capabilities.json');
+ assert(parser.startupCapability(JSON.stringify(full),fence).available);
  for(const mutate of [p=>p.version=2,p=>p.revision++,p=>p.result.extra=true,p=>p.result.methods.push('startup.configure'),
   p=>p.result.methods=['https://private.invalid/key'],p=>p.result.methods=new Array(129).fill('x'),p=>p.result.mutations='true']){
   const p=frame();mutate(p);assert.equal(parser.startupCapability(JSON.stringify(p),fence),null)

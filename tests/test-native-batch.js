@@ -82,7 +82,8 @@ test('one subscription uses cancellable selected job without occupying urgent ac
  const c=context();assert(c.startNativeBatch('subscriptions',subscription));
  assert.equal(c.nativePending,null);
  assert.equal(c._nativeBatchProcess.command[2],'native-startup-capabilities');
- reply(c,frame({runtimeOwnership:true,mutations:true,methods:['subscriptions.refresh_selected']}));
+ // Shared with the real product runtime socket test, including importBundle.
+ reply(c,frame(require('./fixtures/native_product_capabilities.json')));
  assert.equal(c._nativeBatchProcess.command[2],'native-subscriptions-refresh-selected');
  assert.deepEqual(Array.from(c._nativeBatchProcess.command.slice(3)),
    ['instance',c.nativeBatchJob.operationId,subscription,'4']);

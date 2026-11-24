@@ -131,7 +131,7 @@ function mutationCapability(raw, context, requestedMethod) {
     var seen = Object.create(null)
     for (var i = 0; i < r.methods.length; i++) {
       var method = r.methods[i]
-      if (typeof method !== "string" || method.length > 80 || !/^[a-z][a-z0-9_.]*$/.test(method) || seen[method]) return null
+      if (typeof method !== "string" || method.length > 80 || !/^[a-z][A-Za-z0-9_.]*$/.test(method) || seen[method]) return null
       seen[method] = true
     }
     return {instanceId:context.instanceId, revision:p.revision,
