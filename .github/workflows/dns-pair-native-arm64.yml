@@ -29,6 +29,7 @@ on:
       # Re-include compiled data and both producers' explicit build inputs.
       # Both workflows must run for one common app/DNS producer, not borrowed CI.
       - 'plugin/published-pairs.json'
+      - 'plugin/install-package-pair.sh'
       - 'tests/dns_broker_host/omavless-dns-broker.service'
       - '.github/workflows/native-package.yml'
       - '.github/workflows/dns-pair-native-arm64.yml'

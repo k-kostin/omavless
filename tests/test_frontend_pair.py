@@ -221,7 +221,7 @@ class FrontendPairTests(unittest.TestCase):
                 self.git('revert', '--no-edit', 'HEAD')
 
     def test_compiled_admission_data_is_not_frontend_only(self):
-        for path in ('plugin/published-pairs.json', 'tests/dns_broker_host/package/package-guard',
+        for path in ('plugin/published-pairs.json', 'plugin/install-package-pair.sh', 'tests/dns_broker_host/package/package-guard',
                      'tests/dns_broker_host/omavless-dns-broker.service',
                      'packaging/release/client-features.sh'):
             with self.subTest(path=path):
