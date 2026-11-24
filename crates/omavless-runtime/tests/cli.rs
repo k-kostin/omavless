@@ -113,10 +113,17 @@ fn normal_selected_set_cli_does_not_arm_reply_loss_from_environment() {
         .unwrap();
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
-    assert_eq!(
-        output.stderr,
-        b"OmaVLESS TUI requires an interactive terminal\n"
-    );
+    if omavless_runtime::product_scope::developer_operations_enabled() {
+        assert_eq!(
+            output.stderr,
+            b"OmaVLESS TUI requires an interactive terminal\n"
+        );
+    } else {
+        assert_eq!(
+            output.stderr,
+            b"Restore/development selectors are unavailable in this Backup-only build\n"
+        );
+    }
     assert_eq!(fs::read_dir(&base).unwrap().count(), 0);
     fs::remove_dir(base).unwrap();
 }
@@ -2349,7 +2356,9 @@ fn daemon_refuses_pending_login_without_consuming_intent_or_leaving_socket() {
 fn developer_terminal_pty_restores_original_mode_and_screen() {
     // Exercise the actual compiled CLI entry, not a synthetic terminal wrapper.
     // No Snapshot key is sent; the isolated runtime paths remain untouched.
-    let mode = if cfg!(all(feature = "tui", feature = "product-image-witness")) {
+    let mode = if !omavless_runtime::product_scope::developer_operations_enabled() {
+        "none"
+    } else if cfg!(all(feature = "tui", feature = "product-image-witness")) {
         "product"
     } else if cfg!(all(
         feature = "tui",
