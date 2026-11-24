@@ -13,7 +13,7 @@ class BetaAcceptanceEntryTests(unittest.TestCase):
     def test_nonpublic_restore_selection_is_exact_and_public_backup_stays_restricted(self):
         script = ROOT / "packaging/release/client-features.sh"
         for version, expected in [
-            ("0.9.9", "t4-manager-actor-service,setup-upgrade082\n"),
+            ("0.9.9", "product-private-restore,setup-upgrade082\n"),
             ("0.9.8", "product-private-backup,setup-upgrade082\n"),
             ("0.9.8-rc.1", "product-private-backup\n"),
             ("0.9.9-rc.1", ""), ("0.9.9-beta.1", ""), ("0.9.10", ""),
@@ -50,7 +50,7 @@ class BetaAcceptanceEntryTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         selected = {
             "0.9.8": "product-private-backup,setup-upgrade082\n",
-            "0.9.9": "t4-manager-actor-service,setup-upgrade082\n",
+            "0.9.9": "product-private-restore,setup-upgrade082\n",
         }
         self.assertIn(current, selected, "new assemblies need their own reviewed selection")
         self.assertEqual(result.stdout, selected[current])

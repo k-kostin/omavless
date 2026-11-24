@@ -430,6 +430,15 @@ class RustCiIsolationTests(unittest.TestCase):
     def test_static_preflight_precedes_all_execution_without_changing_commands(self):
         result, commands = self.runner_trace()
         self.assertEqual(result.returncode, 0, result.stderr)
+        # Public Restore is an additional artifact configuration. Preserve the
+        # original recipe below after independently requiring all new gates.
+        restore = [row for row in commands if "--features" in row
+                   and row[row.index("--features") + 1].startswith("product-private-restore")]
+        self.assertEqual(len(restore), 3)
+        self.assertEqual([row[1] for row in restore], ["clippy", "test", "test"])
+        self.assertEqual([row[-1] for row in restore[1:]],
+                         ["product_scope", "product_restore_socket_refuses"])
+        commands = [row for row in commands if row not in restore]
         static = [c for c in commands if c[:2] in
                   [["cargo", "fmt"], ["cargo", "clippy"], ["cargo", "check"]]
                   or c[0] == "rustfmt"]
@@ -479,6 +488,8 @@ class RustCiIsolationTests(unittest.TestCase):
                 command = command[:2] + command[2 + len(profile):]
             self.assertFalse(any("profile." in arg for arg in command))
             normalized.append(command)
+        normalized = [row for row in normalized if not ("--features" in row
+                      and row[row.index("--features") + 1].startswith("product-private-restore"))]
         normalized = self.without_startup_scheduling(normalized, DISCONNECT_CANCEL_TEST)
         normalized = self.without_startup_scheduling(normalized)
         normalized = self.without_close_acceptance(normalized)
@@ -525,7 +536,7 @@ class RustCiIsolationTests(unittest.TestCase):
         self.assertEqual(commands[-1][:2], ["cargo", "test"])
         self.assertFalse(any(c[:2] in [["cargo", "test"], ["cargo", "build"],
                                      ["cargo", "run"]] for c in commands[:-1]))
-        self.assertRegex(result.stderr, r"OVT_CHECK_END test-auxiliary-inventory-15 elapsed_s=\d+ exit=17")
+        self.assertRegex(result.stderr, r"OVT_CHECK_END test-auxiliary-inventory-16 elapsed_s=\d+ exit=17")
 
     def test_auxiliary_inventory_failure_stops_before_parallel_tests(self):
         result, commands = self.runner_trace(fail_auxiliary_inventory=True)
@@ -534,7 +545,7 @@ class RustCiIsolationTests(unittest.TestCase):
                          [AUXILIARY_TEARDOWN_TEST, "--", "--exact", "--test-threads=1"])
         self.assertEqual(sum(c[:2] == ["cargo", "test"] for c in commands), 1)
         self.assertRegex(result.stderr,
-                         r"OVT_CHECK_END test-auxiliary-inventory-15 elapsed_s=\d+ exit=21")
+                         r"OVT_CHECK_END test-auxiliary-inventory-16 elapsed_s=\d+ exit=21")
 
     def test_auxiliary_normalization_rejects_missing_or_parallel_execution(self):
         result, commands = self.runner_trace()

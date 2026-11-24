@@ -431,7 +431,7 @@ impl<H: LifecycleHost> ProductionNativeOwner<H> {
         &mut self,
         request: &crate::developer_current_restore::Request,
     ) -> Result<(), ProductionOwnerError> {
-        if crate::product_scope::backup_only() {
+        if !crate::product_scope::developer_operations_enabled() {
             return Err(ProductionOwnerError::OwnershipUnavailable);
         }
         let original = self

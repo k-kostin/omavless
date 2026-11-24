@@ -340,7 +340,7 @@ pub fn from_private_input(
     arguments: &[OsString],
     input: impl Read,
 ) -> Result<&'static str, &'static str> {
-    if crate::product_scope::backup_only() {
+    if !crate::product_scope::developer_operations_enabled() {
         return Err("developer_restore_disabled");
     }
     if !arguments_admitted(arguments) {

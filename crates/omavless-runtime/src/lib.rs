@@ -1907,7 +1907,7 @@ impl RuntimeServer {
         }) {
             Ok(request) => {
                 #[cfg(feature = "t4-manager-actor-service")]
-                if !product_scope::backup_only()
+                if product_scope::developer_operations_enabled()
                     && (request["method"] == developer_current_restore::PAUSE_METHOD
                         || request["method"]
                             .as_str()
@@ -2101,7 +2101,7 @@ impl RuntimeServer {
     }
     #[cfg(feature = "t4-manager-actor-service")]
     fn publish_current_intent_pause(&self, request: &Value, stream: &mut UnixStream) -> Result<()> {
-        if product_scope::backup_only() {
+        if !product_scope::developer_operations_enabled() {
             let response = error_response(
                 request["id"].as_str().unwrap_or("invalid"),
                 0,
@@ -2228,7 +2228,7 @@ impl RuntimeServer {
         stream: &mut UnixStream,
     ) -> Result<()> {
         let id = request["id"].as_str().unwrap_or("invalid");
-        if product_scope::backup_only() {
+        if !product_scope::developer_operations_enabled() {
             return developer_current_restore::publish_positive_cut_response(
                 error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None),
                 stream,
@@ -2293,7 +2293,7 @@ impl RuntimeServer {
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         let id = request["id"].as_str().unwrap_or("invalid");
-        if product_scope::backup_only() {
+        if !product_scope::developer_operations_enabled() {
             return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
         }
         let method = request["method"].as_str().unwrap_or("");
@@ -2375,7 +2375,7 @@ impl RuntimeServer {
         request: &Value,
     ) -> std::result::Result<Value, omavless_control_protocol::ProtocolError> {
         let id = request["id"].as_str().unwrap_or("invalid");
-        if product_scope::backup_only() {
+        if !product_scope::developer_operations_enabled() {
             return error_response(id, 0, StableErrorCode::CapabilityUnavailable, false, None);
         }
         let method = request["method"].as_str().unwrap_or("");
@@ -5951,6 +5951,50 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "product-private-restore")]
+    fn product_restore_socket_refuses_every_developer_restore_route_before_parsing() {
+        let base = temporary_base("product-restore-dev-refusal");
+        let server = RuntimeServer::bind(RuntimePaths::below(&base)).unwrap();
+        for method in [
+            "developer.restore_current",
+            "developer.backup_current",
+            "developer.pause_current_intent",
+            "developer.abort_current_intent",
+            "developer.cut_current_first_rename",
+            "developer.cut_current_terminal",
+            "developer.abort_current_after_retirement_cut",
+            "developer.cut_current_committed_retirement",
+            "developer.cut_current_committed_ticket",
+            "developer.cut_current_committed_complete",
+        ] {
+            let (mut caller, mut peer) = UnixStream::pair().unwrap();
+            caller
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let request = make_request("disabled", method, json!({})).unwrap();
+            write_unary_frame(
+                &mut caller,
+                &encode_request(&request).unwrap(),
+                FrameKind::Request,
+            )
+            .unwrap();
+            caller.shutdown(std::net::Shutdown::Write).unwrap();
+            server.handle(&mut peer).unwrap();
+            peer.shutdown(std::net::Shutdown::Write).unwrap();
+            let response =
+                decode_response(&read_unary_frame(&mut caller, FrameKind::Response).unwrap())
+                    .unwrap();
+            assert_eq!(
+                response["error"]["code"], "capability_unavailable",
+                "{method}"
+            );
+        }
+        assert!(!base.join("config").exists());
+        drop(server);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn full_quit_with_damaged_catalog_still_requires_independent_clean_host_proof() {
         for foreign_core in [false, true] {
             let base = temporary_base("quit-damaged-catalog");
@@ -5978,7 +6022,8 @@ mod tests {
             assert_eq!(fs::read(store).unwrap(), b"invalid catalog");
             let desired: Value = serde_json::from_slice(
                 &fs::read(base.join("state/omavless/desired.json")).unwrap(),
-            ).unwrap();
+            )
+            .unwrap();
             assert_eq!(desired["connected"], false);
             drop(server);
             fs::remove_dir_all(base).unwrap();
