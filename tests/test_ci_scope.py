@@ -202,7 +202,9 @@ class CheckScopeTests(unittest.TestCase):
 
 class FixturePreparationTests(unittest.TestCase):
     def test_cold_home_without_cache_can_prepare_and_retire_actual_fixture(self):
-        with tempfile.TemporaryDirectory(prefix='ci-cold-home-', dir=Path.home() / '.cache/ovt') as temp:
+        parent = Path.home() / '.cache/ovt'
+        parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix='ci-cold-home-', dir=parent) as temp:
             home = Path(temp) / 'home'
             home.mkdir()
             self.assertFalse((home / '.cache').exists())
