@@ -185,6 +185,7 @@ ShellRoot {
         job:service.nativeBatchJob, requestRunning:service.nativeBatchRequestRunning,
         connected:product.nativeView.connected, bootstrap:product.bootstrapRequired,
         providerDescription:product.nativeProviderUpdateDescription(),
+        focusIndex:targets.findIndex(function(t) { return t.activeFocus }),
         focusLabels:targets.map(function(t) { return "text" in t ? t.text : "" })})
     }
     function reviewBatchEnd(): string {

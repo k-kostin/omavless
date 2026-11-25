@@ -569,7 +569,7 @@ check_supported_installation() {
       # 419ee7ef and 1f05f1cc), never a generic version
       # allowance or a public predecessor ELF relabelled as the new package.
       case "${digest%% *}" in
-        bd6d82e5a9fefaff47e62e44ce65b6768aa1ef752bf6e8702d295c11112e1913|f23826c3bb603afdeac28b322c06c5050a72ac1d8b7f3cc83f05d38062c76463) ;;
+        4edc71132dc5d44ee81ad1b4a17343ba7b4d27e05a1b1b59d6e6ef57137abba2|6165211a41a65d5e55de210bc44ab01a765821de31059559dbcd53a7df1ed9b5) ;;
         e8453b7f9ffd6bf506bc8f5015c5ed272d6849d27ec7b7c63369b3894c3db0f8|bc50464883bd9ecadd4b7947a5ffe9032a6a8fdfc8f684b5a14a545a24b8b654) ;;
         d1a195523cf68d94038c741e9afcc92f73f034007b7e04378fda904d620344ac|dc45d0b8630b30db8796a36f5c1fa56d557f2f0108055a829650a576fc349670) ;;
         6c7567daf6d84caab883b957fd689a94dcfa45e59757bdf4778ff7b97affe925|f4daf3fec4c00abb5a4a9bfa5d6c608eca56551a7b3a3e79b1404140082192a6) ;;
