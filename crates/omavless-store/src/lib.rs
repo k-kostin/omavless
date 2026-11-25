@@ -59,11 +59,19 @@ fn read_private_utf8_impl(
     before_open: impl FnOnce(),
 ) -> Result<String, StoreIoError> {
     let parent = safe_parent(path, expected_uid)?;
-    let directory = OpenOptions::new()
-        .read(true)
-        .custom_flags(nix::libc::O_DIRECTORY | nix::libc::O_NOFOLLOW)
-        .open(&parent)
-        .map_err(|_| StoreIoError::UnsafePath)?;
+    // Holding a directory must not require permission to enumerate it. Known
+    // private files remain readable beneath an owner search-only directory.
+    let directory = File::from(
+        nix::fcntl::open(
+            parent.as_path(),
+            nix::fcntl::OFlag::O_PATH
+                | nix::fcntl::OFlag::O_DIRECTORY
+                | nix::fcntl::OFlag::O_NOFOLLOW
+                | nix::fcntl::OFlag::O_CLOEXEC,
+            nix::sys::stat::Mode::empty(),
+        )
+        .map_err(|_| StoreIoError::UnsafePath)?,
+    );
     let directory_metadata = directory.metadata().map_err(|_| StoreIoError::Io)?;
     if directory_metadata.uid() != expected_uid {
         return Err(StoreIoError::WrongOwner);
@@ -557,6 +565,23 @@ mod tests {
             .unwrap();
         assert_eq!(read_private_utf8(&path, uid), Err(StoreIoError::TooLarge));
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn read_known_file_needs_search_but_not_directory_listing_permission() {
+        let (root, uid) = root();
+        assert_ne!(
+            uid, 0,
+            "permission control requires an unprivileged test process"
+        );
+        let path = root.join("profiles.json");
+        fs::write(&path, b"private").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o300)).unwrap();
+        let result = read_private_utf8(&path, uid);
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::remove_dir_all(root).unwrap();
+        assert_eq!(result, Ok("private".to_owned()));
     }
 
     #[test]
