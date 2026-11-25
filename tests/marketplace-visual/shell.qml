@@ -187,6 +187,16 @@ ShellRoot {
         providerDescription:product.nativeProviderUpdateDescription(),
         focusLabels:targets.map(function(t) { return "text" in t ? t.text : "" })})
     }
+    function reviewBatchEnd(): string {
+      if (product.page !== "settings" || review.reviewKind.indexOf("batch-providers-") !== 0)
+        return "refused"
+      var row = review.find(product, function(o) {
+        return "focusTarget" in o && "title" in o && o.title === product.textFor("settings.remote_rules")
+      })
+      if (!row) return "not-ready"
+      product.scrollPanelControlIntoView(row.focusTarget)
+      return "scrolled"
+    }
     // Exercise the real affected focus/navigation handler, never action activation.
     // Input delivery from the unchanged host KeyCatcher is a separate boundary.
     function reviewSubscriptionsKey(kind: string): string {
