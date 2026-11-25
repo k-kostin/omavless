@@ -1,20 +1,22 @@
 # Current delivery status
 
-## November 24: 0.9.9 review corrections and release remainder
+## November 25: 0.9.9 review corrections and release remainder
 
 The selected development composition is integrated through
-[#846](https://github.com/k-kostin/omavless/pull/846), source
-`0740cb2250be61dc97f98a4bb9d485cf62ac7e22`. Its full PR and independent
-merged-push CI and fresh source/distribution admission completed. Its ordinary
+[#847](https://github.com/k-kostin/omavless/pull/847), source
+`3b1d9b40ae481e084849273814557349de0a726f`. Its full PR and independent
+merged-push CI and fresh source/distribution admission completed. Earlier #846
 x86_64 VM reboot/Start checks earned VPN autoconnect-Off behavior, following
-#843's update and Help/Settings evidence. This is not a public 0.9.9 release or
+#843's ordinary update and Help/Settings evidence. #847 earned its own direct
+package-install mechanism check, not a public guided-updater result. This is not a public 0.9.9 release or
 installed ARM64 acceptance. Main remains published 0.9.8 fix.8.
 
-The November 24 product review identified four P1 and five P2/P3 corrections.
-Their sequential local fixes change native/runtime and UI inputs; independent
-review, complete checks, matching packages and affected installed acceptance
-remain necessary. The old producer cannot be relabelled as containing them.
-The matrix below owns the specific correction and delivery boundaries.
+The November 24 product corrections have their own reviewed matching packages
+and affected installed x86_64 acceptance, including normal Backup/Restore of
+different states and owned Disconnect with an unreadable catalog. Damaged-catalog
+Full Quit remains source-only. November 25 Gemini follow-up corrections to the
+exact-feature test matrix, poll-limit wording and private-file IO are a new
+candidate, not inherited acceptance. The readiness matrix owns those boundaries.
 
 Use the [complete 28-row readiness matrix](../development/RELEASE_099_READINESS.md)
 for current scope, earned evidence and concrete remaining proofs. Selected

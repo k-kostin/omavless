@@ -489,7 +489,9 @@ Item {
       else { refreshAfterChange(); if (diagnosticsPageVisible) refreshAdvancedDiagnostics() }
       return
     }
-    if (_nativeBatchPolls >= 300) { nativeBatchUnknown = true; nativeBatchErrorCode = "error.capability_unavailable"; return }
+    // Exhausting local polling proves neither failure nor a missing capability.
+    // The existing Unknown text offers an explicit check of this same job.
+    if (_nativeBatchPolls >= 300) { nativeBatchUnknown = true; nativeBatchErrorCode = ""; return }
     nativeBatchPoll.interval = 2000
     nativeBatchPoll.start()
   }

@@ -1324,6 +1324,9 @@ dependencies = [
 [[package]]
 name = "omavless-store"
 version = "0.9.9"
+dependencies = [
+ "nix",
+]
 
 [[package]]
 name = "omavless-tui"

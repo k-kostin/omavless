@@ -135,3 +135,14 @@ focus/navigation handler, never Enter/Space/action activation. Inspect returned
 focus order and wrapping through `reviewSubscriptionsInspect`. This is actual
 rendered focus behavior with synthetic key events, not physical-key delivery
 through the unchanged host KeyCatcher or native request acceptance.
+
+`reviewBatch LOCALE KIND STATE WIDTH` projects a synthetic acknowledged operation
+through the unchanged production page: kind `subscriptions`/`providers`, state
+`running`/`unknown`/`succeeded`, locale `en`/`ru`, width 360/460. Call
+`reviewQuiesce` to `idle` first. `reviewBatchInspect` reports only the invented
+operation, public wording and available focus labels. After a provider projection,
+`reviewBatchEnd` scrolls the existing Remote rules row into view using the product's
+normal scroll helper; it refuses other pages/states. Review Unknown alongside
+running/completed states; never activate Check/Cancel in this rendering fixture.
+The fixture does not execute a batch, wait for its poll budget or prove a native
+operation outcome. Real production-function tests cover the poll-limit transition.

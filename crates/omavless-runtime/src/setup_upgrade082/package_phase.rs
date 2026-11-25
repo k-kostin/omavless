@@ -1010,7 +1010,19 @@ fn run_qualified_update(
             previous.recheck()?;
         }
     }
-    install_pair(&mut context, &cancel, &pair)?;
+    install_pair(&mut context, &cancel, &mut pair, &tty, |context| {
+        context.recheck()?;
+        other_owners()?;
+        for unit in &mut unit_files {
+            unit.recheck()?;
+        }
+        if let Some(previous) = &mut previous {
+            previous.recheck()?;
+        } else {
+            package_owner_before()?;
+        }
+        Ok(())
+    })?;
     // Original exclusions end only here, after known exit and independent
     // verification. The result is DATA; NEW DNS setup must re-earn admission.
     let selected = managed098
@@ -1029,7 +1041,7 @@ fn run_qualified_update(
 
 const INSTALL_PAIR: &str = include_str!("../../../../plugin/install-package-pair.sh");
 
-fn package_command(app_size: u64, app_hash: &str, dns_size: u64, dns_hash: &str) -> Command {
+fn package_command(action: &str, stage: Option<&str>, pair: &Pair) -> Command {
     let mut command = Command::new("/usr/bin/sudo");
     command
         .env_clear()
@@ -1038,27 +1050,62 @@ fn package_command(app_size: u64, app_hash: &str, dns_size: u64, dns_hash: &str)
         .args([
             "/usr/bin/env",
             "-i",
-            "PATH=/usr/bin:/bin",
-            "LC_ALL=C",
-            "/usr/bin/bash",
-            "--noprofile",
-            "--norc",
-            "-c",
+            "-S",
+            // GNU env expands this fixed expression from sudo's environment
+            // before clearing it. No root shell sees the ambient environment.
+            "PATH=/usr/bin:/bin LC_ALL=C OMAVLESS_INSTALL_UID=${SUDO_UID} /usr/bin/bash --noprofile --norc -c",
             INSTALL_PAIR,
             "omavless-install-pair",
-        ])
-        .arg(app_size.to_string())
-        .arg(app_hash)
-        .arg(dns_size.to_string())
-        .arg(dns_hash)
-        .stdin(Stdio::piped());
+            action,
+        ]);
+    if let Some(stage) = stage {
+        command.arg(stage);
+    }
+    command
+        .arg(pair.app.identity.len().to_string())
+        .arg(&pair.app.digest)
+        .arg(pair.dns.identity.len().to_string())
+        .arg(&pair.dns.digest);
     command
 }
 
-fn install_pair(context: &mut UpgradeContext, cancel: &AtomicBool, pair: &Pair) -> Result<()> {
-    // The original authenticated descriptors supply an unprivileged stream.
-    // The root program rehashes its private copies after authentication, so a
-    // same-UID cache mutation cannot select different pacman input bytes.
+fn prepared_stage(bytes: &[u8]) -> Result<&str> {
+    const PREFIX: &[u8] = b"omavless-packages.";
+    if bytes.len() != PREFIX.len() + 9
+        || !bytes.starts_with(PREFIX)
+        || bytes.last() != Some(&b'\n')
+        || !bytes[PREFIX.len()..bytes.len() - 1]
+            .iter()
+            .all(u8::is_ascii_alphanumeric)
+    {
+        return Err(Blocker::PackageOutcomeUnverified);
+    }
+    std::str::from_utf8(&bytes[..bytes.len() - 1]).map_err(|_| Blocker::PackageOutcomeUnverified)
+}
+
+fn preparation_output(mut output: impl Read) -> std::io::Result<Vec<u8>> {
+    // Drain while waiting, but retain only a bounded invalid-or-valid frame.
+    // Unexpected sudo/PAM output cannot fill the pipe and deadlock preparation.
+    let mut bytes = Vec::with_capacity(129);
+    let mut chunk = [0; 4096];
+    loop {
+        let count = output.read(&mut chunk)?;
+        if count == 0 {
+            return Ok(bytes);
+        }
+        bytes.extend_from_slice(&chunk[..count.min(129 - bytes.len())]);
+    }
+}
+
+fn install_pair(
+    context: &mut UpgradeContext,
+    cancel: &AtomicBool,
+    pair: &mut Pair,
+    tty: &File,
+    mut admit: impl FnMut(&mut UpgradeContext) -> Result<()>,
+) -> Result<()> {
+    // Preparation alone cannot run pacman. It rehashes root-private copies
+    // after authentication; only known success publishes a bounded identifier.
     let mut app = pair
         .app
         .file
@@ -1075,44 +1122,111 @@ fn install_pair(context: &mut UpgradeContext, cancel: &AtomicBool, pair: &Pair) 
         .map_err(|_| Blocker::StagingUnavailable)?;
     let app_size = pair.app.identity.len();
     let dns_size = pair.dns.identity.len();
-    let mut command = package_command(app_size, &pair.app.digest, dns_size, &pair.dns.digest);
-    std::thread::scope(|scope| {
-        let mut writer = None;
-        let result = consume(
+    let mut command = package_command("prepare", None, pair);
+    command.stdin(Stdio::piped()).stdout(Stdio::piped());
+    context.recheck()?;
+    if cancel.load(Ordering::Acquire) {
+        return Err(Blocker::CancelledBeforeSubmission);
+    }
+    let mut child = command
+        .spawn()
+        .map_err(|_| Blocker::PackageSubmissionUnavailable)?;
+    let mut input = child
+        .stdin
+        .take()
+        .expect("fixed preparation has piped stdin");
+    let output = child
+        .stdout
+        .take()
+        .expect("fixed preparation returns bounded identifier");
+    let (status, streamed, output) = std::thread::scope(|scope| {
+        let reader = scope.spawn(move || preparation_output(output));
+        let writer = scope.spawn(move || -> std::io::Result<()> {
+            if std::io::copy(&mut app.take(app_size), &mut input)? != app_size
+                || std::io::copy(&mut dns.take(dns_size), &mut input)? != dns_size
+            {
+                return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
+            }
+            Ok(())
+        });
+        let status = supervise(&mut child);
+        (
+            status,
+            writer.join().is_ok_and(|result| result.is_ok()),
+            reader.join(),
+        )
+    });
+    if !status.success() || !streamed {
+        return Err(Blocker::PackageOutcomeUnverified);
+    }
+    let bytes = output
+        .map_err(|_| Blocker::PackageOutcomeUnverified)?
+        .map_err(|_| Blocker::PackageOutcomeUnverified)?;
+    let stage = prepared_stage(&bytes)?;
+    let mut submitted = false;
+    let result = (|| {
+        // Authentication/copying may have taken time. Re-earn the stopped
+        // context and cancellation boundary immediately before installation.
+        admit(context)?;
+        pair.recheck()?;
+        let mut command = package_command("install", Some(stage), pair);
+        command.stdin(tty.try_clone().map_err(|_| Blocker::TtyUnavailable)?);
+        consume(
             context,
             cancel,
             || {
-                let mut child = command
+                let child = command
                     .spawn()
                     .map_err(|_| Blocker::PackageSubmissionUnavailable)?;
-                let mut input = child
-                    .stdin
-                    .take()
-                    .expect("fixed package command has piped stdin");
-                writer = Some(scope.spawn(move || -> std::io::Result<()> {
-                    if std::io::copy(&mut app.take(app_size), &mut input)? != app_size
-                        || std::io::copy(&mut dns.take(dns_size), &mut input)? != dns_size
-                    {
-                        return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
-                    }
-                    Ok(())
-                }));
+                submitted = true;
                 Ok(child)
             },
             |context| after_packages(context, pair),
-        );
-        let streamed = writer.is_none_or(|worker| worker.join().is_ok_and(|result| result.is_ok()));
-        result?;
-        if !streamed {
+        )
+    })();
+    if !submitted {
+        // Known prepared + known not submitted only. A submitted or uncertain
+        // install is never discarded/retried; its one-use root claim remains.
+        let mut discard = package_command("discard", Some(stage), pair);
+        discard.stdin(tty.try_clone().map_err(|_| Blocker::TtyUnavailable)?);
+        let mut child = discard
+            .spawn()
+            .map_err(|_| Blocker::PackageOutcomeUnverified)?;
+        if !supervise(&mut child).success() {
             return Err(Blocker::PackageOutcomeUnverified);
         }
-        Ok(())
-    })
+    }
+    result
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn package_preparation_output_drains_without_accepting_extra_or_path_data() {
+        let good = b"omavless-packages.A1b2C3d4\n";
+        assert_eq!(prepared_stage(good).unwrap(), "omavless-packages.A1b2C3d4");
+        for bad in [
+            b"../outside\n".as_slice(),
+            b"omavless-packages.A1b2C3d4\nextra",
+            b"omavless-packages.A1b2C3d4",
+        ] {
+            assert_eq!(prepared_stage(bad), Err(Blocker::PackageOutcomeUnverified));
+        }
+        let mut child = Command::new("/usr/bin/head")
+            .args(["-c", "131072", "/dev/zero"])
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let bytes = preparation_output(child.stdout.take().unwrap()).unwrap();
+        assert!(child.wait().unwrap().success());
+        assert_eq!(bytes.len(), 129);
+        assert_eq!(
+            prepared_stage(&bytes),
+            Err(Blocker::PackageOutcomeUnverified)
+        );
+    }
+
     #[test]
     fn dns_package_receipt_accepts_exact_new_family_and_retains_old_delivery() {
         for arch in ["x86_64", "aarch64"] {

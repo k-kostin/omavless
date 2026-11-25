@@ -1,7 +1,7 @@
 # 0.9.9 development readiness and release remainder
 
-Reconciled November 24, 2026 against accepted development source
-`0740cb2250be61dc97f98a4bb9d485cf62ac7e22` ([#846](https://github.com/k-kostin/omavless/pull/846)).
+Reconciled November 25, 2026 against accepted development source
+`3b1d9b40ae481e084849273814557349de0a726f` ([#847](https://github.com/k-kostin/omavless/pull/847)).
 This is the release preparation index, not a public RC freeze or a release.
 Stable main remains `bcd744ecb3c1c61bbfe4a8ab090358b225ce1e76`, publishing
 0.9.8 fix.8 from full source `5edf4eb203926d8bd39a3ff80f611a19435c3787`.
@@ -9,12 +9,12 @@ The proposed 0.9.9 guide and local packages are not public download acceptance.
 
 ## What is already earned
 
-The selected development composition has passed its PR checks and independent
-merged-development push checks, ordinary x86_64 0.9.8-to-0.9.9 update with data
-preservation, and affected installed Help/Settings review. A new exact merged
+Earlier #843/#846 compositions earned ordinary x86_64 0.9.8-to-0.9.9 update
+with data preservation, affected Help/Settings review and reboot/Start with VPN
+autoconnect Off. Their PR and independent merged-development push checks, exact merged
 source export, offline validation, committed distribution, source-CI admission,
 full Git byte/mode inspection before its first generated bootstrap, and
-post-clean checks also completed. Their original receipts belong to #843 and #846;
+post-clean checks completed. Their original receipts belong to #843 and #846;
 this editorial reconciliation does not repeat or broaden those results.
 
 The accepted #846 native producer was
@@ -26,13 +26,13 @@ an installed ARM64 result. Any later source composition must pass the existing
 
 #846 additionally earned the ordinary x86_64 VM reboot/Start journey with VPN
 autoconnect Off, including app startup enabled after a genuine new boot. It did
-not run the physical sleep/network/Tailscale journey. November 24 review fixes
-below change native inputs: the retained producer is not a matching package for
-those corrections, and no installed result is transferred to them.
+not run the physical sleep/network/Tailscale journey. The November 24 review
+corrections below have their own inspected producer and installed evidence;
+the older #846 pair is not relabelled as containing those changes.
 
 ## Review corrections before final composition
 
-The proposed correction pair selects common native source
+The accepted correction pair selects common native source
 `d0b50bda4c0298f77e87cbfb3e670ad47bdfa279` in [#847](https://github.com/k-kostin/omavless/pull/847).
 Both app and DNS workflows completed on both architectures; all four actual
 archives were inspected, including all 2052 Git files and modes in each DNS
@@ -40,13 +40,13 @@ corresponding-source archive. The frontend pins, inventory and removal allowlist
 select those inspected bytes. The application/core/broker binaries are unchanged
 from the preceding reviewed producer; the integration-test correction changed
 the protected source input and therefore required this new common producer.
-These are unpublished inputs; final source CI, offline composition and affected
-installed acceptance remain separate gates.
+These remain unpublished inputs. Exact merged-push CI, offline composition,
+source-CI admission, first generated bootstrap and post-clean checks completed
+for #847; its owning PR retains the original failed checks and bounded successor.
 
 The owner selected sequential handling of the November 24 product and workflow
-reviews. The local correction branch starts at the exact accepted source above.
-These are implemented source changes with focused regressions, **not** a new
-merged/installed/public PASS:
+reviews. The following corrections are integrated through #847 with focused
+regressions and affected installed evidence, not public release acceptance:
 
 - retain keyboard target identity across inventory reordering and clear removed
   selections instead of substituting a different profile;
@@ -68,15 +68,38 @@ merged/installed/public PASS:
 Independent product/workflow reviews gave source and metadata GO before the
 CI-test correction; the corrected product PTY matrix additionally has product
 review GO and passing real-CLI controls. The original PR CI failure is retained:
-it expected a developer screen in the restricted Backup build. Complete final-head
-CI and affected installed evidence remain pending. Root admission in source
-custody tests is modelled. A direct installed `package_install` check on the
-existing unpublished 0.9.9 VM can prove that mechanism; it cannot establish clean
-installation, the public 0.9.8-to-0.9.9 updater, or installed ARM acceptance.
+it expected a developer screen in the restricted Backup build. Final PR and
+independent merged-push CI passed. Installed x86_64 evidence includes the package
+installation mechanism, reboot with VPN autoconnect Off, developer CLI/IPC
+refusals, normal Backup A → synthetic B → Preview/Restore A, and owned Disconnect
+with an unreadable catalog. Damaged-catalog Full Quit remains source-only.
+Neither that evidence nor modelled root admission in source tests establishes
+clean public installation/download, installed ARM acceptance or physical networking.
 Reuse the existing operating workflow and retention gate: one writer, one
 checkout/cache, one whole budget including failed checks and original outcomes.
 Do not start separate producer cycles for individual findings or substitute
 another audit/framework for completing these gates.
+
+The owner selected the returned Gemini findings on November 25: test the exact
+`product-private-restore,setup-upgrade082` configuration, keep the original job
+Unknown when local polling ends, and close private-read pathname races through
+held-descriptor checks. These new corrections require their own review, CI,
+matching native delivery and affected installed/UI evidence. Do not reopen the
+completed #847 Restore journey or treat a proposed architecture rewrite as a
+0.9.9 blocker. The separate process PR [#848](https://github.com/k-kostin/omavless/pull/848)
+remains unmerged; its PR-only Rust allocation is not yet development policy.
+
+The affected installed check in [#849](https://github.com/k-kostin/omavless/pull/849)
+found an additional terminal-delivery defect: with archive bytes on sudo stdin,
+its PTY relay did not deliver the user's pacman confirmation. The original
+pre-commit attempt was cancelled with exit 130; installed packages stayed
+unchanged. This limits the earlier mechanism result, without rewriting it.
+The correction separates root-private preparation from ordinary terminal-input
+installation, binds readiness to the sudo UID and exact archive tuple, and
+consumes readiness atomically before pacman. An uncertain claimed transaction
+cannot be resubmitted or discarded. Source regressions and an inert real-sudo
+shell control do not replace the new matched producer and affected installed
+proof for both shell setup and the native updater; these remain candidate gates.
 
 ## Completion matrix
 
@@ -117,7 +140,7 @@ research and historical results do not activate those tracks.
 | 23 | Complete CI with useful early failures and timings | Required PR/push recipes retained; accepted workflow corrections remain integrated | No measured full-CI speedup or Blaze adoption. Performance experiments cannot waive exact-head checks. |
 | 24 | Bounded storage and justified retention | Operational admission gate before allocation and at closure; [retention policy](README.md#proactive-retention-gate) | Fresh whole accounting and retirement remain necessary. The finite whole allowance is not ordinary 20+5 GiB compliance or authority to delete unknown/private state. |
 | 25 | Useful source carriers and qualified branch/worktree retirement | Operational classification under the [cleanup lifecycle](../roadmap/DEVELOPMENT_WORKFLOW.md#branch-cleanup-lifecycle) | Preserve actual open-PR/base, unique/evidence and active-writer dependencies. A remote ref, local ref and working folder are different cleanup outcomes. |
-| 26 | One truthful final 0.9.9 delivery | Selected development technical composition admitted through [#846](https://github.com/k-kostin/omavless/pull/846); later review corrections remain separately pending | **Open:** complete the correction composition, rows 5/16/17 and final release/platform scope; then applicable public package/download/install, main and tag/assets gates. Owner excludes Marketplace verification submission. Prepared offline pairs are not public delivery. |
+| 26 | One truthful final 0.9.9 delivery | Selected development technical composition admitted through [#847](https://github.com/k-kostin/omavless/pull/847); the November 25 Gemini correction candidate retains its own affected gates | **Open:** complete the new correction candidate, rows 5/16/17 and final release/platform scope; then applicable public package/download/install, main and tag/assets gates. Owner excludes Marketplace verification submission. Prepared offline pairs are not public delivery. |
 | 27 | Extra TUIC 0-RTT / Hysteria2 Realm and local handshake timeout | Deferred entirely to 1.0.0 by owner choice | Existing experimental families remain; no unsafe implicit 0-RTT or new provider-controlled tuning. |
 | 28 | Manual core chooser | Deferred entirely to 1.0.0 by owner choice | Ordinary setup/update/version inventory remains. No arbitrary binary path, second unverified pair or decorative selector substituted for the feature. |
 

@@ -120,6 +120,30 @@ test('closing UI does not cancel daemon job, bounded process watchdog present',(
  const c=context();assert(c.refreshAllSubscriptions());reply(c,frame({operation:operation(c.nativeBatchJob)}));c.nativeRoutingToolsVisible=false;assert(c.nativeBatchBusy);assert(c.nativeBatchPoll.running);
  const d=context();assert(d.refreshRuleProviders());assert.equal(d.nativeBatchJob.kind,'providers');
 });
+test('poll limit preserves the original unknown operation without a capability error',()=>{
+ for(const kind of ['subscriptions','providers']){
+  const c=context();assert(c.startNativeBatch(kind));
+  reply(c,frame({operation:operation(c.nativeBatchJob)}));
+  const original=c.nativeBatchJob.operationId;
+  c._nativeBatchPolls=300;assert(c.runNativeBatchRequest('get'));
+  reply(c,frame({operation:operation(c.nativeBatchJob)}));
+  assert(c.nativeBatchUnknown);assert.equal(c.nativeBatchErrorCode,'');
+  assert.equal(c.nativeBatchJob.terminal,false);assert.equal(c.nativeBatchPoll.running,false);
+  assert.equal(c.startNativeBatch(kind),false);assert.equal(c.dismissNativeBatch(),false);
+  assert.equal(c.nativePending,null);assert(c.retryNativeBatch());
+  assert.equal(c._nativeBatchProcess.requestKind,'get');
+  assert.equal(c.nativeBatchJob.operationId,original);
+ }
+});
+test('terminal response at the poll limit still settles the original operation',()=>{
+ const c=context();assert(c.startNativeBatch('subscriptions'));
+ reply(c,frame({operation:operation(c.nativeBatchJob)}));
+ c._nativeBatchPolls=300;assert(c.runNativeBatchRequest('get'));
+ reply(c,frame({operation:operation(c.nativeBatchJob,{state:'succeeded',outcomeRevision:5,progress:{completed:2,total:2},cancellable:false})},5));
+ assert(c.nativeBatchJob.terminal);assert.equal(c.nativeBatchUnknown,false);
+ assert.equal(c.nativeBatchErrorCode,'');assert.equal(c.nativeBatchPoll.running,false);
+ assert.equal(c.refreshes,1);assert(c.dismissNativeBatch());
+});
 test('known progress and cancellation cannot regress',()=>{
  const c=context();c.startNativeBatch('subscriptions');const job={...c.nativeBatchJob,acknowledged:true,state:'running',completed:1,total:2,cancelRequested:true};
  for(const patch of [{progress:{completed:0,total:2},cancelRequested:true},{progress:{completed:1,total:1},cancelRequested:true},{progress:{completed:1,total:2},cancelRequested:false}])

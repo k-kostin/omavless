@@ -428,6 +428,21 @@ class RustCiIsolationTests(unittest.TestCase):
         self.assertRegex(result.stderr,
                          r"OVT_CHECK_END lint-workspace-2 elapsed_s=\d+ exit=23")
 
+    def test_product_restore_tests_use_the_packaged_feature_combination(self):
+        features = subprocess.check_output(
+            ["bash", str(ROOT / "packaging/release/client-features.sh"), "0.9.9"],
+            cwd=ROOT, text=True).strip()
+        self.assertEqual(features, "product-private-restore,setup-upgrade082")
+        result, commands = self.runner_trace()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        selected = [row for row in commands if row[:2] == ["cargo", "test"]
+                    and "--features" in row and row[row.index("--features") + 1] == features]
+        self.assertEqual([row[-1] for row in selected], [
+            "product_scope", "product_restore_socket_refuses", "normal_pair_promoted_candidate",
+            "setup_upgrade082", "product_restore_cli_"])
+        self.assertTrue(all("--locked" in row and row[row.index("-p") + 1] == "omavless-runtime"
+                            and "--ignored" not in row for row in selected))
+
     def test_static_preflight_precedes_all_execution_without_changing_commands(self):
         result, commands = self.runner_trace()
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -437,10 +452,13 @@ class RustCiIsolationTests(unittest.TestCase):
         restore = [row for row in commands if "--features" in row
                    and "developer_terminal_pty_" not in row
                    and row[row.index("--features") + 1].startswith("product-private-restore")]
-        self.assertEqual(len(restore), 4)
-        self.assertEqual([row[1] for row in restore], ["clippy", "test", "test", "test"])
+        self.assertEqual(len(restore), 6)
+        self.assertTrue(all(row[row.index("--features") + 1] ==
+                            "product-private-restore,setup-upgrade082" for row in restore))
+        self.assertEqual([row[1] for row in restore], ["clippy", "test", "test", "test", "test", "test"])
         self.assertEqual([row[-1] for row in restore[1:]],
-                         ["product_scope", "product_restore_socket_refuses", "normal_pair_promoted_candidate"])
+                         ["product_scope", "product_restore_socket_refuses", "normal_pair_promoted_candidate",
+                          "setup_upgrade082", "product_restore_cli_"])
         commands = [row for row in commands if row not in restore]
         static = [c for c in commands if c[:2] in
                   [["cargo", "fmt"], ["cargo", "clippy"], ["cargo", "check"]]

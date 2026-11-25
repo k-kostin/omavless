@@ -50,7 +50,33 @@ fn safe_parent(path: &Path, expected_uid: u32) -> Result<PathBuf, StoreIoError> 
 }
 
 pub fn read_private_utf8(path: &Path, expected_uid: u32) -> Result<String, StoreIoError> {
-    safe_parent(path, expected_uid)?;
+    read_private_utf8_impl(path, expected_uid, || {})
+}
+
+fn read_private_utf8_impl(
+    path: &Path,
+    expected_uid: u32,
+    before_open: impl FnOnce(),
+) -> Result<String, StoreIoError> {
+    let parent = safe_parent(path, expected_uid)?;
+    // Holding a directory must not require permission to enumerate it. Known
+    // private files remain readable beneath an owner search-only directory.
+    let directory = File::from(
+        nix::fcntl::open(
+            parent.as_path(),
+            nix::fcntl::OFlag::O_PATH
+                | nix::fcntl::OFlag::O_DIRECTORY
+                | nix::fcntl::OFlag::O_NOFOLLOW
+                | nix::fcntl::OFlag::O_CLOEXEC,
+            nix::sys::stat::Mode::empty(),
+        )
+        .map_err(|_| StoreIoError::UnsafePath)?,
+    );
+    let directory_metadata = directory.metadata().map_err(|_| StoreIoError::Io)?;
+    if directory_metadata.uid() != expected_uid {
+        return Err(StoreIoError::WrongOwner);
+    }
+    let name = path.file_name().ok_or(StoreIoError::UnsafePath)?;
     let metadata = fs::symlink_metadata(path).map_err(|_| StoreIoError::Io)?;
     if metadata.file_type().is_symlink() || !metadata.is_file() {
         return Err(StoreIoError::UnsafePath);
@@ -61,17 +87,63 @@ pub fn read_private_utf8(path: &Path, expected_uid: u32) -> Result<String, Store
     if metadata.len() > MAX_STORE_BYTES as u64 {
         return Err(StoreIoError::TooLarge);
     }
+    before_open();
+    // Open beneath the held parent, never follow a substituted final symlink,
+    // and never block on a FIFO substituted after the metadata check.
+    let descriptor = nix::fcntl::openat(
+        &directory,
+        name,
+        nix::fcntl::OFlag::O_RDONLY
+            | nix::fcntl::OFlag::O_CLOEXEC
+            | nix::fcntl::OFlag::O_NOFOLLOW
+            | nix::fcntl::OFlag::O_NONBLOCK,
+        nix::sys::stat::Mode::empty(),
+    )
+    .map_err(|error| match error {
+        nix::errno::Errno::ELOOP => StoreIoError::UnsafePath,
+        _ => StoreIoError::Io,
+    })?;
+    let mut file = File::from(descriptor);
+    if !same_read_object(&metadata, &file.metadata().map_err(|_| StoreIoError::Io)?) {
+        return Err(StoreIoError::UnsafePath);
+    }
     let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    File::open(path)
-        .and_then(|file| {
-            file.take((MAX_STORE_BYTES + 1) as u64)
-                .read_to_end(&mut bytes)
-        })
+    (&mut file)
+        .take((MAX_STORE_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)
         .map_err(|_| StoreIoError::Io)?;
     if bytes.len() > MAX_STORE_BYTES {
         return Err(StoreIoError::TooLarge);
     }
+    let current_parent = fs::symlink_metadata(&parent).map_err(|_| StoreIoError::Io)?;
+    if !same_read_object(&metadata, &file.metadata().map_err(|_| StoreIoError::Io)?)
+        || !same_read_object(
+            &metadata,
+            &fs::symlink_metadata(path).map_err(|_| StoreIoError::Io)?,
+        )
+        || !current_parent.is_dir()
+        || current_parent.dev() != directory_metadata.dev()
+        || current_parent.ino() != directory_metadata.ino()
+        || current_parent.uid() != directory_metadata.uid()
+        || current_parent.mode() != directory_metadata.mode()
+    {
+        return Err(StoreIoError::UnsafePath);
+    }
     String::from_utf8(bytes).map_err(|_| StoreIoError::InvalidUtf8)
+}
+
+fn same_read_object(before: &fs::Metadata, after: &fs::Metadata) -> bool {
+    after.is_file()
+        && before.dev() == after.dev()
+        && before.ino() == after.ino()
+        && before.uid() == after.uid()
+        && before.mode() == after.mode()
+        && before.nlink() == after.nlink()
+        && before.len() == after.len()
+        && before.mtime() == after.mtime()
+        && before.mtime_nsec() == after.mtime_nsec()
+        && before.ctime() == after.ctime()
+        && before.ctime_nsec() == after.ctime_nsec()
 }
 
 pub fn atomic_replace_private(
@@ -169,6 +241,9 @@ fn atomic_replace_private_impl(
     }
     let (temporary, mut file) = created.ok_or(StoreIoError::Io)?;
     let result = (|| {
+        // Normalize after umask through the writer FD, before publication.
+        file.set_permissions(fs::Permissions::from_mode(0o600))
+            .map_err(|_| StoreIoError::Io)?;
         file.write_all(payload).map_err(|_| StoreIoError::Io)?;
         file.sync_all().map_err(|_| StoreIoError::Io)?;
         #[cfg(test)]
@@ -182,8 +257,6 @@ fn atomic_replace_private_impl(
         };
         drop(file);
         fs::rename(&temporary, path).map_err(|_| StoreIoError::Io)?;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))
-            .map_err(|_| StoreIoError::Io)?;
         File::open(&parent)
             .and_then(|directory| directory.sync_all())
             .map_err(|_| StoreIoError::Io)?;
@@ -407,6 +480,136 @@ mod tests {
             read_private_utf8(Path::new("/private.example/password"), u32::MAX).unwrap_err();
         assert!(!error.to_string().contains("private.example"));
         assert!(!error.to_string().contains("password"));
+    }
+
+    #[test]
+    fn read_refuses_a_symlink_substituted_after_metadata_validation() {
+        let (root, uid) = root();
+        let path = root.join("profiles.json");
+        let other = root.join("other");
+        fs::write(&path, b"original").unwrap();
+        fs::write(&other, b"unrelated synthetic bytes").unwrap();
+        let result = read_private_utf8_impl(&path, uid, || {
+            fs::remove_file(&path).unwrap();
+            symlink(&other, &path).unwrap();
+        });
+        assert_eq!(fs::read(other).unwrap(), b"unrelated synthetic bytes");
+        fs::remove_dir_all(root).unwrap();
+        assert!(matches!(result, Err(StoreIoError::UnsafePath)));
+    }
+
+    #[test]
+    fn read_refuses_a_regular_inode_replacement_even_with_identical_bytes() {
+        let (root, uid) = root();
+        let path = root.join("profiles.json");
+        fs::write(&path, b"original").unwrap();
+        let result = read_private_utf8_impl(&path, uid, || {
+            fs::rename(&path, root.join("old")).unwrap();
+            fs::write(&path, b"original").unwrap();
+        });
+        fs::remove_dir_all(root).unwrap();
+        assert!(matches!(result, Err(StoreIoError::UnsafePath)));
+    }
+
+    #[test]
+    fn read_refuses_a_substituted_fifo_without_waiting_for_a_writer() {
+        let (root, uid) = root();
+        let path = root.join("profiles.json");
+        fs::write(&path, b"original").unwrap();
+        let result = read_private_utf8_impl(&path, uid, || {
+            fs::remove_file(&path).unwrap();
+            nix::unistd::mkfifo(&path, nix::sys::stat::Mode::S_IRUSR).unwrap();
+        });
+        fs::remove_dir_all(root).unwrap();
+        assert!(matches!(result, Err(StoreIoError::UnsafePath)));
+    }
+
+    #[test]
+    fn read_refuses_a_parent_replacement_after_acquiring_its_descriptor() {
+        let (root, uid) = root();
+        let parent = root.join("store");
+        fs::create_dir(&parent).unwrap();
+        fs::set_permissions(&parent, fs::Permissions::from_mode(0o700)).unwrap();
+        let path = parent.join("profiles.json");
+        fs::write(&path, b"original").unwrap();
+        let result = read_private_utf8_impl(&path, uid, || {
+            fs::rename(&parent, root.join("old-store")).unwrap();
+            fs::create_dir(&parent).unwrap();
+            fs::write(&path, b"replacement").unwrap();
+        });
+        fs::remove_dir_all(root).unwrap();
+        assert!(matches!(result, Err(StoreIoError::UnsafePath)));
+    }
+
+    #[test]
+    fn private_read_keeps_type_size_owner_and_utf8_refusals() {
+        let (root, uid) = root();
+        let path = root.join("profiles.json");
+        symlink(root.join("missing"), &path).unwrap();
+        assert_eq!(read_private_utf8(&path, uid), Err(StoreIoError::UnsafePath));
+        fs::remove_file(&path).unwrap();
+        fs::write(&path, [0xff]).unwrap();
+        assert_eq!(
+            read_private_utf8(&path, uid),
+            Err(StoreIoError::InvalidUtf8)
+        );
+        assert_eq!(
+            read_private_utf8(&path, uid.wrapping_add(1)),
+            Err(StoreIoError::WrongOwner)
+        );
+        File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len((MAX_STORE_BYTES + 1) as u64)
+            .unwrap();
+        assert_eq!(read_private_utf8(&path, uid), Err(StoreIoError::TooLarge));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn read_known_file_needs_search_but_not_directory_listing_permission() {
+        let (root, uid) = root();
+        assert_ne!(
+            uid, 0,
+            "permission control requires an unprivileged test process"
+        );
+        let path = root.join("profiles.json");
+        fs::write(&path, b"private").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o300)).unwrap();
+        let result = read_private_utf8(&path, uid);
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::remove_dir_all(root).unwrap();
+        assert_eq!(result, Ok("private".to_owned()));
+    }
+
+    #[test]
+    fn replacement_normalizes_permissions_with_a_restrictive_umask() {
+        // umask is process-global. Change it only in this isolated child,
+        // never beside the suite's other private-file tests.
+        if std::env::var_os("OVT_STORE_UMASK_CHILD").is_none() {
+            let output = std::process::Command::new("/bin/sh")
+                .args(["-c", "umask 0777; exec \"$1\" --exact tests::replacement_normalizes_permissions_with_a_restrictive_umask", "store-test"])
+                .arg(std::env::current_exe().unwrap())
+                .env("OVT_STORE_UMASK_CHILD", "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stdout)
+            );
+            return;
+        }
+        let (root, uid) = root();
+        let path = root.join("profiles.json");
+        let receipt = atomic_replace_private_retained(&path, b"private", uid).unwrap();
+        let opened = File::open(&path).unwrap();
+        assert!(receipt.matches_file(&opened));
+        assert_eq!(opened.metadata().unwrap().mode() & 0o7777, 0o600);
+        assert_eq!(read_private_utf8(&path, uid).unwrap(), "private");
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -16,6 +16,36 @@ mod test_temp;
 
 struct ChildGuard(Child);
 
+#[cfg(feature = "product-private-restore")]
+#[test]
+fn product_restore_cli_rejects_developer_even_after_option_like_prefixes() {
+    let base = file_base();
+    for prefix in [
+        None,
+        Some("--help"),
+        Some("--version"),
+        Some("--"),
+        Some("--verbose"),
+    ] {
+        let mut arguments = Vec::new();
+        if let Some(prefix) = prefix {
+            arguments.push(prefix);
+        }
+        arguments.extend(["developer", "restore-current"]);
+        let output = isolated_command(&base)
+            .args(arguments)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains(base.to_str().unwrap()));
+        assert_eq!(fs::read_dir(&base).unwrap().count(), 0);
+    }
+    fs::remove_dir(base).unwrap();
+}
+
 #[test]
 fn reply_loss_cli_refuses_every_non_selected_entry_without_socket_or_diagnostic() {
     let base = file_base();
