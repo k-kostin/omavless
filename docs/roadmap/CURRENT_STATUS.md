@@ -5,9 +5,10 @@
 The selected development composition is integrated through
 [#847](https://github.com/k-kostin/omavless/pull/847), source
 `3b1d9b40ae481e084849273814557349de0a726f`. Its full PR and independent
-merged-push CI and fresh source/distribution admission completed. Its ordinary
+merged-push CI and fresh source/distribution admission completed. Earlier #846
 x86_64 VM reboot/Start checks earned VPN autoconnect-Off behavior, following
-#843's update and Help/Settings evidence. This is not a public 0.9.9 release or
+#843's ordinary update and Help/Settings evidence. #847 earned its own direct
+package-install mechanism check, not a public guided-updater result. This is not a public 0.9.9 release or
 installed ARM64 acceptance. Main remains published 0.9.8 fix.8.
 
 The November 24 product corrections have their own reviewed matching packages

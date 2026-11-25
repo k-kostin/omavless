@@ -9,12 +9,12 @@ The proposed 0.9.9 guide and local packages are not public download acceptance.
 
 ## What is already earned
 
-The selected development composition has passed its PR checks and independent
-merged-development push checks, ordinary x86_64 0.9.8-to-0.9.9 update with data
-preservation, and affected installed Help/Settings review. A new exact merged
+Earlier #843/#846 compositions earned ordinary x86_64 0.9.8-to-0.9.9 update
+with data preservation, affected Help/Settings review and reboot/Start with VPN
+autoconnect Off. Their PR and independent merged-development push checks, exact merged
 source export, offline validation, committed distribution, source-CI admission,
 full Git byte/mode inspection before its first generated bootstrap, and
-post-clean checks also completed. Their original receipts belong to #843 and #846;
+post-clean checks completed. Their original receipts belong to #843 and #846;
 this editorial reconciliation does not repeat or broaden those results.
 
 The accepted #846 native producer was

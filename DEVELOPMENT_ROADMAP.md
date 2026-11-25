@@ -8,9 +8,11 @@ Status: full-source delivery ledger; 0.9.9 development readiness reconciled
 The [28-row readiness matrix](docs/development/RELEASE_099_READINESS.md) is the
 current entry for selected scope, accepted development evidence, seven whole
 1.0.0 deferrals and the remaining owner/physical/public-delivery gates.
-Development source `3b1d9b40ae481e084849273814557349de0a726f` has completed its
-selected technical preparation through #847, including ordinary installed
-x86_64 0.9.8-to-0.9.9 update and fresh source/distribution admission. This does
+Development source `3b1d9b40ae481e084849273814557349de0a726f` is integrated through
+#847 with its own CI, source/distribution admission and affected installed
+mechanism checks. The ordinary installed x86_64 0.9.8-to-0.9.9 update belongs
+to #843; #846 separately earned reboot/Start with VPN autoconnect Off. #847's
+direct package-install check is not a public guided-updater result. This does
 not close physical sleep/network/Tailscale or public 0.9.9 publication. The owner
 approved EN/RU meaning; activation awaits the matching stable snapshot. The
 November 25 Gemini correction candidate has separate affected gates. Retain existing read-only/routing/probe behavior and
