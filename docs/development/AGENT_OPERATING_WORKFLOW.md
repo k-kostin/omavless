@@ -118,6 +118,11 @@ Estimate implementation, tooling and acceptance separately. A proof method
 which has not been selected remains unestimated; do not turn it into a promised
 number of days or describe it as an unimplemented user feature.
 
+Before declaring that only CI remains, reconcile each changed write, stop or
+privileged boundary with its positive ordinary-path evidence. Registration,
+negative admission controls and an initially idle process prove different
+claims; name the missing effect/return proof at its required evidence layer.
+
 Before work, name the plan item, complete supported outcome, completion evidence
 and a finite cumulative budget covering discovery, harness, implementation,
 review, build/CI, installed checks, rework and closure. Carry previous spending
@@ -242,6 +247,11 @@ their contracts; this does not admit arbitrary paths, methods or caller claims.
 Freeze one user-visible journey and its complete kit in the existing checkpoint:
 initial state, ordinary entry/exit, success and refusal criteria, every interface,
 path, permission, dependency, original process owner and restoration reserve.
+For preserved data that the journey will replace, qualify recovery input which
+outlives the initiating process and can be read independently before mutation.
+A key available only inside that process is not an independent return path.
+Use the owning private-data contract or wholly disposable synthetic input;
+this is not authority to persist credentials or broaden file access.
 Keep one cumulative preparation clock for the same user outcome, from its first
 start through rework and reviews. Timebox the finite missing work against the
 measured delivery cycle. Do not automatically commission another preparatory
@@ -321,6 +331,11 @@ only where that diagnostic surface is already admitted.
 | Hosted infrastructure transport failure | Preserve the original; use only the applicable bounded retry authority. A green retry is a new attempt, not a rewritten failure. |
 
 ## 6. Publish meaningful checkpoints, not bookkeeping pushes
+
+Reviewers retain their own reports. The primary records its decision, original
+evidence links and remaining gates in one material checkpoint. Fold dispatch-only
+metadata into the next such checkpoint unless authority, custody or a new blocker
+changes; the owning memory procedure still governs every actual shared write.
 
 Before final producer/pin publication, reconcile ALL selected-tuple consumers:
 metadata, frontend/DNS expectations, inventory, update/remover allowlists and
