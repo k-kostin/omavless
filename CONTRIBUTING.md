@@ -70,6 +70,13 @@ UI behavior. Read the [testing index](docs/testing/README.md) and
 gates. Host/lifecycle scripts are not an unattended bulk test suite; preserve
 the user's VPN and follow their authorization requirements.
 
+Before reusing a local Cargo cache, compare the compiler, feature set, profile
+overrides, debug information and incremental settings with its existing outputs.
+A mismatched debug/incremental profile can rebuild dependencies and exceed the
+storage budget even with the same toolchain and target directory. Declare these
+settings before allocation; local symbol-storage choices do not change the
+hosted CI recipe or qualify an unrun configuration.
+
 Some Rust crash/recovery controls re-execute `std::env::current_exe()`. Do not
 rebuild their active test ELF, even for an unrelated focused filter: replacing
 or unlinking that pathname can make the running suite's next re-exec fail with

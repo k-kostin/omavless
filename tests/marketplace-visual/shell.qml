@@ -158,6 +158,35 @@ ShellRoot {
         focusIndex:targets.findIndex(function(t) { return t.activeFocus }),
         focusLabels:targets.map(function(t) { return "text" in t && t.text !== "" ? t.text : "tooltipText" in t ? t.tooltipText : "" })})
     }
+    function reviewBatch(locale: string, kind: string, state: string, width: int): string {
+      if (["subscriptions", "providers"].indexOf(kind) < 0
+          || ["running", "unknown", "succeeded"].indexOf(state) < 0) return "refused"
+      if (reviewSubscriptions(locale, "populated", width) !== "ready") return "not-ready"
+      var service = review.find(product, function(o) { return o.objectName === "omavlessService" })
+      if (service.nativeBatchRequestRunning) return "not-ready"
+      var terminal = state === "succeeded"
+      service.nativeBatchJob = {kind:kind, instanceId:service.nativeSnapshot.instanceId,
+        operationId:"demo-review-operation", revision:service.nativeSnapshot.revision,
+        state:terminal ? "succeeded" : "running", acknowledged:true, terminal:terminal,
+        completed:terminal ? 2 : 1, total:2, cancellable:!terminal,
+        cancelRequested:false, errorCode:""}
+      service.nativeBatchUnknown = state === "unknown"
+      service.nativeBatchErrorCode = ""
+      if (kind === "providers") product.openSettings()
+      review.reviewKind = "batch-" + kind + "-" + state
+      return "ready"
+    }
+    function reviewBatchInspect(): string {
+      var service = review.find(product, function(o) { return o.objectName === "omavlessService" })
+      if (!service || review.reviewKind.indexOf("batch-") !== 0) return "not-ready"
+      var targets = product.availablePanelTabTargets()
+      return JSON.stringify({kind:review.reviewKind, locale:product.uiLocale, page:product.page,
+        unknown:service.nativeBatchUnknown, errorCode:service.nativeBatchErrorCode,
+        job:service.nativeBatchJob, requestRunning:service.nativeBatchRequestRunning,
+        connected:product.nativeView.connected, bootstrap:product.bootstrapRequired,
+        providerDescription:product.nativeProviderUpdateDescription(),
+        focusLabels:targets.map(function(t) { return "text" in t ? t.text : "" })})
+    }
     // Exercise the real affected focus/navigation handler, never action activation.
     // Input delivery from the unchanged host KeyCatcher is a separate boundary.
     function reviewSubscriptionsKey(kind: string): string {

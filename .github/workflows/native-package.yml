@@ -103,6 +103,9 @@ jobs:
             omavless-arm-build:local /bin/bash -euo pipefail -c '
               pacman-key --init
               pacman-key --populate archlinuxarm
+              # Keep sync databases and package downloads on one official mirror.
+              # The GeoIP redirect can select inconsistent mirrors mid-transaction.
+              printf "%s\n" "Server = https://de3.mirror.archlinuxarm.org/\$arch/\$repo" > /etc/pacman.d/mirrorlist
               # The disposable Docker runner cannot apply pacman Landlock.
               # Only its downloader sandbox is disabled; package signatures
               # remain mandatory, and the compiler/packager still run unprivileged.

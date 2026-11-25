@@ -19,8 +19,8 @@ SPEC.loader.exec_module(PAIR)
 
 class ProducerWorkflowPathsTests(unittest.TestCase):
     WORKFLOWS = {
-        'native-package.yml': 'c98c1e09c9f167b0448cdb420a42da6977c0e32c20462d78b253f933010b72a3',
-        'dns-pair-native-arm64.yml': '759cdfafad4c2628b935904c3eb61a843a42e6be79232d0b45f3d3d611d025f9',
+        'native-package.yml': '3fa416a1f7ebea2c178b9e8732ff82a47046e362747c5b4e9f3efd586475dd3c',
+        'dns-pair-native-arm64.yml': 'f641dfcd7d30a64311ab09cea2fb267f134bb2c37f2e959c5fe6bcbba77d9c87',
     }
 
     def paths(self, workflow):

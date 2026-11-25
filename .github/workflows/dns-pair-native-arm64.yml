@@ -126,6 +126,9 @@ jobs:
             omavless-dns-arm-build:local /bin/bash -euo pipefail -c '
               pacman-key --init
               pacman-key --populate archlinuxarm
+              # Keep sync databases and package downloads on one official mirror.
+              # The GeoIP redirect can select inconsistent mirrors mid-transaction.
+              printf "%s\n" "Server = https://de3.mirror.archlinuxarm.org/\$arch/\$repo" > /etc/pacman.d/mirrorlist
               pacman -Syu --disable-sandbox --noconfirm --needed base-devel git go rustup python
               useradd --create-home --shell /bin/bash packagebuilder
               chown -R packagebuilder:packagebuilder /source
