@@ -217,6 +217,11 @@ the next delivery can update it. Do not register an unpublished/local build as
 a public predecessor or relax receipt, byte-hash, ownership or shutdown guards.
 Complete this step before building: the predecessor table is a compiled input.
 
+When replacing an already installed nonpublic candidate, retain its exact ELF
+identities in the remover and its inert admission controls. Recompute the
+`remove-entry.sh` helper pin whenever standalone remover bytes change. Keep
+nonpublic candidates out of `published-pairs.json`; they are not public predecessors.
+
 The `Native packages` workflow builds its exact checked-out Git HEAD
 in an official, dated Arch Linux
 base-devel container on an x86_64 runner. Cargo uses the locked dependencies and
