@@ -173,9 +173,12 @@ run_check test-t4-restore cargo test "${crypto_test_profile[@]}" --locked -p oma
 # Public 0.9.8 narrows this research implementation to Backup. Retain full
 # T4-only Restore/fence tests above and check the product restriction separately.
 run_check test-product-scope cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-backup --lib product_scope
-run_check test-product-restore-scope cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-restore --lib product_scope
-run_check test-product-restore-socket cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-restore --lib product_restore_socket_refuses
-run_check test-product-restore-pair cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-restore --lib normal_pair_promoted_candidate
+# Exercise the exact 0.9.9 package features, not only the image-witness union.
+run_check test-product-restore-scope cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-restore,setup-upgrade082 --lib product_scope
+run_check test-product-restore-socket cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-restore,setup-upgrade082 --lib product_restore_socket_refuses
+run_check test-product-restore-pair cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-restore,setup-upgrade082 --lib normal_pair_promoted_candidate
+run_check test-product-restore-setup cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-restore,setup-upgrade082 --lib setup_upgrade082
+run_check test-product-restore-cli cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-restore,setup-upgrade082 --test cli product_restore_cli_
 run_check test-production-owner cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-backup --lib production_owner::tests::
 run_check test-product-pair cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-backup --lib normal_pair_promoted_candidate
 run_check test-product-tui cargo test "${crypto_test_profile[@]}" --locked -p omavless-runtime --features product-private-backup --bin omavless normal_tui_
