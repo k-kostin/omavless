@@ -75,7 +75,10 @@ overrides, debug information and incremental settings with its existing outputs.
 A mismatched debug/incremental profile can rebuild dependencies and exceed the
 storage budget even with the same toolchain and target directory. Declare these
 settings before allocation; local symbol-storage choices do not change the
-hosted CI recipe or qualify an unrun configuration.
+hosted CI recipe or qualify an unrun configuration. Pin Cargo subcommands too:
+an absolute `cargo` and `RUSTC` do not prevent `cargo clippy` from finding a
+system `cargo-clippy`/`clippy-driver` through `PATH`. Check both Clippy versions
+and put the selected toolchain's bin directory first before allocation.
 
 Some Rust crash/recovery controls re-execute `std::env::current_exe()`. Do not
 rebuild their active test ELF, even for an unrelated focused filter: replacing

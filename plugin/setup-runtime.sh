@@ -16,7 +16,7 @@ readonly release_tag=v0.9.9
 # Exact bash -c program bytes, after command substitution strips trailing LF.
 # Capture and authenticate once before sudo; a mutable neighboring file is not
 # authority to select another root program, even when archive hashes are fixed.
-readonly install_pair_program_sha256=df488118e63dcf8fcc584fb0e46bab552e600334375ce627b3aae11cc8dbfef5
+readonly install_pair_program_sha256=532e737e17f5e15146627a011eac826ef8df417693f420009afe1a50343321d2
 
 say() { if [[ "$setup_locale" == ru ]]; then printf '%s\n' "$2"; else printf '%s\n' "$1"; fi; }
 native() { /usr/bin/omavless "$@"; }
@@ -104,11 +104,37 @@ package_install() {
   program_hash=$(printf '%s' "$program" | /usr/bin/sha256sum) || return 1
   [[ ${program_hash%% *} == "$install_pair_program_sha256" ]] || return 1
   app_size=$(/usr/bin/stat -c '%s' -- "$1") && dns_size=$(/usr/bin/stat -c '%s' -- "$2") || return 1
-  # Source reads remain unprivileged. The fixed root program accepts bytes,
-  # checks the selected hashes again, then installs only its protected copies.
-  /usr/bin/cat -- "$1" "$2" | /usr/bin/sudo /usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C \
-    /usr/bin/bash --noprofile --norc -c "$program" omavless-install-pair \
-    "$app_size" "$3" "$dns_size" "$4"
+  # Hold the actual user terminal before preparing anything. Archive bytes
+  # occupy only the first sudo's stdin; the second uses sudo's normal PTY relay.
+  local terminal stage status
+  exec {terminal}</dev/tty || return 1
+  if ! stage=$(/usr/bin/cat -- "$1" "$2" | /usr/bin/sudo /usr/bin/env -i -S 'PATH=/usr/bin:/bin LC_ALL=C OMAVLESS_INSTALL_UID=${SUDO_UID} /usr/bin/bash --noprofile --norc -c' \
+    "$program" omavless-install-pair prepare \
+    "$app_size" "$3" "$dns_size" "$4"); then
+    exec {terminal}<&-
+    return 1
+  fi
+  if [[ ! $stage =~ ^omavless-packages\.[A-Za-z0-9]{8}$ ]]; then
+    exec {terminal}<&-
+    return 1
+  fi
+  if ! fresh_package_boundary; then
+    # Known preparation, known no pacman submission. Claim and discard only
+    # this UID-bound pair; a claimed/uncertain stage refuses deletion.
+    if /usr/bin/sudo /usr/bin/env -i -S 'PATH=/usr/bin:/bin LC_ALL=C OMAVLESS_INSTALL_UID=${SUDO_UID} /usr/bin/bash --noprofile --norc -c' \
+      "$program" omavless-install-pair discard \
+      "$stage" "$app_size" "$3" "$dns_size" "$4" <&"$terminal"; then :; else
+      say 'Package installation did not start, but prepared files could not be removed. Do not repeat setup.' \
+        'Установка пакетов не запускалась, но удалить подготовленные файлы не удалось. Не повторяйте настройку.' >&2
+    fi
+    exec {terminal}<&-
+    return 1
+  fi
+  if /usr/bin/sudo /usr/bin/env -i -S 'PATH=/usr/bin:/bin LC_ALL=C OMAVLESS_INSTALL_UID=${SUDO_UID} /usr/bin/bash --noprofile --norc -c' \
+    "$program" omavless-install-pair install \
+    "$stage" "$app_size" "$3" "$dns_size" "$4" <&"$terminal"; then status=0; else status=$?; fi
+  exec {terminal}<&-
+  return "$status"
 }
 package_installed() { /usr/bin/pacman -Q omavless 2>/dev/null; }
 dns_package_installed() { /usr/bin/pacman -Q omavless-dns 2>/dev/null; }

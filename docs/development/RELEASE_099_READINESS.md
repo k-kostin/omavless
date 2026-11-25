@@ -89,6 +89,18 @@ completed #847 Restore journey or treat a proposed architecture rewrite as a
 0.9.9 blocker. The separate process PR [#848](https://github.com/k-kostin/omavless/pull/848)
 remains unmerged; its PR-only Rust allocation is not yet development policy.
 
+The affected installed check in [#849](https://github.com/k-kostin/omavless/pull/849)
+found an additional terminal-delivery defect: with archive bytes on sudo stdin,
+its PTY relay did not deliver the user's pacman confirmation. The original
+pre-commit attempt was cancelled with exit 130; installed packages stayed
+unchanged. This limits the earlier mechanism result, without rewriting it.
+The correction separates root-private preparation from ordinary terminal-input
+installation, binds readiness to the sudo UID and exact archive tuple, and
+consumes readiness atomically before pacman. An uncertain claimed transaction
+cannot be resubmitted or discarded. Source regressions and an inert real-sudo
+shell control do not replace the new matched producer and affected installed
+proof for both shell setup and the native updater; these remain candidate gates.
+
 ## Completion matrix
 
 Row numbers preserve the owner's full 0.9.9 scope inventory. **Accepted** means
